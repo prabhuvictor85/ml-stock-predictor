@@ -5,9 +5,9 @@ Universe  : S&P 500 + NASDAQ 100 combined (~540-560 unique tickers after dedup)
 Benchmark : Blended SPX (40%) + NDX (60%) — reflects a tech-heavy portfolio
 
 Reads:
-  - Stock list  : C:/Victor/Learning_charts/stock_lists/constituents_us.csv
-                  Columns: Symbol, Name, Sector, Exchange
-  - Daily data  : C:/Victor/Learning_charts/us_data/{TICKER}-1d.csv
+  - Stock list  : C:/Victor/Learning_charts/stock_lists/constituents_us_combined.csv
+                  Columns: Symbol, Name, Sector, Indices
+  - Daily data  : C:/Victor/Learning_charts/stock_data/us_stocks/{TICKER}-1d.csv
                   Columns: Date, Close, High, Low, Open, Volume
   - Benchmarks  : ^GSPC-1d.csv and ^NDX-1d.csv in us_data/ (or fetched via yfinance)
 
@@ -53,8 +53,8 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-STOCK_LIST_CSV  = Path(r"C:\Victor\Learning_charts\stock_lists\constituents_us.csv")
-STOCK_DATA_DIR  = Path(r"C:\Victor\Learning_charts\us_data")
+STOCK_LIST_CSV  = Path(r"C:\Victor\Learning_charts\stock_lists\constituents_us_combined.csv")
+STOCK_DATA_DIR  = Path(r"C:\Victor\Learning_charts\stock_data\us_stocks")
 ARTEFACTS_DIR   = Path("artefacts/us_local")
 OUTPUT_DIR      = Path("output/us_local")
 REPORTS_DIR     = Path("reports")
@@ -79,6 +79,94 @@ REVERSAL_ARTEFACTS_DIR = ARTEFACTS_DIR / "reversal"
 MOMENTUM_DIST_THRESHOLD = -0.15
 REVERSAL_DIST_THRESHOLD = -0.15
 MIN_TRAIN_ROWS          = 1_000   # guard: refuse to train on a near-empty filtered universe
+
+# ── Performance Timer ────────────────────────────────────────────────────────
+
+class PerfTimer:
+    """
+    Lightweight stage-level performance monitor.
+
+    Usage:
+        perf = PerfTimer()
+        with perf.stage("Feature engineering"):
+            ...
+        perf.report()          # prints summary table to console
+        perf.save(log_path)    # appends timing table to the run log file
+    """
+    import time as _time
+
+    def __init__(self):
+        self._stages: list[dict] = []
+        self._run_start = self._time.perf_counter()
+
+    class _Stage:
+        def __init__(self, timer, name):
+            self._timer = timer
+            self._name  = name
+            self._t0    = None
+
+        def __enter__(self):
+            import time
+            self._t0 = time.perf_counter()
+            print(f"\n⏱  [{self._name}] starting ...", flush=True)
+            return self
+
+        def __exit__(self, *_):
+            import time
+            elapsed = time.perf_counter() - self._t0
+            self._timer._stages.append({"stage": self._name, "seconds": elapsed})
+            h, rem = divmod(int(elapsed), 3600)
+            m, s   = divmod(rem, 60)
+            label  = f"{h}h {m:02d}m {s:02d}s" if h else f"{m}m {s:02d}s"
+            print(f"⏱  [{self._name}] done — {label}", flush=True)
+
+    def stage(self, name: str) -> "_Stage":
+        return self._Stage(self, name)
+
+    def report(self) -> None:
+        import time
+        total = time.perf_counter() - self._run_start
+        print("\n" + "="*62)
+        print("  PERFORMANCE SUMMARY")
+        print("="*62)
+        print(f"  {'Stage':<38} {'Time':>10}  {'%':>5}")
+        print(f"  {'-'*38} {'-'*10}  {'-'*5}")
+        for s in self._stages:
+            secs = s["seconds"]
+            pct  = secs / total * 100 if total > 0 else 0
+            h, rem = divmod(int(secs), 3600)
+            m, sc  = divmod(rem, 60)
+            label  = f"{h}h {m:02d}m {sc:02d}s" if h else f"{m}m {sc:02d}s"
+            bar    = "█" * int(pct / 5)
+            print(f"  {s['stage']:<38} {label:>10}  {pct:>4.1f}%  {bar}")
+        h, rem = divmod(int(total), 3600)
+        m, sc  = divmod(rem, 60)
+        total_label = f"{h}h {m:02d}m {sc:02d}s" if h else f"{m}m {sc:02d}s"
+        print(f"  {'─'*38} {'─'*10}")
+        print(f"  {'TOTAL':<38} {total_label:>10}")
+        print("="*62 + "\n")
+
+    def save(self, log_path) -> None:
+        try:
+            lines = ["\n" + "="*62, "  PERFORMANCE SUMMARY", "="*62]
+            import time
+            total = time.perf_counter() - self._run_start
+            for s in self._stages:
+                secs = s["seconds"]
+                pct  = secs / total * 100 if total > 0 else 0
+                h, rem = divmod(int(secs), 3600)
+                m, sc  = divmod(rem, 60)
+                label  = f"{h}h {m:02d}m {sc:02d}s" if h else f"{m}m {sc:02d}s"
+                lines.append(f"  {s['stage']:<38} {label:>10}  {pct:>4.1f}%")
+            h, rem = divmod(int(total), 3600)
+            m, sc  = divmod(rem, 60)
+            lines.append(f"  {'TOTAL':<38} {h}h {m:02d}m {sc:02d}s")
+            lines.append("="*62)
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+        except Exception:
+            pass
+
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -488,43 +576,46 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
     # FeatureEngineer is always instantiated — needed for per-fold zone recompute
     fe = FeatureEngineer(cfg, benchmark_close)
+    _train_perf = PerfTimer()
 
     # ── Checkpoint 1: Feature-engineered panel ────────────────────────────
     panel_ckpt = CKPT / "panel_features.pkl"
     feat_cols_ckpt = CKPT / "feat_cols.txt"
 
-    if panel_ckpt.exists() and feat_cols_ckpt.exists():
-        print("\n[1/6] Feature engineering ... RESUMING from checkpoint")
-        with open(panel_ckpt, "rb") as f:
-            panel = pickle.load(f)
-        feat_cols = feat_cols_ckpt.read_text().strip().split("\n")
-        print(f"      Loaded checkpoint: {len(feat_cols)} features, panel shape {panel.shape}")
-    else:
-        print("\n[1/6] Feature engineering ...")
-        panel = fe.build(panel)
-        feat_cols = [c for c in panel.columns if c.startswith(FEATURE_PREFIX)]
-        print(f"      {len(feat_cols)} feature columns — saving checkpoint ...")
-        with open(panel_ckpt, "wb") as f:
-            pickle.dump(panel, f)
-        feat_cols_ckpt.write_text("\n".join(feat_cols))
-        print(f"      Checkpoint saved: {panel_ckpt}")
+    with _train_perf.stage("[1/6] Feature engineering"):
+        if panel_ckpt.exists() and feat_cols_ckpt.exists():
+            print("\n[1/6] Feature engineering ... RESUMING from checkpoint")
+            with open(panel_ckpt, "rb") as f:
+                panel = pickle.load(f)
+            feat_cols = feat_cols_ckpt.read_text().strip().split("\n")
+            print(f"      Loaded checkpoint: {len(feat_cols)} features, panel shape {panel.shape}")
+        else:
+            print("\n[1/6] Feature engineering ...")
+            panel = fe.build(panel)
+            feat_cols = [c for c in panel.columns if c.startswith(FEATURE_PREFIX)]
+            print(f"      {len(feat_cols)} feature columns — saving checkpoint ...")
+            with open(panel_ckpt, "wb") as f:
+                pickle.dump(panel, f)
+            feat_cols_ckpt.write_text("\n".join(feat_cols))
+            print(f"      Checkpoint saved: {panel_ckpt}")
 
     # ── Checkpoint 2: Targets ─────────────────────────────────────────────
     targets_ckpt = CKPT / "panel_targets.pkl"
 
-    if targets_ckpt.exists():
-        print("[2/6] Building targets ... RESUMING from checkpoint")
-        with open(targets_ckpt, "rb") as f:
-            panel = pickle.load(f)
-        print(f"      cs_rank_20d non-null: {panel['cs_rank_20d'].notna().sum()}")
-    else:
-        print("[2/6] Building targets ...")
-        tb = TargetBuilder(cfg)
-        panel = tb.build(panel, benchmark_close)
-        print(f"      cs_rank_20d non-null: {panel['cs_rank_20d'].notna().sum()} — saving checkpoint ...")
-        with open(targets_ckpt, "wb") as f:
-            pickle.dump(panel, f)
-        print(f"      Checkpoint saved: {targets_ckpt}")
+    with _train_perf.stage("[2/6] Target building"):
+        if targets_ckpt.exists():
+            print("[2/6] Building targets ... RESUMING from checkpoint")
+            with open(targets_ckpt, "rb") as f:
+                panel = pickle.load(f)
+            print(f"      cs_rank_20d non-null: {panel['cs_rank_20d'].notna().sum()}")
+        else:
+            print("[2/6] Building targets ...")
+            tb = TargetBuilder(cfg)
+            panel = tb.build(panel, benchmark_close)
+            print(f"      cs_rank_20d non-null: {panel['cs_rank_20d'].notna().sum()} — saving checkpoint ...")
+            with open(targets_ckpt, "wb") as f:
+                pickle.dump(panel, f)
+            print(f"      Checkpoint saved: {targets_ckpt}")
 
     # Leakage tests — run AFTER targets are built so cs_rank_20d is present
     suite = LeakageTestSuite(panel, feat_cols)
@@ -557,9 +648,10 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             f"for the current data period."
         )
 
-    print(f"[3/6] Walk-forward CV ({n_folds} folds) ...")
-    cv = PurgedWalkForwardCV(n_folds=n_folds, min_train_window=504)
-    fold_specs = cv.get_fold_specs(train_panel)
+    with _train_perf.stage("[3/6] Walk-forward CV setup"):
+        print(f"[3/6] Walk-forward CV ({n_folds} folds) ...")
+        cv = PurgedWalkForwardCV(n_folds=n_folds, min_train_window=504)
+        fold_specs = cv.get_fold_specs(train_panel)
     print(f"      {len(fold_specs)} folds generated")
 
     # ── Optuna HPO ──────────────────────────────────────────────────────────
@@ -570,6 +662,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     }
     best_k = 30
 
+    _hpo_stage = _train_perf.stage("[4/6] Optuna HPO")
+    _hpo_stage.__enter__()
     if n_trials > 0:
         print(f"[4/6] Optuna HPO ({n_trials} trials) ...")
         import optuna; optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -762,9 +856,10 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         print(f"      Best NDCG objective: {study.best_value:.4f}")
     else:
         print("[4/6] HPO skipped — using default params")
+    _hpo_stage.__exit__(None, None, None)
 
-    # ── Final model training on full filtered data ──────────────────────────
-    print(f"[5/6] Training final LightGBM ranker [{mode}] ...")
+    with _train_perf.stage("[5/6] Final model training"):
+        print(f"[5/6] Training final LightGBM ranker [{mode}] ...")
     full_grp, full_groups = cv.build_group_array(train_panel, min_group_size=5)
     avail    = [f for f in feat_cols if f in full_grp.columns]
     X_full   = full_grp[avail]
@@ -830,18 +925,21 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     drift_monitor = FeatureDriftMonitor(cfg, final_features)
     drift_monitor.fit_baseline(full_grp[final_features])
 
-    print("[6/6] Saving artefacts ...")
-    _art_dir.mkdir(parents=True, exist_ok=True)
-    for name, obj in [
-        ("ensemble.pkl",      ensemble),
-        ("lgbm_ranker.pkl",   final_ranker),
-        ("drift_monitor.pkl", drift_monitor),
-        ("panel.pkl",         panel),   # full unfiltered panel for scoring
-    ]:
-        with open(_art_dir / name, "wb") as f:
-            pickle.dump(obj, f)
-    (_art_dir / "selected_features.txt").write_text("\n".join(final_features))
-    print(f"      Artefacts saved to {_art_dir}")
+    with _train_perf.stage("[6/6] Save artefacts"):
+        print("[6/6] Saving artefacts ...")
+        _art_dir.mkdir(parents=True, exist_ok=True)
+        for name, obj in [
+            ("ensemble.pkl",      ensemble),
+            ("lgbm_ranker.pkl",   final_ranker),
+            ("drift_monitor.pkl", drift_monitor),
+            ("panel.pkl",         panel),   # full unfiltered panel for scoring
+        ]:
+            with open(_art_dir / name, "wb") as f:
+                pickle.dump(obj, f)
+        (_art_dir / "selected_features.txt").write_text("\n".join(final_features))
+        print(f"      Artefacts saved to {_art_dir}")
+
+    _train_perf.report()
 
     return {
         "panel":             panel,       # full unfiltered — for scoring all stocks
@@ -1900,6 +1998,7 @@ def main() -> None:
 
     set_seeds(42)
     prevent_sleep()
+    perf = PerfTimer()
 
     # ── Initialise per-run log file ───────────────────────────────────────
     from datetime import datetime
@@ -1934,15 +2033,18 @@ def main() -> None:
         from pipeline.config.nse import NSE_CONFIG as cfg
 
         # ── Load ticker list ──────────────────────────────────────────────
-        ticker_df = pd.read_csv(STOCK_LIST_CSV)
-        tickers = ticker_df["Symbol"].str.strip().dropna().tolist()
-        print(f"Ticker list: {len(tickers)} symbols from {STOCK_LIST_CSV.name}")
+        with perf.stage("Load ticker list"):
+            ticker_df = pd.read_csv(STOCK_LIST_CSV)
+            # Filter out benchmark index symbols (^GSPC, ^NDX etc.) — not tradeable stocks
+            ticker_df = ticker_df[~ticker_df["Symbol"].str.startswith("^", na=True)]
+            tickers = ticker_df["Symbol"].str.strip().dropna().tolist()
+            print(f"Ticker list: {len(tickers)} symbols from {STOCK_LIST_CSV.name}")
 
         # Build sector map from CSV if a sector/industry column is present.
         # Without real sectors, sector_rs and portfolio sector-cap are meaningless.
         _sec_col = next(
             (c for c in ticker_df.columns
-             if c.strip().lower() in ("sector", "industry", "industryname", "sectorname", "gics_sector")),
+             if c.strip().lower() in ("sector", "industry", "industryname", "sectorname", "gics_sector", "gics sector")),
             None,
         )
         sector_map: Dict[str, str] = {}
@@ -1963,10 +2065,11 @@ def main() -> None:
             )
 
         # ── Benchmark ─────────────────────────────────────────────────────
-        print(f"Loading blended benchmark ({SPX_WEIGHT:.0%} SPX + {NDX_WEIGHT:.0%} NDX)...")
-        benchmark_close = load_benchmark(STOCK_DATA_DIR)
-        if benchmark_close.empty:
-            print("  WARNING: Benchmark unavailable — using equal-weight index proxy")
+        with perf.stage("Load benchmark"):
+            print(f"Loading blended benchmark ({SPX_WEIGHT:.0%} SPX + {NDX_WEIGHT:.0%} NDX)...")
+            benchmark_close = load_benchmark(STOCK_DATA_DIR)
+            if benchmark_close.empty:
+                print("  WARNING: Benchmark unavailable — using equal-weight index proxy")
 
         # ── Determine which modes to run ──────────────────────────────────
         MODES_TO_RUN = {
@@ -1983,11 +2086,12 @@ def main() -> None:
         }
 
         # Build fresh panel once — shared across all modes
-        panel = build_panel_from_local(tickers, STOCK_DATA_DIR,
-                                       min_history_days=args.min_history_days,
-                                       sector_map=sector_map)
-        if benchmark_close.empty:
-            benchmark_close = panel.groupby(level="date")["close"].mean().rename("benchmark_close")
+        with perf.stage("Load CSV panel (parallel I/O)"):
+            panel = build_panel_from_local(tickers, STOCK_DATA_DIR,
+                                           min_history_days=args.min_history_days,
+                                           sector_map=sector_map)
+            if benchmark_close.empty:
+                benchmark_close = panel.groupby(level="date")["close"].mean().rename("benchmark_close")
 
         results_by_mode: Dict[str, dict] = {}
 
@@ -2014,13 +2118,14 @@ def main() -> None:
             for m in MODES_TO_RUN:
                 results_by_mode[m] = _load_mode(MODE_DIRS[m], m)
 
-            print("Re-running feature engineering on fresh panel ...")
-            from pipeline.features.engineer import FeatureEngineer, FEATURE_PREFIX
-            fe = FeatureEngineer(cfg, benchmark_close)
-            panel = fe.build(panel)
-            print(f"  Features ready. Panel date range: "
-                  f"{panel.index.get_level_values('date').min().date()} → "
-                  f"{panel.index.get_level_values('date').max().date()}")
+            with perf.stage("Feature engineering (skip_train)"):
+                print("Re-running feature engineering on fresh panel ...")
+                from pipeline.features.engineer import FeatureEngineer, FEATURE_PREFIX
+                fe = FeatureEngineer(cfg, benchmark_close)
+                panel = fe.build(panel)
+                print(f"  Features ready. Panel date range: "
+                      f"{panel.index.get_level_values('date').min().date()} → "
+                      f"{panel.index.get_level_values('date').max().date()}")
         else:
             # Train each mode sequentially.
             # Checkpoints 1+2 (feature engineering + targets) are shared and built once —
@@ -2029,17 +2134,18 @@ def main() -> None:
                 print(f"\n{'='*62}")
                 print(f"  TRAINING  MODE: {m.upper()}")
                 print(f"{'='*62}")
-                artefacts = train(
-                    panel=panel,
-                    benchmark_close=benchmark_close,
-                    cfg=cfg,
-                    n_folds=args.n_folds,
-                    n_trials=args.n_trials,
-                    top_n=args.top_n,
-                    use_gpu=use_gpu,
-                    mode=m,
-                    mode_artefacts_dir=MODE_DIRS[m],
-                )
+                with perf.stage(f"Full training — {m}"):
+                    artefacts = train(
+                        panel=panel,
+                        benchmark_close=benchmark_close,
+                        cfg=cfg,
+                        n_folds=args.n_folds,
+                        n_trials=args.n_trials,
+                        top_n=args.top_n,
+                        use_gpu=use_gpu,
+                        mode=m,
+                        mode_artefacts_dir=MODE_DIRS[m],
+                    )
                 panel = artefacts["panel"]   # full unfiltered panel from shared checkpoint
                 results_by_mode[m] = {
                     "ensemble":      artefacts["ensemble"],
@@ -2048,13 +2154,14 @@ def main() -> None:
                 }
 
         # ── Drift check (per mode) ─────────────────────────────────────────
-        for m, art in results_by_mode.items():
-            try:
-                latest_date = panel.index.get_level_values("date").max()
-                art["drift_monitor"].compute_weekly_drift(panel, latest_date)
-                art["drift_monitor"].save(Path(f"monitoring/{m}"))
-            except Exception as e:
-                print(f"Drift monitor warning [{m}]: {e}")
+        with perf.stage("Drift monitoring"):
+            for m, art in results_by_mode.items():
+                try:
+                    latest_date = panel.index.get_level_values("date").max()
+                    art["drift_monitor"].compute_weekly_drift(panel, latest_date)
+                    art["drift_monitor"].save(Path(f"monitoring/{m}"))
+                except Exception as e:
+                    print(f"Drift monitor warning [{m}]: {e}")
 
         # ── Determine scoring date from CSV max date ───────────────────────
         csv_max_date = get_csv_max_date(STOCK_DATA_DIR)
@@ -2068,18 +2175,20 @@ def main() -> None:
             print(f"\n{'='*62}")
             print(f"  SCORING   MODE: {m.upper()}")
             print(f"{'='*62}")
-            result = score_and_rank(
-                panel=panel,
-                ensemble=art["ensemble"],
-                final_features=art["final_features"],
-                benchmark_close=benchmark_close,
-                cfg=cfg,
-                top_n=args.top_n,
-                weighting=args.weighting,
-                as_of_date=csv_max_date,
-                mode=m,
-            )
-            save_outputs(result, panel, benchmark_close, cfg, mode=m)
+            with perf.stage(f"Score & rank — {m}"):
+                result = score_and_rank(
+                    panel=panel,
+                    ensemble=art["ensemble"],
+                    final_features=art["final_features"],
+                    benchmark_close=benchmark_close,
+                    cfg=cfg,
+                    top_n=args.top_n,
+                    weighting=args.weighting,
+                    as_of_date=csv_max_date,
+                    mode=m,
+                )
+            with perf.stage(f"Save outputs — {m}"):
+                save_outputs(result, panel, benchmark_close, cfg, mode=m)
 
         # ── --explain (post-run, if requested) ───────────────────────────
         if args.explain:
@@ -2087,6 +2196,8 @@ def main() -> None:
 
     finally:
         allow_sleep()
+        perf.report()
+        perf.save(_log_path)
 
 
 if __name__ == "__main__":

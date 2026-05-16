@@ -34,7 +34,7 @@ class StockPredictor:
         if days_ahead < 1:
             raise ValueError("days_ahead must be at least 1")
 
-        next_index = self._training_points - 1 + days_ahead
+        next_index = self._training_points + (days_ahead - 1)
         return self.intercept + (self.slope * next_index)
 
 

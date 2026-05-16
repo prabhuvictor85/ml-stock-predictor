@@ -30,12 +30,11 @@ class StockPredictorTests(unittest.TestCase):
                 "--days-ahead",
                 "2",
             ],
-            check=False,
+            check=True,
             capture_output=True,
             text=True,
         )
 
-        self.assertEqual(result.returncode, 0)
         self.assertIn("Predicted closing price in 2 day(s): 110.00", result.stdout)
 
 

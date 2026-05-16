@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ML Stock Predictor — Code Architecture</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111418;
+    --surface2: #181c22;
+    --border: #1e242e;
+    --border2: #252d3a;
+    --amber: #f5a623;
+    --amber2: #ffcc66;
+    --green: #3dffa0;
+    --green2: #00c87a;
+    --blue: #4fa3ff;
+    --blue2: #2d7fff;
+    --red: #ff5c5c;
+    --purple: #b06aff;
+    --teal: #00d4c8;
+    --text: #d8dfe8;
+    --text2: #8a95a3;
+    --text3: #4a5568;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+
+  /* ── HEADER ── */
+  header {
+    padding: 4rem 2rem 3rem;
+    text-align: center;
+    position: relative;
+    border-bottom: 1px solid var(--border);
+    background: radial-gradient(ellipse 80% 60% at 50% 0%, rgba(245,166,35,.08) 0%, transparent 70%);
+  }
+  header .badge {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+    color: var(--amber);
+    border: 1px solid rgba(245,166,35,.3);
+    padding: .25rem .75rem;
+    border-radius: 2px;
+    margin-bottom: 1.5rem;
+  }
+  header h1 {
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    font-weight: 800;
+    letter-spacing: -.02em;
+    line-height: 1.1;
+    margin-bottom: .75rem;
+  }
+  header h1 span { color: var(--amber); }
+  header p {
+    color: var(--text2);
+    font-family: var(--mono);
+    font-size: .85rem;
+    max-width: 680px;
+    margin: 0 auto;
+  }
+
+  /* ── NAV ── */
+  nav {
+    display: flex;
+    justify-content: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+    padding: 1.25rem 2rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  nav a {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .05em;
+    text-transform: uppercase;
+    color: var(--text2);
+    text-decoration: none;
+    padding: .35rem .75rem;
+    border: 1px solid transparent;
+    border-radius: 2px;
+    transition: all .2s;
+  }
+  nav a:hover { color: var(--amber); border-color: rgba(245,166,35,.3); background: rgba(245,166,35,.05); }
+
+  /* ── LAYOUT ── */
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 2rem; }
+
+  section {
+    padding: 4rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: var(--amber);
+    margin-bottom: .75rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .section-label::after { content: ''; flex: 1; height: 1px; background: var(--border2); }
+
+  h2 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    margin-bottom: 1rem;
+    line-height: 1.2;
+  }
+
+  h3 {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: .5rem;
+  }
+
+  p { color: var(--text2); margin-bottom: .75rem; font-family: var(--mono); font-size: .83rem; line-height: 1.7; }
+
+  /* ── CARDS ── */
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; margin-top: 1.5rem; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 1.25rem;
+    position: relative;
+    overflow: hidden;
+    transition: border-color .2s;
+  }
+  .card:hover { border-color: rgba(245,166,35,.4); }
+  .card .accent-bar { position: absolute; top: 0; left: 0; right: 0; height: 2px; }
+  .card .card-icon { font-size: 1.4rem; margin-bottom: .75rem; }
+  .card h3 { font-size: .95rem; margin-bottom: .4rem; color: var(--text); }
+  .card p { font-size: .78rem; color: var(--text2); margin: 0; }
+  .card .tag { display: inline-block; font-family: var(--mono); font-size: .65rem; padding: .2rem .5rem; border-radius: 2px; margin-top: .6rem; }
+
+  /* ── FLOWCHART SVG WRAPPER ── */
+  .diagram-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 6px;
+    padding: 2rem 1.5rem;
+    margin-top: 1.5rem;
+    overflow-x: auto;
+  }
+  .diagram-wrap svg { display: block; margin: 0 auto; }
+
+  /* ── CODE ── */
+  code {
+    font-family: var(--mono);
+    font-size: .8rem;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 3px;
+    padding: .1rem .4rem;
+    color: var(--amber2);
+  }
+
+  pre {
+    font-family: var(--mono);
+    font-size: .78rem;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 1rem 1.25rem;
+    color: var(--green);
+    overflow-x: auto;
+    margin: 1rem 0;
+    line-height: 1.8;
+  }
+
+  /* ── STEPS ── */
+  .steps { margin-top: 1.5rem; }
+  .step {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .step:last-child { border-bottom: none; margin-bottom: 0; }
+  .step-num {
+    font-family: var(--mono);
+    font-size: .7rem;
+    font-weight: 700;
+    color: var(--bg);
+    background: var(--amber);
+    min-width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 2px;
+    flex-shrink: 0;
+    margin-top: .1rem;
+  }
+  .step-content h4 { font-size: .9rem; font-family: var(--mono); color: var(--text); margin-bottom: .2rem; }
+  .step-content p { font-size: .78rem; color: var(--text2); margin: 0; }
+
+  /* ── ENSEMBLE WEIGHT BAR ── */
+  .weight-bar-wrap { margin-top: 1.5rem; }
+  .weight-row { display: flex; align-items: center; gap: 1rem; margin-bottom: .75rem; }
+  .weight-label { font-family: var(--mono); font-size: .78rem; color: var(--text2); min-width: 200px; }
+  .weight-track { flex: 1; background: var(--surface2); border: 1px solid var(--border2); border-radius: 2px; height: 20px; overflow: hidden; }
+  .weight-fill { height: 100%; display: flex; align-items: center; padding-left: .5rem; font-family: var(--mono); font-size: .68rem; font-weight: 700; color: #000; border-radius: 1px; transition: width .8s ease; }
+  .weight-pct { font-family: var(--mono); font-size: .75rem; color: var(--text2); min-width: 40px; text-align: right; }
+
+  /* ── METRIC PILLS ── */
+  .metric-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .75rem; margin-top: 1.25rem; }
+  .metric { background: var(--surface2); border: 1px solid var(--border2); border-radius: 4px; padding: .85rem 1rem; }
+  .metric .m-label { font-family: var(--mono); font-size: .65rem; letter-spacing: .1em; text-transform: uppercase; color: var(--text3); margin-bottom: .35rem; }
+  .metric .m-val { font-family: var(--mono); font-size: 1rem; font-weight: 700; color: var(--green); }
+
+  /* ── CAVEAT LIST ── */
+  .caveat-list { margin-top: 1.25rem; }
+  .caveat {
+    display: flex;
+    gap: .75rem;
+    align-items: flex-start;
+    padding: .85rem 1rem;
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-left: 3px solid var(--red);
+    border-radius: 0 4px 4px 0;
+    margin-bottom: .65rem;
+    font-family: var(--mono);
+    font-size: .78rem;
+    color: var(--text2);
+  }
+  .caveat .c-icon { font-size: 1rem; flex-shrink: 0; }
+  .caveat strong { color: var(--red); font-weight: 600; display: block; margin-bottom: .2rem; }
+
+  /* ── REPO TREE ── */
+  .tree {
+    font-family: var(--mono);
+    font-size: .78rem;
+    color: var(--text2);
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: 4px;
+    padding: 1.25rem 1.5rem;
+    margin-top: 1.25rem;
+    line-height: 2;
+  }
+  .tree .dir { color: var(--blue); }
+  .tree .file { color: var(--text2); }
+  .tree .comment { color: var(--text3); font-size: .72rem; }
+  .tree .highlight { color: var(--amber); }
+
+  /* ── TABS ── */
+  .tab-bar { display: flex; gap: 0; border-bottom: 1px solid var(--border2); margin-bottom: 1.5rem; margin-top: 1.25rem; overflow-x: auto; }
+  .tab-btn {
+    font-family: var(--mono);
+    font-size: .75rem;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    padding: .6rem 1.25rem;
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: var(--text3);
+    cursor: pointer;
+    transition: all .15s;
+    white-space: nowrap;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--amber); border-bottom-color: var(--amber); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── PSI table ── */
+  table { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: .78rem; margin-top: 1rem; }
+  th { color: var(--text3); font-weight: 600; text-align: left; padding: .5rem .75rem; border-bottom: 1px solid var(--border2); letter-spacing: .06em; font-size: .7rem; text-transform: uppercase; }
+  td { padding: .5rem .75rem; border-bottom: 1px solid var(--border); color: var(--text2); }
+  tr:last-child td { border-bottom: none; }
+  .psi-ok { color: var(--green); }
+  .psi-warn { color: var(--amber); }
+  .psi-alert { color: var(--red); }
+
+  /* ── FOOTER ── */
+  footer { padding: 2.5rem; text-align: center; font-family: var(--mono); font-size: .72rem; color: var(--text3); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="badge">Architecture Reference · ml-stock-predictor</div>
+  <h1>ML Stock <span>Predictor</span><br>Code Architecture</h1>
+  <p>Market-agnostic ML pipeline for ranking stocks, constructing weekly portfolios,<br>and evaluating performance through walk-forward backtests.</p>
+</header>
+
+<nav>
+  <a href="#overview">Overview</a>
+  <a href="#repo">Repository</a>
+  <a href="#config">Config</a>
+  <a href="#data">Data Layer</a>
+  <a href="#features">Features</a>
+  <a href="#models">Models</a>
+  <a href="#portfolio">Portfolio</a>
+  <a href="#backtest">Backtest</a>
+  <a href="#monitoring">Monitoring</a>
+  <a href="#caveats">Caveats</a>
+</nav>
+
+<!-- ── SECTION 1: OVERVIEW ── -->
+<section id="overview">
+<div class="container">
+  <div class="section-label">01 — System Overview</div>
+  <h2>Three Operational Workflows</h2>
+  <p>Every run of this pipeline falls into one of three modes. Training builds the models, Inference applies them weekly, and Backtesting simulates historical performance. They share the same data layer and feature engineering code but diverge at the scoring step.</p>
+
+  <!-- Master flowchart -->
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 960 540" width="960" height="540" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#4a5568"/>
+        </marker>
+        <marker id="arr-amber" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#f5a623"/>
+        </marker>
+        <marker id="arr-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#3dffa0"/>
+        </marker>
+        <marker id="arr-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#4fa3ff"/>
+        </marker>
+      </defs>
+
+      <!-- Background sections -->
+      <rect x="8" y="10" width="944" height="520" rx="6" fill="#111418" stroke="#1e242e" stroke-width="1"/>
+
+      <!-- Shared pipeline lane label -->
+      <text x="40" y="40" font-family="JetBrains Mono,monospace" font-size="10" fill="#4a5568" letter-spacing="2">SHARED DATA PIPELINE</text>
+      <rect x="30" y="50" width="900" height="200" rx="4" fill="none" stroke="#1e242e" stroke-width="1" stroke-dasharray="4,4"/>
+
+      <!-- Data nodes -->
+      <!-- Tickers + Config -->
+      <rect x="50" y="70" width="130" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="115" y="89" font-family="JetBrains Mono,monospace" font-size="10" fill="#f5a623" text-anchor="middle">Tickers File</text>
+      <text x="115" y="103" font-family="JetBrains Mono,monospace" font-size="10" fill="#8a95a3" text-anchor="middle">+ MarketConfig</text>
+
+      <!-- DataFetcher -->
+      <rect x="230" y="70" width="120" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="290" y="89" font-family="JetBrains Mono,monospace" font-size="10" fill="#4fa3ff" text-anchor="middle">DataFetcher</text>
+      <text x="290" y="103" font-family="JetBrains Mono,monospace" font-size="9" fill="#8a95a3" text-anchor="middle">OHLCV + FX + Bench</text>
+
+      <!-- PanelConstructor -->
+      <rect x="405" y="70" width="130" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="470" y="89" font-family="JetBrains Mono,monospace" font-size="10" fill="#4fa3ff" text-anchor="middle">PanelConstructor</text>
+      <text x="470" y="103" font-family="JetBrains Mono,monospace" font-size="9" fill="#8a95a3" text-anchor="middle">MultiIndex(date,ticker)</text>
+
+      <!-- UniverseBuilder -->
+      <rect x="590" y="70" width="120" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="650" y="89" font-family="JetBrains Mono,monospace" font-size="10" fill="#4fa3ff" text-anchor="middle">UniverseBuilder</text>
+      <text x="650" y="103" font-family="JetBrains Mono,monospace" font-size="9" fill="#8a95a3" text-anchor="middle">in_universe flags</text>
+
+      <!-- FeatureEngineer -->
+      <rect x="770" y="70" width="130" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="835" y="89" font-family="JetBrains Mono,monospace" font-size="10" fill="#4fa3ff" text-anchor="middle">FeatureEngineer</text>
+      <text x="835" y="103" font-family="JetBrains Mono,monospace" font-size="9" fill="#8a95a3" text-anchor="middle">features_* columns</text>
+
+      <!-- Arrows row 1 -->
+      <line x1="180" y1="92" x2="228" y2="92" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="350" y1="92" x2="403" y2="92" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="535" y1="92" x2="588" y2="92" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="710" y1="92" x2="768" y2="92" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- TargetBuilder  -->
+      <rect x="405" y="185" width="130" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="470" y="204" font-family="JetBrains Mono,monospace" font-size="10" fill="#b06aff" text-anchor="middle">TargetBuilder</text>
+      <text x="470" y="218" font-family="JetBrains Mono,monospace" font-size="9" fill="#8a95a3" text-anchor="middle">forward returns + ranks</text>
+
+      <!-- Arrow down from FeatureEngineer via connector to TargetBuilder -->
+      <line x1="835" y1="114" x2="835" y2="160" stroke="#4a5568" stroke-width="1.5"/>
+      <line x1="835" y1="160" x2="470" y2="160" stroke="#4a5568" stroke-width="1.5"/>
+      <line x1="470" y1="160" x2="470" y2="183" stroke="#4a5568" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Workflow labels -->
+      <text x="40" y="278" font-family="JetBrains Mono,monospace" font-size="10" fill="#4a5568" letter-spacing="2">DIVERGENCE POINT — SELECT WORKFLOW</text>
+
+      <!-- TRAIN box -->
+      <rect x="30" y="290" width="270" height="220" rx="4" fill="rgba(245,166,35,.04)" stroke="rgba(245,166,35,.25)" stroke-width="1"/>
+      <text x="50" y="312" font-family="JetBrains Mono,monospace" font-size="10" fill="#f5a623" font-weight="700" letter-spacing="1">TRAIN</text>
+
+      <!-- train steps -->
+      <rect x="50" y="323" width="230" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="165" y="342" font-family="JetBrains Mono,monospace" font-size="9" fill="#f5a623" text-anchor="middle">Optuna Hyperparam Search</text>
+
+      <rect x="50" y="363" width="230" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="165" y="382" font-family="JetBrains Mono,monospace" font-size="9" fill="#f5a623" text-anchor="middle">PurgedWalkForwardCV</text>
+
+      <rect x="50" y="403" width="230" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="165" y="422" font-family="JetBrains Mono,monospace" font-size="9" fill="#f5a623" text-anchor="middle">Train LGBM + CatBoost + XGB</text>
+
+      <rect x="50" y="443" width="230" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="165" y="462" font-family="JetBrains Mono,monospace" font-size="9" fill="#f5a623" text-anchor="middle">Calibrate + Ensemble + SHAP</text>
+
+      <rect x="50" y="483" width="230" height="20" rx="2" fill="rgba(245,166,35,.12)" stroke="rgba(245,166,35,.3)"/>
+      <text x="165" y="496" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#f5a623" text-anchor="middle">→ artefacts/{market}/*.pkl</text>
+
+      <!-- arrows inside train -->
+      <line x1="165" y1="353" x2="165" y2="361" stroke="#f5a623" stroke-width="1" marker-end="url(#arr-amber)" opacity=".5"/>
+      <line x1="165" y1="393" x2="165" y2="401" stroke="#f5a623" stroke-width="1" marker-end="url(#arr-amber)" opacity=".5"/>
+      <line x1="165" y1="433" x2="165" y2="441" stroke="#f5a623" stroke-width="1" marker-end="url(#arr-amber)" opacity=".5"/>
+      <line x1="165" y1="473" x2="165" y2="481" stroke="#f5a623" stroke-width="1" marker-end="url(#arr-amber)" opacity=".5"/>
+
+      <!-- INFER box -->
+      <rect x="343" y="290" width="270" height="220" rx="4" fill="rgba(61,255,160,.04)" stroke="rgba(61,255,160,.25)" stroke-width="1"/>
+      <text x="363" y="312" font-family="JetBrains Mono,monospace" font-size="10" fill="#3dffa0" font-weight="700" letter-spacing="1">INFER</text>
+
+      <rect x="363" y="323" width="230" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="478" y="342" font-family="JetBrains Mono,monospace" font-size="9" fill="#3dffa0" text-anchor="middle">Load artefacts + fresh snapshot</text>
+
+      <rect x="363" y="363" width="230" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="478" y="382" font-family="JetBrains Mono,monospace" font-size="9" fill="#3dffa0" text-anchor="middle">Score via EnsembleRanker</text>
+
+      <rect x="363" y="403" width="230" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="478" y="422" font-family="JetBrains Mono,monospace" font-size="9" fill="#3dffa0" text-anchor="middle">PortfolioConstructor → weights</text>
+
+      <rect x="363" y="443" width="230" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="478" y="462" font-family="JetBrains Mono,monospace" font-size="9" fill="#3dffa0" text-anchor="middle">SHAP explanations + drift check</text>
+
+      <rect x="363" y="483" width="230" height="20" rx="2" fill="rgba(61,255,160,.12)" stroke="rgba(61,255,160,.3)"/>
+      <text x="478" y="496" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#3dffa0" text-anchor="middle">→ output/{market}/watchlist_DATE.csv</text>
+
+      <line x1="478" y1="353" x2="478" y2="361" stroke="#3dffa0" stroke-width="1" marker-end="url(#arr-green)" opacity=".5"/>
+      <line x1="478" y1="393" x2="478" y2="401" stroke="#3dffa0" stroke-width="1" marker-end="url(#arr-green)" opacity=".5"/>
+      <line x1="478" y1="433" x2="478" y2="441" stroke="#3dffa0" stroke-width="1" marker-end="url(#arr-green)" opacity=".5"/>
+      <line x1="478" y1="473" x2="478" y2="481" stroke="#3dffa0" stroke-width="1" marker-end="url(#arr-green)" opacity=".5"/>
+
+      <!-- BACKTEST box -->
+      <rect x="656" y="290" width="275" height="220" rx="4" fill="rgba(79,163,255,.04)" stroke="rgba(79,163,255,.25)" stroke-width="1"/>
+      <text x="676" y="312" font-family="JetBrains Mono,monospace" font-size="10" fill="#4fa3ff" font-weight="700" letter-spacing="1">BACKTEST</text>
+
+      <rect x="676" y="323" width="235" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="793" y="342" font-family="JetBrains Mono,monospace" font-size="9" fill="#4fa3ff" text-anchor="middle">Load artefacts + historical panel</text>
+
+      <rect x="676" y="363" width="235" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="793" y="382" font-family="JetBrains Mono,monospace" font-size="9" fill="#4fa3ff" text-anchor="middle">BacktestEngine weekly loop</text>
+
+      <rect x="676" y="403" width="235" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="793" y="422" font-family="JetBrains Mono,monospace" font-size="9" fill="#4fa3ff" text-anchor="middle">ExecutionModel → costs + NAV</text>
+
+      <rect x="676" y="443" width="235" height="30" rx="2" fill="#181c22" stroke="#252d3a"/>
+      <text x="793" y="462" font-family="JetBrains Mono,monospace" font-size="9" fill="#4fa3ff" text-anchor="middle">PerformanceReporter + HTML</text>
+
+      <rect x="676" y="483" width="235" height="20" rx="2" fill="rgba(79,163,255,.12)" stroke="rgba(79,163,255,.3)"/>
+      <text x="793" y="496" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#4fa3ff" text-anchor="middle">→ reports/report_{market}.html</text>
+
+      <line x1="793" y1="353" x2="793" y2="361" stroke="#4fa3ff" stroke-width="1" marker-end="url(#arr-blue)" opacity=".5"/>
+      <line x1="793" y1="393" x2="793" y2="401" stroke="#4fa3ff" stroke-width="1" marker-end="url(#arr-blue)" opacity=".5"/>
+      <line x1="793" y1="433" x2="793" y2="441" stroke="#4fa3ff" stroke-width="1" marker-end="url(#arr-blue)" opacity=".5"/>
+      <line x1="793" y1="473" x2="793" y2="481" stroke="#4fa3ff" stroke-width="1" marker-end="url(#arr-blue)" opacity=".5"/>
+
+      <!-- Divergence arrows from TargetBuilder down to three lanes -->
+      <line x1="470" y1="229" x2="470" y2="262" stroke="#252d3a" stroke-width="1.5"/>
+      <line x1="165" y1="262" x2="793" y2="262" stroke="#252d3a" stroke-width="1.5"/>
+      <line x1="165" y1="262" x2="165" y2="288" stroke="#f5a623" stroke-width="1.5" marker-end="url(#arr-amber)"/>
+      <line x1="478" y1="262" x2="478" y2="288" stroke="#3dffa0" stroke-width="1.5" marker-end="url(#arr-green)"/>
+      <line x1="793" y1="262" x2="793" y2="288" stroke="#4fa3ff" stroke-width="1.5" marker-end="url(#arr-blue)"/>
+    </svg>
+  </div>
+
+  <div class="card-grid" style="margin-top:1.5rem;">
+    <div class="card">
+      <div class="accent-bar" style="background:var(--amber)"></div>
+      <div class="card-icon">🏋️</div>
+      <h3>Training</h3>
+      <p>Builds and serializes all model artifacts. Runs once on historical data; subsequent runs can load from cache using <code>--skip_fetch</code>.</p>
+      <span class="tag" style="background:rgba(245,166,35,.12);color:var(--amber);">pipeline/train.py</span>
+    </div>
+    <div class="card">
+      <div class="accent-bar" style="background:var(--green)"></div>
+      <div class="card-icon">📡</div>
+      <h3>Inference</h3>
+      <p>Runs weekly. Fetches a fresh data snapshot — never re-uses the training panel tail — to avoid stale or leakage-prone data.</p>
+      <span class="tag" style="background:rgba(61,255,160,.12);color:var(--green);">pipeline/infer.py</span>
+    </div>
+    <div class="card">
+      <div class="accent-bar" style="background:var(--blue)"></div>
+      <div class="card-icon">📊</div>
+      <h3>Backtesting</h3>
+      <p>Simulates portfolio changes on historical data with real execution cost modeling. Outputs HTML performance reports and equity curve parquet.</p>
+      <span class="tag" style="background:rgba(79,163,255,.12);color:var(--blue);">pipeline/backtest_run.py</span>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ── SECTION 2: REPO ── -->
+<section id="repo">
+<div class="container">
+  <div class="section-label">02 — Repository Layout</div>
+  <h2>Module Map</h2>
+  <p>Each sub-package has a single, focused responsibility. The <code>pipeline/</code> root contains all production code. Everything else is tooling or helpers.</p>
+
+  <div class="tree">
+<span class="highlight">pipeline/</span><br>
+├── <span class="dir">config/</span>   <span class="comment">── MarketConfig presets (NSE, S&amp;P 500, NASDAQ)</span><br>
+├── <span class="dir">data/</span>     <span class="comment">── fetcher · universe · panel construction</span><br>
+├── <span class="dir">features/</span> <span class="comment">── FeatureEngineer · ICTFeatureEngine · MultiTFMerger</span><br>
+├── <span class="dir">targets/</span>  <span class="comment">── TargetBuilder  (forward returns, quintile labels)</span><br>
+├── <span class="dir">validation/</span><span class="comment">── PurgedWalkForwardCV · ranking metrics</span><br>
+├── <span class="dir">models/</span>   <span class="comment">── LGBM · CatBoost · XGB · Calibrator · EnsembleRanker</span><br>
+├── <span class="dir">selection/</span> <span class="comment">── FeatureSelector (correlation, permutation, SHAP stability)</span><br>
+├── <span class="dir">portfolio/</span> <span class="comment">── PortfolioConstructor  (scoring → weights)</span><br>
+├── <span class="dir">backtest/</span>  <span class="comment">── BacktestEngine · ExecutionModel · PerformanceReporter</span><br>
+├── <span class="dir">explainability/</span><span class="comment">── SHAPExplainer · SetupMatcher</span><br>
+├── <span class="dir">monitoring/</span><span class="comment">── FeatureDriftMonitor (PSI) · RetrainingScheduler</span><br>
+├── <span class="dir">reports/</span>   <span class="comment">── ReportGenerator  (Chart.js HTML)</span><br>
+├── <span class="dir">utils/</span>    <span class="comment">── calendar · logging · shared dataclasses</span><br>
+├── <span class="highlight">train.py</span>       <span class="comment">── Training entry point</span><br>
+├── <span class="highlight">infer.py</span>       <span class="comment">── Weekly inference entry point</span><br>
+└── <span class="highlight">backtest_run.py</span><span class="comment">── Backtest entry point</span>
+  </div>
+</div>
+</section>
+
+<!-- ── SECTION 3: CONFIG ── -->
+<section id="config">
+<div class="container">
+  <div class="section-label">03 — Configuration</div>
+  <h2>MarketConfig — Single Source of Truth</h2>
+  <p><code>MarketConfig</code> is a dataclass defined in <code>pipeline/config/base.py</code>. Every downstream module reads from it rather than maintaining its own constants, so swapping from NSE to S&amp;P 500 requires zero changes to model or backtest code.</p>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 880 300" width="880" height="300" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;">
+      <!-- Central config box -->
+      <rect x="310" y="80" width="260" height="140" rx="4" fill="#181c22" stroke="#f5a623" stroke-width="1.5"/>
+      <text x="440" y="106" font-family="JetBrains Mono,monospace" font-size="11" fill="#f5a623" text-anchor="middle" font-weight="700">MarketConfig</text>
+      <line x1="318" y1="115" x2="562" y2="115" stroke="#252d3a" stroke-width="1"/>
+      <text x="440" y="132" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#8a95a3" text-anchor="middle">market · calendar · benchmark</text>
+      <text x="440" y="148" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#8a95a3" text-anchor="middle">data sources · slippage tiers</text>
+      <text x="440" y="164" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#8a95a3" text-anchor="middle">liquidity thresholds · risk limits</text>
+      <text x="440" y="180" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#8a95a3" text-anchor="middle">profit target · stop loss · PSI thresholds</text>
+      <text x="440" y="196" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#8a95a3" text-anchor="middle">rebalance schedule · random seed</text>
+
+      <!-- Preset boxes -->
+      <rect x="30" y="50" width="200" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="130" y="70" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#3dffa0" text-anchor="middle" font-weight="600">NSE India</text>
+      <text x="130" y="86" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3" text-anchor="middle">^NSEI · INR · XBOM</text>
+
+      <rect x="30" y="128" width="200" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="130" y="148" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#f5a623" text-anchor="middle" font-weight="600">S&amp;P 500</text>
+      <text x="130" y="164" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3" text-anchor="middle">SPY · USD · XNYS</text>
+
+      <rect x="30" y="206" width="200" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="130" y="226" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#4fa3ff" text-anchor="middle" font-weight="600">NASDAQ</text>
+      <text x="130" y="242" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3" text-anchor="middle">QQQ · USD · XNAS</text>
+
+      <!-- arrows left → center -->
+      <line x1="230" y1="72" x2="308" y2="130" stroke="#252d3a" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="230" y1="150" x2="308" y2="150" stroke="#252d3a" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="230" y1="228" x2="308" y2="172" stroke="#252d3a" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Consumer boxes right -->
+      <rect x="650" y="30" width="200" height="30" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="750" y="50" font-family="JetBrains Mono,monospace" font-size="9" fill="#8a95a3" text-anchor="middle">DataFetcher</text>
+
+      <rect x="650" y="75" width="200" height="30" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="750" y="95" font-family="JetBrains Mono,monospace" font-size="9" fill="#8a95a3" text-anchor="middle">UniverseBuilder</text>
+
+      <rect x="650" y="120" width="200" height="30" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="750" y="140" font-family="JetBrains Mono,monospace" font-size="9" fill="#8a95a3" text-anchor="middle">FeatureEngineer</text>
+
+      <rect x="650" y="165" width="200" height="30" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="750" y="185" font-family="JetBrains Mono,monospace" font-size="9" fill="#8a95a3" text-anchor="middle">PortfolioConstructor</text>
+
+      <rect x="650" y="210" width="200" height="30" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="750" y="230" font-family="JetBrains Mono,monospace" font-size="9" fill="#8a95a3" text-anchor="middle">ExecutionModel</text>
+
+      <rect x="650" y="255" width="200" height="30" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="750" y="275" font-family="JetBrains Mono,monospace" font-size="9" fill="#8a95a3" text-anchor="middle">FeatureDriftMonitor</text>
+
+      <!-- center → consumers -->
+      <line x1="570" y1="120" x2="648" y2="45" stroke="#252d3a" stroke-width="1" marker-end="url(#arr)"/>
+      <line x1="570" y1="135" x2="648" y2="90" stroke="#252d3a" stroke-width="1" marker-end="url(#arr)"/>
+      <line x1="570" y1="150" x2="648" y2="135" stroke="#252d3a" stroke-width="1" marker-end="url(#arr)"/>
+      <line x1="570" y1="165" x2="648" y2="180" stroke="#252d3a" stroke-width="1" marker-end="url(#arr)"/>
+      <line x1="570" y1="180" x2="648" y2="225" stroke="#252d3a" stroke-width="1" marker-end="url(#arr)"/>
+      <line x1="570" y1="185" x2="648" y2="270" stroke="#252d3a" stroke-width="1" marker-end="url(#arr)"/>
+
+      <!-- get_config label -->
+      <text x="130" y="295" font-family="JetBrains Mono,monospace" font-size="8" fill="#4a5568" text-anchor="middle">get_config('nse'|'sp500'|'nasdaq')</text>
+    </svg>
+  </div>
+</div>
+</section>
+
+<!-- ── SECTION 4: DATA LAYER ── -->
+<section id="data">
+<div class="container">
+  <div class="section-label">04 — Data Layer</div>
+  <h2>Panel Construction Pipeline</h2>
+  <p>The master panel is a <code>MultiIndex(date, ticker)</code> DataFrame. Every piece of downstream logic — features, targets, model scoring — operates on this structure. Getting this right is the foundation of the entire system.</p>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 880 400" width="880" height="400" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;">
+      <defs>
+        <marker id="arr2" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#4a5568"/>
+        </marker>
+      </defs>
+
+      <!-- Exchange Calendar -->
+      <rect x="20" y="30" width="160" height="50" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="100" y="52" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#4fa3ff" text-anchor="middle" font-weight="600">Exchange Calendar</text>
+      <text x="100" y="70" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3" text-anchor="middle">pandas_market_calendars</text>
+
+      <!-- DataFetcher -->
+      <rect x="20" y="110" width="160" height="50" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="100" y="132" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#4fa3ff" text-anchor="middle" font-weight="600">DataFetcher</text>
+      <text x="100" y="150" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3" text-anchor="middle">Yahoo → Polygon → Tiingo</text>
+
+      <!-- FX Conversion -->
+      <rect x="20" y="190" width="160" height="50" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="100" y="212" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#4fa3ff" text-anchor="middle" font-weight="600">FX Conversion</text>
+      <text x="100" y="228" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3" text-anchor="middle">INR→USD via USDINR=X</text>
+
+      <!-- Symbol Master -->
+      <rect x="20" y="270" width="160" height="50" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="100" y="292" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#4fa3ff" text-anchor="middle" font-weight="600">Symbol Master</text>
+      <text x="100" y="308" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3" text-anchor="middle">sector · listing · delisting</text>
+
+      <!-- Central PanelConstructor -->
+      <rect x="280" y="140" width="200" height="100" rx="4" fill="#181c22" stroke="#f5a623" stroke-width="1.5"/>
+      <text x="380" y="170" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#f5a623" text-anchor="middle" font-weight="700">PanelConstructor</text>
+      <text x="380" y="188" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3" text-anchor="middle">.build(tickers, start, end)</text>
+      <text x="380" y="206" font-family="JetBrains Mono,monospace" font-size="8" fill="#4a5568" text-anchor="middle">align · adv_20d · market_cap</text>
+      <text x="380" y="222" font-family="JetBrains Mono,monospace" font-size="8" fill="#4a5568" text-anchor="middle">sector · group_date</text>
+
+      <!-- arrows left → panel -->
+      <line x1="180" y1="55" x2="278" y2="165" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+      <line x1="180" y1="135" x2="278" y2="175" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+      <line x1="180" y1="215" x2="278" y2="195" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+      <line x1="180" y1="295" x2="278" y2="220" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+      <!-- Panel output box -->
+      <rect x="570" y="100" width="280" height="180" rx="4" fill="#181c22" stroke="#00d4c8" stroke-width="1.5"/>
+      <text x="710" y="128" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#00d4c8" text-anchor="middle" font-weight="700">Panel  MultiIndex(date, ticker)</text>
+      <line x1="580" y1="138" x2="840" y2="138" stroke="#252d3a" stroke-width="1"/>
+      <text x="590" y="158" font-family="JetBrains Mono,monospace" font-size="8" fill="#4a5568">BASE COLUMNS</text>
+      <text x="590" y="176" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">open · high · low · close · volume</text>
+      <text x="590" y="192" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">market_cap_usd · adv_20d_usd · sector</text>
+      <text x="590" y="208" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">in_universe · group_date</text>
+      <line x1="580" y1="218" x2="840" y2="218" stroke="#252d3a" stroke-width="1"/>
+      <text x="590" y="236" font-family="JetBrains Mono,monospace" font-size="8" fill="#4a5568">ADDED LATER</text>
+      <text x="590" y="254" font-family="JetBrains Mono,monospace" font-size="8" fill="#f5a623">features_*   </text><text x="680" y="254" font-family="JetBrains Mono,monospace" font-size="8" fill="#b06aff">target_* columns</text>
+
+      <!-- PanelConstructor → Panel arrow -->
+      <line x1="480" y1="190" x2="568" y2="190" stroke="#f5a623" stroke-width="1.5" marker-end="url(#arr-amber)"/>
+
+      <!-- Persistence note -->
+      <rect x="570" y="320" width="280" height="44" rx="3" fill="rgba(0,212,200,.06)" stroke="rgba(0,212,200,.25)"/>
+      <text x="710" y="343" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#00d4c8" text-anchor="middle">Persisted as partitioned parquet</text>
+      <text x="710" y="358" font-family="JetBrains Mono,monospace" font-size="8" fill="#4a5568" text-anchor="middle">{output_dir}/year=YYYY/part-0.parquet</text>
+      <line x1="710" y1="280" x2="710" y2="318" stroke="#252d3a" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+      <!-- group_date callout -->
+      <rect x="20" y="355" width="500" height="30" rx="3" fill="rgba(245,166,35,.06)" stroke="rgba(245,166,35,.2)"/>
+      <text x="30" y="374" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#f5a623">⚡ group_date — maps each trading row to the last trading day of its ISO week. This drives all weekly rebalancing logic.</text>
+    </svg>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="accent-bar" style="background:var(--blue)"></div>
+      <h3>Universe Eligibility</h3>
+      <p><code>UniverseBuilder</code> marks rows tradable monthly (first trading day) using: min 20-day ADV, min market cap, min trading history, and delisting check. Without a symbol master, sector defaults to <code>Unknown</code> and market cap may be <code>NaN</code>, blocking all stocks.</p>
+    </div>
+    <div class="card">
+      <div class="accent-bar" style="background:var(--teal)"></div>
+      <h3>Data Source Priority</h3>
+      <p>Primary and fallback sources are set per <code>MarketConfig</code>. For S&P 500 and NASDAQ: <strong>Polygon → Tiingo</strong>. FX retrieval falls back to a static <code>1/75</code> constant if live rates fail (NSE only).</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ── SECTION 5: FEATURES ── -->
+<section id="features">
+<div class="container">
+  <div class="section-label">05 — Feature Engineering</div>
+  <h2>Three-Layer Feature System</h2>
+  <p>Features are built in three separate passes and combined into the panel. All <code>features_*</code> columns are winsorized cross-sectionally per date at the 1st and 99th percentile to prevent outlier domination.</p>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 880 340" width="880" height="340" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;">
+      <!-- Layer 1: FeatureEngineer -->
+      <rect x="20" y="20" width="250" height="290" rx="4" fill="rgba(79,163,255,.04)" stroke="rgba(79,163,255,.25)"/>
+      <text x="145" y="48" font-family="JetBrains Mono,monospace" font-size="10" fill="#4fa3ff" text-anchor="middle" font-weight="700">FeatureEngineer</text>
+      <text x="145" y="64" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">engineer.py</text>
+      <line x1="28" y1="72" x2="262" y2="72" stroke="#1e242e"/>
+      <text x="35" y="92" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">ATR percentile rank</text>
+      <text x="35" y="110" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Volatility contraction / compression</text>
+      <text x="35" y="128" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">ADX</text>
+      <text x="35" y="146" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">ATR-norm log returns (1/5/20/60d)</text>
+      <text x="35" y="164" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Distance from 52-week high</text>
+      <text x="35" y="182" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">SMA slopes + price-vs-SMA</text>
+      <text x="35" y="200" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Volume ratios</text>
+      <text x="35" y="218" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Rolling beta vs benchmark</text>
+      <text x="35" y="236" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Sector relative strength</text>
+      <text x="35" y="254" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Market breadth</text>
+      <text x="35" y="272" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Benchmark regime dummies</text>
+
+      <!-- Layer 2: ICTFeatureEngine -->
+      <rect x="315" y="20" width="250" height="200" rx="4" fill="rgba(176,106,255,.04)" stroke="rgba(176,106,255,.25)"/>
+      <text x="440" y="48" font-family="JetBrains Mono,monospace" font-size="10" fill="#b06aff" text-anchor="middle" font-weight="700">ICTFeatureEngine</text>
+      <text x="440" y="64" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">ict_features.py</text>
+      <line x1="323" y1="72" x2="557" y2="72" stroke="#1e242e"/>
+      <text x="330" y="92" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Wilder ATR + ADX</text>
+      <text x="330" y="110" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Fair Value Gap detection</text>
+      <text x="330" y="128" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Bullish / Bearish order blocks</text>
+      <text x="330" y="146" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Demand / supply zone flags</text>
+      <text x="330" y="164" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Distances normalized by ATR</text>
+      <text x="330" y="184" font-family="JetBrains Mono,monospace" font-size="7" fill="#4a5568">← per-ticker vectorized, never mixed cross-ticker</text>
+
+      <!-- Layer 3: MultiTFMerger -->
+      <rect x="315" y="240" width="250" height="70" rx="4" fill="rgba(245,166,35,.04)" stroke="rgba(245,166,35,.25)"/>
+      <text x="440" y="265" font-family="JetBrains Mono,monospace" font-size="10" fill="#f5a623" text-anchor="middle" font-weight="700">MultiTFMerger</text>
+      <text x="440" y="281" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">multitf_merger.py</text>
+      <text x="330" y="300" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">weekly_trend · monthly_trend</text>
+
+      <!-- Warning -->
+      <rect x="315" y="318" width="250" height="16" rx="2" fill="rgba(255,92,92,.1)" stroke="rgba(255,92,92,.3)"/>
+      <text x="440" y="330" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#ff5c5c" text-anchor="middle">⚠ missing features_ prefix → excluded from model</text>
+
+      <!-- Final merge + winsorize -->
+      <rect x="630" y="100" width="220" height="80" rx="4" fill="#181c22" stroke="#00d4c8" stroke-width="1.5"/>
+      <text x="740" y="128" font-family="JetBrains Mono,monospace" font-size="10" fill="#00d4c8" text-anchor="middle" font-weight="700">Merge + Winsorize</text>
+      <text x="740" y="148" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3" text-anchor="middle">cross-sectional per date</text>
+      <text x="740" y="164" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3" text-anchor="middle">clip [p1, p99] per feature</text>
+
+      <!-- Output -->
+      <rect x="630" y="220" width="220" height="44" rx="3" fill="rgba(0,212,200,.08)" stroke="rgba(0,212,200,.3)"/>
+      <text x="740" y="244" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#00d4c8" text-anchor="middle">features_* appended to panel</text>
+      <text x="740" y="258" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">groupby(ticker) prevents cross-contamination</text>
+
+      <!-- Arrows -->
+      <line x1="270" y1="160" x2="628" y2="140" stroke="#4fa3ff" stroke-width="1.2" marker-end="url(#arr-blue)" opacity=".6"/>
+      <line x1="565" y1="120" x2="628" y2="130" stroke="#b06aff" stroke-width="1.2" marker-end="url(#arr)" opacity=".6"/>
+      <line x1="565" y1="275" x2="628" y2="160" stroke="#f5a623" stroke-width="1.2" marker-end="url(#arr-amber)" opacity=".6"/>
+      <line x1="740" y1="180" x2="740" y2="218" stroke="#00d4c8" stroke-width="1.2" marker-end="url(#arr2)"/>
+    </svg>
+  </div>
+</div>
+</section>
+
+<!-- ── SECTION 6: MODELS ── -->
+<section id="models">
+<div class="container">
+  <div class="section-label">06 — Model Layer</div>
+  <h2>Ensemble Architecture</h2>
+  <p>Three models are combined into a single blended score. LightGBM drives the ranking, CatBoost adds probability calibration, and inverse-volatility provides a risk-aware tilt.</p>
+
+  <!-- Ensemble weight bars -->
+  <div class="weight-bar-wrap">
+    <div class="weight-row">
+      <div class="weight-label">LightGBM LambdaRank score</div>
+      <div class="weight-track">
+        <div class="weight-fill" style="width:60%;background:var(--amber);">60%</div>
+      </div>
+      <div class="weight-pct">0.6×</div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">CatBoost probability (calibrated)</div>
+      <div class="weight-track">
+        <div class="weight-fill" style="width:30%;background:var(--purple);">30%</div>
+      </div>
+      <div class="weight-pct">0.3×</div>
+    </div>
+    <div class="weight-row">
+      <div class="weight-label">Inverse-volatility signal</div>
+      <div class="weight-track">
+        <div class="weight-fill" style="width:10%;background:var(--teal);">10%</div>
+      </div>
+      <div class="weight-pct">0.1×</div>
+    </div>
+    <p style="margin-top:.5rem;font-size:.75rem;">Final score min-max normalized → [0, 1]. If <code>future_vol_20d</code> is absent, vol component is neutral at 0.5.</p>
+  </div>
+
+  <!-- Model detail diagram -->
+  <div class="diagram-wrap" style="margin-top:1.5rem;">
+    <svg viewBox="0 0 880 310" width="880" height="310" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;">
+      <!-- Input: panel features -->
+      <rect x="20" y="120" width="140" height="60" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="90" y="147" font-family="JetBrains Mono,monospace" font-size="9" fill="#00d4c8" text-anchor="middle">Panel cross-section</text>
+      <text x="90" y="163" font-family="JetBrains Mono,monospace" font-size="8" fill="#4a5568" text-anchor="middle">features_* columns</text>
+
+      <!-- FeatureSelector -->
+      <rect x="210" y="120" width="140" height="60" rx="3" fill="#181c22" stroke="#b06aff" stroke-width="1"/>
+      <text x="280" y="144" font-family="JetBrains Mono,monospace" font-size="9" fill="#b06aff" text-anchor="middle" font-weight="600">FeatureSelector</text>
+      <text x="280" y="160" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">drop NaN · decorrelate</text>
+      <text x="280" y="174" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">permutation + SHAP stability</text>
+
+      <line x1="160" y1="150" x2="208" y2="150" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+      <!-- Three model boxes -->
+      <!-- LGBM -->
+      <rect x="400" y="20" width="160" height="80" rx="3" fill="#181c22" stroke="#f5a623" stroke-width="1.5"/>
+      <text x="480" y="48" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#f5a623" text-anchor="middle" font-weight="700">LGBMRanker</text>
+      <text x="480" y="66" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3" text-anchor="middle">lambdarank · ndcg@10</text>
+      <text x="480" y="82" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3" text-anchor="middle">target: cs_rank_20d → int label</text>
+
+      <!-- CatBoost -->
+      <rect x="400" y="115" width="160" height="80" rx="3" fill="#181c22" stroke="#b06aff" stroke-width="1.5"/>
+      <text x="480" y="143" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#b06aff" text-anchor="middle" font-weight="700">CatBoostModel</text>
+      <text x="480" y="161" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3" text-anchor="middle">classifier · target: top_quintile</text>
+      <text x="480" y="177" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3" text-anchor="middle">→ ProbabilityCalibrator (isotonic)</text>
+
+      <!-- XGB -->
+      <rect x="400" y="210" width="160" height="60" rx="3" fill="#181c22" stroke="#4a5568" stroke-width="1"/>
+      <text x="480" y="238" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#8a95a3" text-anchor="middle" font-weight="700">XGBBaseline</text>
+      <text x="480" y="254" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">benchmark comparison only</text>
+
+      <!-- arrows from selector to models -->
+      <line x1="350" y1="140" x2="398" y2="65" stroke="#252d3a" stroke-width="1.2" marker-end="url(#arr2)"/>
+      <line x1="350" y1="150" x2="398" y2="155" stroke="#252d3a" stroke-width="1.2" marker-end="url(#arr2)"/>
+      <line x1="350" y1="160" x2="398" y2="237" stroke="#252d3a" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+      <!-- Optuna box -->
+      <rect x="400" y="280" width="160" height="24" rx="2" fill="rgba(245,166,35,.08)" stroke="rgba(245,166,35,.25)"/>
+      <text x="480" y="296" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#f5a623" text-anchor="middle">Optuna: mean_ndcg@10 − 0.5·std</text>
+
+      <!-- EnsembleRanker -->
+      <rect x="635" y="80" width="200" height="100" rx="4" fill="#181c22" stroke="#3dffa0" stroke-width="1.5"/>
+      <text x="735" y="112" font-family="JetBrains Mono,monospace" font-size="10.5" fill="#3dffa0" text-anchor="middle" font-weight="700">EnsembleRanker</text>
+      <text x="735" y="132" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3" text-anchor="middle">0.6 × LGBM</text>
+      <text x="735" y="148" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3" text-anchor="middle">0.3 × CatBoost (calibrated)</text>
+      <text x="735" y="164" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3" text-anchor="middle">0.1 × inv-vol → min-max [0,1]</text>
+
+      <!-- arrows to ensemble -->
+      <line x1="560" y1="60" x2="633" y2="110" stroke="#f5a623" stroke-width="1.2" marker-end="url(#arr-amber)" opacity=".7"/>
+      <line x1="560" y1="155" x2="633" y2="140" stroke="#b06aff" stroke-width="1.2" marker-end="url(#arr)" opacity=".7"/>
+
+      <!-- Output -->
+      <rect x="635" y="220" width="200" height="40" rx="3" fill="rgba(61,255,160,.08)" stroke="rgba(61,255,160,.3)"/>
+      <text x="735" y="244" font-family="JetBrains Mono,monospace" font-size="9" fill="#3dffa0" text-anchor="middle">blended rank score [0,1]</text>
+      <line x1="735" y1="180" x2="735" y2="218" stroke="#3dffa0" stroke-width="1.2" marker-end="url(#arr-green)"/>
+
+      <!-- Calibration warning -->
+      <rect x="400" y="306" width="160" height="14" rx="2" fill="rgba(255,92,92,.06)" stroke="rgba(255,92,92,.2)"/>
+      <text x="480" y="317" font-family="JetBrains Mono,monospace" font-size="6.5" fill="#ff5c5c" text-anchor="middle">⚠ final calibration on full data, not per-fold</text>
+    </svg>
+  </div>
+
+  <!-- CV diagram -->
+  <h3 style="margin-top:2rem;">Purged Walk-Forward Cross-Validation</h3>
+  <p>The CV scheme prevents future leakage by inserting a purge window (40 days) and embargo window (5 days) between training and test folds.</p>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 880 160" width="880" height="160" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;">
+      <!-- timeline bar -->
+      <rect x="20" y="70" width="840" height="20" rx="2" fill="#181c22" stroke="#252d3a"/>
+
+      <!-- Fold 1 -->
+      <rect x="20" y="70" width="240" height="20" rx="2" fill="rgba(79,163,255,.3)" stroke="rgba(79,163,255,.5)"/>
+      <text x="140" y="84" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#fff" text-anchor="middle">Train 1  (≥504 days)</text>
+
+      <rect x="260" y="70" width="30" height="20" fill="rgba(255,92,92,.4)" stroke="rgba(255,92,92,.6)"/>
+      <text x="275" y="80" font-family="JetBrains Mono,monospace" font-size="6" fill="#fff" text-anchor="middle">PG</text>
+
+      <rect x="290" y="70" width="8" height="20" fill="rgba(176,106,255,.5)"/>
+      <text x="294" y="80" font-family="JetBrains Mono,monospace" font-size="6" fill="#fff" text-anchor="middle">EM</text>
+
+      <rect x="298" y="70" width="120" height="20" rx="0" fill="rgba(61,255,160,.3)" stroke="rgba(61,255,160,.5)"/>
+      <text x="358" y="84" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#fff" text-anchor="middle">Test 1  (126 days)</text>
+
+      <!-- Fold 2 -->
+      <rect x="20" y="100" width="360" height="20" rx="2" fill="rgba(79,163,255,.3)" stroke="rgba(79,163,255,.5)"/>
+      <text x="190" y="114" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#fff" text-anchor="middle">Train 2</text>
+      <rect x="380" y="100" width="30" height="20" fill="rgba(255,92,92,.4)" stroke="rgba(255,92,92,.6)"/>
+      <rect x="410" y="100" width="8" height="20" fill="rgba(176,106,255,.5)"/>
+      <rect x="418" y="100" width="120" height="20" rx="0" fill="rgba(61,255,160,.3)" stroke="rgba(61,255,160,.5)"/>
+      <text x="478" y="114" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#fff" text-anchor="middle">Test 2</text>
+
+      <!-- Fold 3 -->
+      <rect x="20" y="130" width="480" height="20" rx="2" fill="rgba(79,163,255,.3)" stroke="rgba(79,163,255,.5)"/>
+      <text x="250" y="144" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#fff" text-anchor="middle">Train 3</text>
+      <rect x="500" y="130" width="30" height="20" fill="rgba(255,92,92,.4)" stroke="rgba(255,92,92,.6)"/>
+      <rect x="530" y="130" width="8" height="20" fill="rgba(176,106,255,.5)"/>
+      <rect x="538" y="130" width="120" height="20" rx="0" fill="rgba(61,255,160,.3)" stroke="rgba(61,255,160,.5)"/>
+      <text x="598" y="144" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#fff" text-anchor="middle">Test 3</text>
+
+      <!-- Legend -->
+      <rect x="20" y="20" width="14" height="10" fill="rgba(79,163,255,.5)"/>
+      <text x="40" y="30" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3">Train (expanding)</text>
+      <rect x="170" y="20" width="14" height="10" fill="rgba(255,92,92,.5)"/>
+      <text x="190" y="30" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3">Purge 40d</text>
+      <rect x="280" y="20" width="14" height="10" fill="rgba(176,106,255,.5)"/>
+      <text x="300" y="30" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3">Embargo 5d</text>
+      <rect x="390" y="20" width="14" height="10" fill="rgba(61,255,160,.5)"/>
+      <text x="410" y="30" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3">Test 126d</text>
+    </svg>
+  </div>
+</div>
+</section>
+
+<!-- ── SECTION 7: PORTFOLIO ── -->
+<section id="portfolio">
+<div class="container">
+  <div class="section-label">07 — Portfolio Construction</div>
+  <h2>From Score to Weights</h2>
+  <p><code>PortfolioConstructor</code> applies a cascade of filters and constraints to convert a raw score vector into investable weights.</p>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 880 120" width="880" height="120" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;">
+      <!-- Pipeline of filters -->
+      <rect x="20" y="30" width="120" height="50" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="80" y="52" font-family="JetBrains Mono,monospace" font-size="9" fill="#3dffa0" text-anchor="middle">Ensemble</text>
+      <text x="80" y="68" font-family="JetBrains Mono,monospace" font-size="9" fill="#3dffa0" text-anchor="middle">Score [0,1]</text>
+
+      <line x1="140" y1="55" x2="165" y2="55" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+      <rect x="165" y="30" width="110" height="50" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="220" y="52" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#f5a623" text-anchor="middle">ADV filter</text>
+      <text x="220" y="68" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">min_adv_usd</text>
+
+      <line x1="275" y1="55" x2="295" y2="55" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+      <rect x="295" y="30" width="110" height="50" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="350" y="52" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#f5a623" text-anchor="middle">Top-N select</text>
+      <text x="350" y="68" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">rank desc → greedy</text>
+
+      <line x1="405" y1="55" x2="425" y2="55" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+      <rect x="425" y="30" width="115" height="50" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="482" y="52" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#f5a623" text-anchor="middle">Sector cap</text>
+      <text x="482" y="68" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">max per sector</text>
+
+      <line x1="540" y1="55" x2="560" y2="55" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+      <rect x="560" y="30" width="115" height="50" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="617" y="45" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#f5a623" text-anchor="middle">Weighting</text>
+      <text x="617" y="61" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">equal or inv-vol</text>
+      <text x="617" y="75" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">+ single-stock cap</text>
+
+      <line x1="675" y1="55" x2="695" y2="55" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+      <rect x="695" y="30" width="130" height="50" rx="3" fill="#181c22" stroke="#3dffa0" stroke-width="1.2"/>
+      <text x="760" y="52" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#3dffa0" text-anchor="middle">Beta check</text>
+      <text x="760" y="68" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">reduce if β > limit</text>
+
+      <!-- Output note -->
+      <text x="440" y="110" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">returns (ticker_scores, weights) — maps ticker → rank score and ticker → final portfolio weight</text>
+    </svg>
+  </div>
+</div>
+</section>
+
+<!-- ── SECTION 8: BACKTEST ── -->
+<section id="backtest">
+<div class="container">
+  <div class="section-label">08 — Backtest Engine</div>
+  <h2>Weekly Simulation Loop</h2>
+  <p>The engine iterates over each <code>group_date</code> in the historical panel, simulating real portfolio management: scoring → construction → execution → NAV update.</p>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 880 400" width="880" height="400" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;">
+      <!-- Loop boundary -->
+      <rect x="30" y="20" width="640" height="350" rx="6" fill="rgba(79,163,255,.03)" stroke="rgba(79,163,255,.2)" stroke-dasharray="6,4"/>
+      <text x="50" y="44" font-family="JetBrains Mono,monospace" font-size="9" fill="#4fa3ff" letter-spacing="2">FOR EACH group_date →</text>
+
+      <!-- Step boxes -->
+      <rect x="60" y="58" width="200" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="160" y="76" font-family="JetBrains Mono,monospace" font-size="9" fill="#4fa3ff" text-anchor="middle">① Filter in-universe</text>
+      <text x="160" y="92" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">cross-section at this group_date</text>
+
+      <rect x="60" y="118" width="200" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="160" y="136" font-family="JetBrains Mono,monospace" font-size="9" fill="#4fa3ff" text-anchor="middle">② Score via Ensemble</text>
+      <text x="160" y="152" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">EnsembleRanker.predict()</text>
+
+      <rect x="60" y="178" width="200" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="160" y="196" font-family="JetBrains Mono,monospace" font-size="9" fill="#4fa3ff" text-anchor="middle">③ Construct target weights</text>
+      <text x="160" y="212" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">PortfolioConstructor</text>
+
+      <rect x="60" y="238" width="200" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="160" y="256" font-family="JetBrains Mono,monospace" font-size="9" fill="#4fa3ff" text-anchor="middle">④ Compute period returns</text>
+      <text x="160" y="272" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">current holdings × future_20d_return</text>
+
+      <rect x="60" y="298" width="200" height="44" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="160" y="316" font-family="JetBrains Mono,monospace" font-size="9" fill="#4fa3ff" text-anchor="middle">⑤ Apply execution costs</text>
+      <text x="160" y="332" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">ExecutionModel.apply_costs()</text>
+
+      <!-- Arrows down inside loop -->
+      <line x1="160" y1="102" x2="160" y2="116" stroke="#4fa3ff" stroke-width="1" marker-end="url(#arr-blue)" opacity=".5"/>
+      <line x1="160" y1="162" x2="160" y2="176" stroke="#4fa3ff" stroke-width="1" marker-end="url(#arr-blue)" opacity=".5"/>
+      <line x1="160" y1="222" x2="160" y2="236" stroke="#4fa3ff" stroke-width="1" marker-end="url(#arr-blue)" opacity=".5"/>
+      <line x1="160" y1="282" x2="160" y2="296" stroke="#4fa3ff" stroke-width="1" marker-end="url(#arr-blue)" opacity=".5"/>
+
+      <!-- Loop back arrow -->
+      <path d="M 60 330 Q 30 330 30 200 Q 30 70 60 70" fill="none" stroke="#252d3a" stroke-width="1.2" stroke-dasharray="3,3"/>
+      <text x="12" y="204" font-family="JetBrains Mono,monospace" font-size="7" fill="#4a5568" transform="rotate(-90,12,204)">next week</text>
+
+      <!-- ExecutionModel box -->
+      <rect x="360" y="100" width="230" height="150" rx="4" fill="#181c22" stroke="#f5a623" stroke-width="1"/>
+      <text x="475" y="128" font-family="JetBrains Mono,monospace" font-size="10" fill="#f5a623" text-anchor="middle" font-weight="700">ExecutionModel</text>
+      <line x1="368" y1="136" x2="582" y2="136" stroke="#252d3a"/>
+      <text x="375" y="155" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">ADV participation cap</text>
+      <text x="375" y="173" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Tiered slippage (MarketConfig)</text>
+      <text x="375" y="191" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Commission</text>
+      <text x="375" y="209" font-family="JetBrains Mono,monospace" font-size="8" fill="#8a95a3">Market impact if &gt;1% ADV</text>
+      <text x="375" y="232" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568">returns TradeResult dataclass</text>
+
+      <text x="475" y="270" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">Signal at close T → execute at open T+1</text>
+
+      <!-- Arrow from ⑤ to ExecutionModel -->
+      <line x1="260" y1="320" x2="358" y2="200" stroke="#f5a623" stroke-width="1.2" marker-end="url(#arr-amber)" opacity=".6"/>
+
+      <!-- Performance reporter -->
+      <rect x="700" y="100" width="160" height="150" rx="4" fill="#181c22" stroke="#3dffa0" stroke-width="1"/>
+      <text x="780" y="124" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#3dffa0" text-anchor="middle" font-weight="700">Performance</text>
+      <text x="780" y="140" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#3dffa0" text-anchor="middle" font-weight="700">Reporter</text>
+      <line x1="708" y1="150" x2="852" y2="150" stroke="#252d3a"/>
+      <text x="715" y="168" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3">gross/net annual return</text>
+      <text x="715" y="184" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3">Sharpe / Calmar</text>
+      <text x="715" y="200" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3">max drawdown</text>
+      <text x="715" y="216" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3">hit ratio · turnover</text>
+      <text x="715" y="232" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#8a95a3">sector attribution</text>
+
+      <line x1="590" y1="175" x2="698" y2="175" stroke="#3dffa0" stroke-width="1.2" marker-end="url(#arr-green)" opacity=".6"/>
+
+      <!-- Output artifacts -->
+      <rect x="700" y="290" width="160" height="50" rx="3" fill="rgba(61,255,160,.08)" stroke="rgba(61,255,160,.3)"/>
+      <text x="780" y="313" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#3dffa0" text-anchor="middle">report_{market}.html</text>
+      <text x="780" y="329" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">equity_curve.parquet + perf JSON</text>
+      <line x1="780" y1="250" x2="780" y2="288" stroke="#3dffa0" stroke-width="1" marker-end="url(#arr-green)" opacity=".6"/>
+
+      <!-- NAV update label -->
+      <text x="160" y="365" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">⑥ Update NAV → carry target to current → advance week</text>
+    </svg>
+  </div>
+
+  <div class="metric-grid">
+    <div class="metric">
+      <div class="m-label">Return Horizon</div>
+      <div class="m-val">20 days</div>
+    </div>
+    <div class="metric">
+      <div class="m-label">Rebalance Frequency</div>
+      <div class="m-val">Weekly</div>
+    </div>
+    <div class="metric">
+      <div class="m-label">Execution Assumption</div>
+      <div class="m-val">T+1 open</div>
+    </div>
+    <div class="metric">
+      <div class="m-label">Cost Model</div>
+      <div class="m-val">Slippage + Commission + Impact</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ── SECTION 9: MONITORING ── -->
+<section id="monitoring">
+<div class="container">
+  <div class="section-label">09 — Monitoring &amp; Retraining</div>
+  <h2>Feature Drift Detection (PSI)</h2>
+  <p><code>FeatureDriftMonitor</code> compares the live feature distribution against the training baseline using Population Stability Index. Three thresholds trigger different actions.</p>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 880 200" width="880" height="200" xmlns="http://www.w3.org/2000/svg" style="max-width:100%;height:auto;">
+      <!-- Training baseline -->
+      <rect x="20" y="60" width="160" height="80" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="100" y="92" font-family="JetBrains Mono,monospace" font-size="9" fill="#4fa3ff" text-anchor="middle">Training baseline</text>
+      <text x="100" y="110" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">fit_baseline(train_panel)</text>
+      <text x="100" y="126" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">equal-frequency bins</text>
+
+      <!-- Live distribution -->
+      <rect x="20" y="30" width="160" height="30" rx="3" fill="#181c22" stroke="#252d3a"/>
+      <text x="100" y="50" font-family="JetBrains Mono,monospace" font-size="9" fill="#3dffa0" text-anchor="middle">Live weekly snapshot</text>
+
+      <!-- PSI compute -->
+      <rect x="260" y="70" width="160" height="60" rx="3" fill="#181c22" stroke="#f5a623" stroke-width="1"/>
+      <text x="340" y="98" font-family="JetBrains Mono,monospace" font-size="9.5" fill="#f5a623" text-anchor="middle" font-weight="700">PSI Compute</text>
+      <text x="340" y="116" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">compute_weekly_drift()</text>
+
+      <line x1="180" y1="100" x2="258" y2="100" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+      <line x1="180" y1="45" x2="250" y2="90" stroke="#4a5568" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+      <!-- Three outcome boxes -->
+      <rect x="510" y="20" width="170" height="44" rx="3" fill="rgba(61,255,160,.08)" stroke="rgba(61,255,160,.3)"/>
+      <text x="595" y="40" font-family="JetBrains Mono,monospace" font-size="8" fill="#3dffa0" text-anchor="middle">PSI &lt; psi_alert_threshold</text>
+      <text x="595" y="56" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">✓ No action</text>
+
+      <rect x="510" y="78" width="170" height="44" rx="3" fill="rgba(245,166,35,.08)" stroke="rgba(245,166,35,.3)"/>
+      <text x="595" y="98" font-family="JetBrains Mono,monospace" font-size="8" fill="#f5a623" text-anchor="middle">PSI &gt; psi_alert_threshold</text>
+      <text x="595" y="114" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">⚠ Log warning</text>
+
+      <rect x="510" y="136" width="170" height="44" rx="3" fill="rgba(255,92,92,.08)" stroke="rgba(255,92,92,.3)"/>
+      <text x="595" y="156" font-family="JetBrains Mono,monospace" font-size="8" fill="#ff5c5c" text-anchor="middle">PSI &gt; psi_retrain_threshold</text>
+      <text x="595" y="172" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">🚨 set retrain_flag</text>
+
+      <!-- Arrows from PSI -->
+      <line x1="420" y1="90" x2="508" y2="42" stroke="#4a5568" stroke-width="1" marker-end="url(#arr2)"/>
+      <line x1="420" y1="100" x2="508" y2="100" stroke="#4a5568" stroke-width="1" marker-end="url(#arr2)"/>
+      <line x1="420" y1="110" x2="508" y2="158" stroke="#4a5568" stroke-width="1" marker-end="url(#arr2)"/>
+
+      <!-- RetrainingScheduler -->
+      <rect x="755" y="136" width="100" height="44" rx="3" fill="#181c22" stroke="#ff5c5c"/>
+      <text x="805" y="156" font-family="JetBrains Mono,monospace" font-size="8" fill="#ff5c5c" text-anchor="middle">Retrain</text>
+      <text x="805" y="172" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">Scheduler</text>
+      <line x1="680" y1="158" x2="753" y2="158" stroke="#ff5c5c" stroke-width="1.2" marker-end="url(#arr2)"/>
+
+      <!-- Drift parquet note -->
+      <text x="340" y="180" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#4a5568" text-anchor="middle">results → monitoring/feature_drift.parquet</text>
+      <text x="805" y="195" font-family="JetBrains Mono,monospace" font-size="7" fill="#4a5568" text-anchor="middle">retrain_queue.json</text>
+    </svg>
+  </div>
+
+  <p style="margin-top:1rem;">If more than 20% of monitored features breach the retrain threshold simultaneously, the monitor logs a global retrain trigger in addition to the per-feature flags.</p>
+</div>
+</section>
+
+<!-- ── SECTION 10: CAVEATS ── -->
+<section id="caveats">
+<div class="container">
+  <div class="section-label">10 — Implementation Caveats</div>
+  <h2>Known Issues &amp; Gotchas</h2>
+  <p>These are the most important pitfalls to be aware of before running or extending the pipeline.</p>
+
+  <div class="caveat-list">
+    <div class="caveat">
+      <span class="c-icon">🔑</span>
+      <div>
+        <strong>No tickers file = demo mode only</strong>
+        Without a <code>--tickers_file</code>, the pipeline falls back to the benchmark ticker alone. That is not a realistic equity-selection universe.
+      </div>
+    </div>
+    <div class="caveat">
+      <span class="c-icon">⚠️</span>
+      <div>
+        <strong>missing features_ prefix on multi-timeframe columns</strong>
+        <code>weekly_trend</code> and <code>monthly_trend</code> lack the <code>features_</code> prefix. They are silently excluded from model training unless renamed or explicitly included.
+      </div>
+    </div>
+    <div class="caveat">
+      <span class="c-icon">🚨</span>
+      <div>
+        <strong>Potential leakage: future_vol_20d in inference</strong>
+        The ensemble uses <code>future_vol_20d</code> when available. This is a forward-looking target. If the column is present during live inference it introduces look-ahead bias. The code neutralizes it when absent, but the column should never be passed at inference time.
+      </div>
+    </div>
+    <div class="caveat">
+      <span class="c-icon">📐</span>
+      <div>
+        <strong>Overlapping return periods in backtest</strong>
+        The backtest uses <code>future_20d_return</code> (20-day horizon) while rebalancing weekly. Consecutive weekly groups have overlapping 20-day windows; treat the interpretation of annualized metrics carefully.
+      </div>
+    </div>
+    <div class="caveat">
+      <span class="c-icon">🏗️</span>
+      <div>
+        <strong>No market cap without shares_outstanding</strong>
+        <code>PanelConstructor.build</code> only computes <code>market_cap_usd</code> when <code>shares_outstanding</code> is provided. Without it, <code>UniverseBuilder</code> may exclude every ticker, producing an empty universe.
+      </div>
+    </div>
+    <div class="caveat">
+      <span class="c-icon">📉</span>
+      <div>
+        <strong>Calibration fit on full training data</strong>
+        The final calibrator is fit and validated on the same full-dataset predictions rather than a held-out calibration fold. This may overstate calibration quality.
+      </div>
+    </div>
+    <div class="caveat">
+      <span class="c-icon">🌐</span>
+      <div>
+        <strong>Chart.js CDN dependency</strong>
+        The HTML performance report loads Chart.js from a CDN. Charts will not render when the report is opened offline.
+      </div>
+    </div>
+    <div class="caveat">
+      <span class="c-icon">🔤</span>
+      <div>
+        <strong>Mojibake in source comments</strong>
+        Several source files have encoding issues causing garbled characters in comments. The code executes correctly but cleaning file encodings would improve maintainability.
+      </div>
+    </div>
+  </div>
+
+  <!-- Add a new market guide -->
+  <h3 style="margin-top:2rem;">Adding a New Market — 6 Steps</h3>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h4>Create pipeline/config/{market}.py</h4>
+        <p>Instantiate <code>MarketConfig</code> with the correct calendar, benchmark ticker, currency, data sources, slippage, liquidity, and risk settings.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h4>Register in __init__.py</h4>
+        <p>Import the new config and add it to <code>MARKET_CONFIGS</code> so <code>get_config()</code> can resolve it.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h4>Verify data provider compatibility</h4>
+        <p>Ensure the chosen primary/fallback source can fetch tickers in the format used by that market (e.g. NSE suffix conventions).</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h4>Provide a ticker file and symbol master</h4>
+        <p>Supply a flat ticker list and, ideally, a symbol master CSV with sector, listing date, and shares outstanding for proper universe eligibility and market cap calculation.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h4>Run test_integration.py</h4>
+        <p>Use the synthetic-data smoke test to validate that all major pipeline components initialize and run end-to-end without live data.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <h4>Run training with --skip_fetch=False</h4>
+        <p>Execute a full training run to build and save artifacts. All downstream modules read from <code>MarketConfig</code> and require no further changes unless the data source format differs.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<footer>
+  ml-stock-predictor · Architecture Reference · Generated with Claude
+</footer>
+
+<script>
+  // Tab logic
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const group = btn.closest('.tab-group');
+      group.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      group.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+      btn.classList.add('active');
+      group.querySelector('#' + btn.dataset.target).classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

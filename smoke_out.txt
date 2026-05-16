@@ -1,0 +1,101 @@
+
+============================================================
+SMOKE TEST  —  40 tickers / 5 folds / 0 HPO trials
+============================================================
+
+[0] Tickers: ['360ONE.NS', '3MINDIA.NS', 'ABB.NS', 'ACC.NS', 'AIAENG.NS'] ... (40 total)
+[1] Loading benchmark (^NSEI)...
+[2] Building panel from local CSVs...
+Loading 40 local CSV files (parallel I/O) ...
+  Loaded 34 tickers, skipped 6 (< 252 days)
+  Panel shape: (85284, 10)  |  date range: 2010-01-04 -> 2023-12-08
+    Panel: (85284, 10)  |  2010-01-04 -> 2023-12-08
+    in_universe True: 85284
+[3] Feature engineering...
+{"time":"2026-05-09T14:09:34","level":"INFO","logger":"pipeline.features.engineer","msg":"Engineering features..."}
+{"time":"2026-05-09T14:10:01","level":"INFO","logger":"pipeline.features.multitf_merger","msg":"MultiTFMerger generated | rows=85284 | features=11"}
+{"time":"2026-05-09T14:20:31","level":"INFO","logger":"pipeline.features.engineer","msg":"Features computed: 75 feature columns"}
+    75 feature columns
+    Date index OK: dtype=datetime64[us]
+[4] Building targets...
+{"time":"2026-05-09T14:20:31","level":"INFO","logger":"pipeline.targets.builder","msg":"Building targets for horizons: 20d, 40d, 60d ..."}
+{"time":"2026-05-09T14:20:32","level":"INFO","logger":"pipeline.targets.builder","msg":"Targets built. top_quintile_20d: 18744 | top_quintile_40d: 18605 | top_quintile_60d: 18465"}
+    cs_rank_20d non-null: 83078  |  top_quintile positives: 18744
+[5] Leakage tests...
+{"time":"2026-05-09T14:20:32","level":"INFO","logger":"pipeline.validation.leakage_tests","msg":"Leakage [PASS] FuturePriceColumnTest: No future-price columns in feature set."}
+{"time":"2026-05-09T14:20:32","level":"INFO","logger":"pipeline.validation.leakage_tests","msg":"Leakage [PASS] TargetShiftTest: Same-day return vs target: Spearman r=-0.0019 (p=0.5762). OK — target appears correctly shifted."}
+{"time":"2026-05-09T14:20:34","level":"INFO","logger":"pipeline.validation.leakage_tests","msg":"Leakage [PASS] TemporalCorrelationTest: 1 features with |Spearman r| > 0.15 (review manually — may be genuine signal or leakage): [('features_zone_dist_atr', np.float64(-0.1529))] [REVIEW REQUIRED]"}
+{"time":"2026-05-09T14:20:45","level":"WARNING","logger":"pipeline.validation.leakage_tests","msg":"ForwardFillBoundaryTest: 5 features are constant (zero variance) across the entire panel — likely sparse zone/regime data with no signal. These are uninformative and will be dropped by FeatureSelector. Not leakage: ['features_ict_session_weight', 'features_sdz_1y', 'features_ssz_1y', 'features_dz_1y', 'features_sz_1y']"}
+{"time":"2026-05-09T14:20:45","level":"INFO","logger":"pipeline.validation.leakage_tests","msg":"ForwardFillBoundaryTest: 43 high-similarity features have real variance — legitimately persistent (zones, regime, etc.): ['features_ict_bob_active', 'features_ict_sob_active', 'features_ict_bullbb_active', 'features_ict_bearbb_active', 'features_ict_bullfvg_active', 'features_ict_bullfvg_dist', 'features_ict_bearfvg_active', 'features_ict_bsl_swept', 'features_ict_ssl_swept', 'features_ict_bull_zone_priority']"}
+{"time":"2026-05-09T14:20:45","level":"INFO","logger":"pipeline.validation.leakage_tests","msg":"Leakage [PASS] ForwardFillBoundaryTest: No genuine ffill boundary leakage detected. (5 constant-zero features noted; 43 persistent features noted.)"}
+{"time":"2026-05-09T14:20:45","level":"INFO","logger":"pipeline.validation.leakage_tests","msg":"Leakage [PASS] GroupBoundaryTest: No future return columns with values in last 20 rows — OK."}
+{"time":"2026-05-09T14:20:45","level":"INFO","logger":"pipeline.validation.leakage_tests","msg":"Leakage suite: 5/5 tests passed."}
+[6] Walk-forward CV (5 folds)...
+{"time":"2026-05-09T14:20:45","level":"INFO","logger":"pipeline.validation.cv","msg":"Generated 5 fold specs."}
+    5 fold specs generated
+[7] Training final models (no HPO)...
+    Classifier rows: 83078  (18744 pos / 64334 neg)
+{"time":"2026-05-09T14:20:45","level":"INFO","logger":"pipeline.selection.selector","msg":"FeatureSelector starting with 75 features, top_k=20"}
+{"time":"2026-05-09T14:20:45","level":"INFO","logger":"pipeline.selection.selector","msg":"Step 1 removed 3 features with >5% NaN: ['features_zone_dist_atr', 'features_atr_pct_rank_252', 'features_high_52w_dist']..."}
+{"time":"2026-05-09T14:20:49","level":"INFO","logger":"pipeline.selection.selector","msg":"Step 2 removed 8 correlated features"}
+{"time":"2026-05-09T14:21:21","level":"WARNING","logger":"pipeline.selection.selector","msg":"Step 4: 1 unstable features (rank std > 10): ['features_return_5d']"}
+{"time":"2026-05-09T14:21:21","level":"INFO","logger":"pipeline.selection.selector","msg":"Selected 36 features  (16 zone/OB forced  +  20 top-20 ordinary)"}
+    Selected 36 features
+{"time":"2026-05-09T14:21:21","level":"INFO","logger":"pipeline.models.lgbm_ranker","msg":"Monotone constraints: 8 positive, 4 negative, 24 unconstrained"}
+{"time":"2026-05-09T14:21:23","level":"INFO","logger":"pipeline.models.lgbm_ranker","msg":"LGBMRanker trained. Best iteration: 0"}
+    LGBMRanker  OK
+{"time":"2026-05-09T14:21:25","level":"INFO","logger":"pipeline.models.catboost_model","msg":"CatBoostModel trained."}
+    CatBoostModel OK
+{"time":"2026-05-09T14:21:25","level":"INFO","logger":"pipeline.models.xgb_baseline","msg":"Classifier row split: train=70617 rows | val=12461 rows"}
+{"time":"2026-05-09T14:21:25","level":"INFO","logger":"pipeline.models.xgb_baseline","msg":"fit_hash=cf4502abeee256885ca06d9a  seed=42"}
+{"time":"2026-05-09T14:21:25","level":"INFO","logger":"pipeline.models.xgb_baseline","msg":"Monotone: +8 / -4 / 24 unconstrained"}
+{"time":"2026-05-09T14:21:27","level":"INFO","logger":"pipeline.models.xgb_baseline","msg":"XGBBaseline [classifier] v2.2.0 | fit_hash=cf4502abeee256885ca06d9a | best_iter=38 | val_auc=0.4842 | rows=70617 | features=36 | runtime=1.6s | metrics={'auc': 0.654978, 'logloss': 0.484233, 'precision_at_10': 0.3}"}
+    XGBBaseline   OK
+--- Logging error ---
+Traceback (most recent call last):
+  File "C:\Users\victor.prabhu\AppData\Local\Programs\Python\Python314\Lib\logging\__init__.py", line 1154, in emit
+    stream.write(msg + self.terminator)
+    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\victor.prabhu\AppData\Local\Programs\Python\Python314\Lib\encodings\cp1252.py", line 19, in encode
+    return codecs.charmap_encode(input,self.errors,encoding_table)[0]
+           ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'charmap' codec can't encode character '\u2192' in position 114: character maps to <undefined>
+Call stack:
+  File "C:\Victor\Project\ml-stock-predictor\smoke_test.py", line 252, in <module>
+    main()
+  File "C:\Victor\Project\ml-stock-predictor\smoke_test.py", line 205, in main
+    cal.fit(cb_probs, y_full_c_cls.values)
+  File "C:\Victor\Project\ml-stock-predictor\pipeline\models\calibrator.py", line 105, in fit
+    log.info(f"Calibration OK | {raw_ece:.4f} \u2192 {cal_ece:.4f}")
+Message: 'Calibration OK | 0.0290 \u2192 0.0000'
+Arguments: ()
+    ProbabilityCalibrator OK
+{"time":"2026-05-09T14:21:27","level":"INFO","logger":"pipeline.monitoring.drift_monitor","msg":"Drift monitor baseline fitted for 10 features."}
+[8] Scoring latest cross-section...
+
+Scoring latest cross-section: 2023-12-08
+  Signal weights loaded from: signal_weights.yaml  (model=60%, composite=40%)
+  Bull watchlist: 4 stocks
+  Bear watchlist: 4 stocks
+
+  Top 10 SHAP features:
+                     feature  mean_abs_shap
+       features_dz_raw_score       0.158152
+             features_dz_1mo       0.151336
+    features_sma200_slope_10       0.094505
+       features_ict_sob_dist       0.074653
+             features_sz_1wk       0.067139
+          features_return_1d       0.062142
+              features_sz_1d       0.059991
+    features_vol_contraction       0.052218
+             features_sz_1mo       0.045663
+features_zone_htf_confluence       0.039184
+{"time":"2026-05-09T14:21:31","level":"INFO","logger":"pipeline.explainability.shap_explainer","msg":"SHAP global plot saved to reports\shap_global_nse_local.png"}
+    (no watchlist rows produced — check score_and_rank output keys)
+
+[9] Saving smoke artefacts -> artefacts\smoke_test/
+
+============================================================
+SMOKE TEST PASSED -- safe to launch the full run.
+============================================================
+

@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NSE ML Stock Predictor — Pipeline Flow</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #ffffff;
+    --bg2:       #f8f9fc;
+    --bg3:       #f0f2f7;
+    --border:    #e2e6ef;
+    --border2:   #d0d6e4;
+    --text:      #1a1f2e;
+    --text2:     #4a5468;
+    --text3:     #8492a6;
+    --blue:      #2563eb;
+    --blue-l:    #eff6ff;
+    --blue-b:    #bfdbfe;
+    --green:     #059669;
+    --green-l:   #ecfdf5;
+    --green-b:   #a7f3d0;
+    --amber:     #d97706;
+    --amber-l:   #fffbeb;
+    --amber-b:   #fde68a;
+    --purple:    #7c3aed;
+    --purple-l:  #f5f3ff;
+    --purple-b:  #ddd6fe;
+    --red:       #dc2626;
+    --red-l:     #fef2f2;
+    --red-b:     #fecaca;
+    --teal:      #0891b2;
+    --teal-l:    #ecfeff;
+    --teal-b:    #a5f3fc;
+    --mono:      'JetBrains Mono', monospace;
+    --sans:      'Inter', sans-serif;
+    --radius:    8px;
+    --shadow:    0 1px 3px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.04);
+    --shadow-lg: 0 4px 12px rgba(0,0,0,.08), 0 12px 40px rgba(0,0,0,.06);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+
+  /* ── HEADER ── */
+  header {
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    padding: 3.5rem 2rem 3rem;
+    text-align: center;
+  }
+  .header-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--blue);
+    background: var(--blue-l);
+    border: 1px solid var(--blue-b);
+    padding: .3rem .8rem;
+    border-radius: 20px;
+    margin-bottom: 1.5rem;
+  }
+  header h1 {
+    font-size: clamp(1.8rem, 4vw, 2.8rem);
+    font-weight: 700;
+    color: var(--text);
+    letter-spacing: -.03em;
+    line-height: 1.15;
+    margin-bottom: .75rem;
+  }
+  header h1 span { color: var(--blue); }
+  header p {
+    color: var(--text2);
+    font-size: .9rem;
+    max-width: 600px;
+    margin: 0 auto;
+    line-height: 1.7;
+  }
+
+  /* ── NAV ── */
+  nav {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: rgba(255,255,255,.95);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--border);
+    padding: .75rem 2rem;
+    display: flex;
+    justify-content: center;
+    gap: .25rem;
+    flex-wrap: wrap;
+  }
+  nav a {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    color: var(--text3);
+    text-decoration: none;
+    padding: .3rem .7rem;
+    border-radius: 4px;
+    transition: all .15s;
+  }
+  nav a:hover { color: var(--blue); background: var(--blue-l); }
+
+  /* ── LAYOUT ── */
+  .container { max-width: 1120px; margin: 0 auto; padding: 0 2rem; }
+  section { padding: 4rem 0; border-bottom: 1px solid var(--border); }
+  section:last-child { border-bottom: none; }
+
+  .section-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: .5rem;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .15em;
+    text-transform: uppercase;
+    margin-bottom: .6rem;
+    font-weight: 600;
+  }
+  .section-eyebrow .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  h2 {
+    font-size: 1.55rem;
+    font-weight: 700;
+    letter-spacing: -.025em;
+    color: var(--text);
+    margin-bottom: .6rem;
+  }
+  .section-sub {
+    color: var(--text2);
+    font-size: .875rem;
+    margin-bottom: 2rem;
+    max-width: 680px;
+    line-height: 1.7;
+  }
+
+  /* ── MASTER FLOW SVG ── */
+  .flow-wrap {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 2.5rem 2rem;
+    overflow-x: auto;
+    margin-top: 1.5rem;
+  }
+  .flow-wrap svg { display: block; margin: 0 auto; }
+
+  /* ── LAYER CARDS ── */
+  .layer {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow);
+    margin-top: 1.5rem;
+    overflow: hidden;
+  }
+  .layer-header {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 1.1rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .layer-num {
+    font-family: var(--mono);
+    font-size: .7rem;
+    font-weight: 600;
+    letter-spacing: .08em;
+    padding: .25rem .6rem;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .layer-title {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: -.01em;
+  }
+  .layer-badge {
+    margin-left: auto;
+    font-family: var(--mono);
+    font-size: .65rem;
+    letter-spacing: .06em;
+    padding: .2rem .6rem;
+    border-radius: 20px;
+    white-space: nowrap;
+  }
+  .layer-body { padding: 1.5rem; }
+
+  .feat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: .75rem;
+    margin-bottom: 1rem;
+  }
+  .feat-box {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .9rem 1rem;
+  }
+  .feat-box .feat-label {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: .4rem;
+  }
+  .feat-box ul {
+    list-style: none;
+    padding: 0;
+  }
+  .feat-box ul li {
+    font-size: .78rem;
+    color: var(--text2);
+    padding: .1rem 0;
+    display: flex;
+    align-items: flex-start;
+    gap: .4rem;
+    line-height: 1.5;
+  }
+  .feat-box ul li::before {
+    content: '—';
+    color: var(--text3);
+    flex-shrink: 0;
+    margin-top: .05rem;
+  }
+
+  /* ── INFO BOX ── */
+  .info-box {
+    display: flex;
+    gap: .75rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .9rem 1.1rem;
+    margin-top: .75rem;
+    font-size: .8rem;
+    color: var(--text2);
+    line-height: 1.6;
+  }
+  .info-box .info-icon { font-size: 1rem; flex-shrink: 0; margin-top: .05rem; }
+
+  /* ── SPLIT TABLE ── */
+  .split-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    margin-top: 1rem;
+  }
+  @media (max-width: 600px) { .split-grid { grid-template-columns: 1fr; } }
+
+  .split-card {
+    border-radius: 8px;
+    padding: 1.1rem 1.25rem;
+    border: 1px solid var(--border);
+  }
+  .split-card .split-title {
+    font-weight: 600;
+    font-size: .875rem;
+    margin-bottom: .5rem;
+    display: flex;
+    align-items: center;
+    gap: .4rem;
+  }
+  .split-card p {
+    font-size: .78rem;
+    color: var(--text2);
+    margin: 0;
+    line-height: 1.6;
+  }
+
+  /* ── FORMULA BOX ── */
+  .formula {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-left: 3px solid;
+    border-radius: 0 6px 6px 0;
+    padding: .85rem 1.1rem;
+    font-family: var(--mono);
+    font-size: .8rem;
+    color: var(--text);
+    margin-top: .75rem;
+    line-height: 2;
+  }
+  .formula .f-comment { color: var(--text3); }
+  .formula .f-val { font-weight: 600; }
+
+  /* ── OUTPUT CARDS ── */
+  .output-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: .75rem;
+    margin-top: 1rem;
+  }
+  .output-card {
+    border-radius: 8px;
+    padding: 1rem 1.1rem;
+    border: 1px solid var(--border);
+    display: flex;
+    gap: .75rem;
+    align-items: flex-start;
+  }
+  .output-card .oc-icon { font-size: 1.3rem; flex-shrink: 0; }
+  .output-card .oc-title { font-size: .82rem; font-weight: 600; margin-bottom: .2rem; }
+  .output-card .oc-desc { font-size: .75rem; color: var(--text2); line-height: 1.5; }
+
+  /* ── TIMELINE ── */
+  .timeline { margin-top: 1.5rem; }
+  .tl-row {
+    display: flex;
+    gap: 1.25rem;
+    align-items: stretch;
+    margin-bottom: .5rem;
+  }
+  .tl-left {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 40px;
+    flex-shrink: 0;
+  }
+  .tl-dot {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: .65rem;
+    font-weight: 600;
+    flex-shrink: 0;
+    border: 2px solid;
+  }
+  .tl-line {
+    flex: 1;
+    width: 2px;
+    background: var(--border);
+    margin: 4px 0;
+  }
+  .tl-right {
+    padding: .3rem 0 1.25rem;
+    flex: 1;
+  }
+  .tl-title { font-size: .9rem; font-weight: 600; margin-bottom: .2rem; }
+  .tl-desc { font-size: .78rem; color: var(--text2); line-height: 1.6; }
+  .tl-time {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: .65rem;
+    padding: .15rem .5rem;
+    border-radius: 20px;
+    margin-top: .35rem;
+  }
+
+  /* ── COLOUR UTILS ── */
+  .c-blue   { color: var(--blue); }
+  .c-green  { color: var(--green); }
+  .c-amber  { color: var(--amber); }
+  .c-purple { color: var(--purple); }
+  .c-red    { color: var(--red); }
+  .c-teal   { color: var(--teal); }
+
+  .bg-blue   { background: var(--blue-l);   border-color: var(--blue-b);   color: var(--blue);   }
+  .bg-green  { background: var(--green-l);  border-color: var(--green-b);  color: var(--green);  }
+  .bg-amber  { background: var(--amber-l);  border-color: var(--amber-b);  color: var(--amber);  }
+  .bg-purple { background: var(--purple-l); border-color: var(--purple-b); color: var(--purple); }
+  .bg-red    { background: var(--red-l);    border-color: var(--red-b);    color: var(--red);    }
+  .bg-teal   { background: var(--teal-l);   border-color: var(--teal-b);   color: var(--teal);   }
+
+  code {
+    font-family: var(--mono);
+    font-size: .78rem;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: .1rem .4rem;
+    color: var(--blue);
+  }
+
+  /* ── FOOTER ── */
+  footer {
+    background: var(--bg2);
+    border-top: 1px solid var(--border);
+    padding: 2rem;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--text3);
+    letter-spacing: .04em;
+  }
+</style>
+</head>
+<body>
+
+<!-- ══ HEADER ══════════════════════════════════════════════════════════════ -->
+<header>
+  <div class="header-badge">⬡ NSE · LightGBM LambdaRank · ICT + SMC</div>
+  <h1>ML Stock Predictor<br><span>Pipeline Flow</span></h1>
+  <p>End-to-end architecture from raw OHLCV data to ranked watchlists — two independent rankers, zone-first composite scoring, walk-forward validation.</p>
+</header>
+
+<!-- ══ NAV ═════════════════════════════════════════════════════════════════ -->
+<nav>
+  <a href="#overview">Overview</a>
+  <a href="#layer0">Data</a>
+  <a href="#layer1">Features</a>
+  <a href="#layer2">Targets</a>
+  <a href="#layer3">CV</a>
+  <a href="#layer4">HPO</a>
+  <a href="#layer5">Training</a>
+  <a href="#layer6">Scoring</a>
+  <a href="#output">Output</a>
+  <a href="#timing">Timing</a>
+</nav>
+
+<!-- ══ OVERVIEW ════════════════════════════════════════════════════════════ -->
+<section id="overview">
+<div class="container">
+  <div class="section-eyebrow c-blue"><span class="dot" style="background:var(--blue)"></span>Architecture Overview</div>
+  <h2>How the pipeline works</h2>
+  <p class="section-sub">Eight sequential layers transform 499 NSE stock CSVs into two ranked watchlists — one for momentum setups, one for reversal setups — with separate ML models trained on each universe.</p>
+
+  <!-- MASTER FLOW DIAGRAM -->
+  <div class="flow-wrap">
+    <svg width="960" height="560" viewBox="0 0 960 560" fill="none" xmlns="http://www.w3.org/2000/svg" style="max-width:100%">
+      <defs>
+        <marker id="arr" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8"/>
+        </marker>
+        <marker id="arr-blue" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#2563eb"/>
+        </marker>
+        <marker id="arr-green" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+          <path d="M0,0 L0,6 L8,3 z" fill="#059669"/>
+        </marker>
+      </defs>
+
+      <!-- Row 1: Data sources -->
+      <rect x="30" y="20" width="140" height="54" rx="6" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+      <text x="100" y="43" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" font-weight="600" fill="#1e40af">499 NSE CSVs</text>
+      <text x="100" y="60" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="9" fill="#3b82f6">OHLCV · 2010→now</text>
+
+      <rect x="210" y="20" width="140" height="54" rx="6" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+      <text x="280" y="43" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" font-weight="600" fill="#1e40af">Benchmark</text>
+      <text x="280" y="60" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="9" fill="#3b82f6">^NSEI daily</text>
+
+      <rect x="390" y="20" width="140" height="54" rx="6" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+      <text x="460" y="43" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" font-weight="600" fill="#1e40af">Universe</text>
+      <text x="460" y="60" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="9" fill="#3b82f6">constituentsi.csv</text>
+
+      <!-- Arrow down to panel -->
+      <line x1="100" y1="74" x2="100" y2="100" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="280" y1="74" x2="280" y2="100" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="460" y1="74" x2="460" y2="100" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Converge lines -->
+      <path d="M100,100 Q100,116 230,116" stroke="#94a3b8" stroke-width="1.5" fill="none"/>
+      <path d="M280,100 L280,116" stroke="#94a3b8" stroke-width="1.5" fill="none"/>
+      <path d="M460,100 Q460,116 330,116" stroke="#94a3b8" stroke-width="1.5" fill="none"/>
+
+      <!-- Master Panel -->
+      <rect x="170" y="104" width="220" height="44" rx="6" fill="#1e40af" stroke="none"/>
+      <text x="280" y="123" text-anchor="middle" font-family="Inter,sans-serif" font-size="11" font-weight="600" fill="white">Master Panel</text>
+      <text x="280" y="139" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="9" fill="#93c5fd">MultiIndex (date × ticker) · ~1.2M rows</text>
+
+      <!-- Arrow down -->
+      <line x1="280" y1="148" x2="280" y2="172" stroke="#2563eb" stroke-width="2" marker-end="url(#arr-blue)"/>
+
+      <!-- LAYER 1: Feature Engineering -->
+      <rect x="80" y="172" width="400" height="64" rx="6" fill="#f0fdf4" stroke="#a7f3d0" stroke-width="1.5"/>
+      <rect x="80" y="172" width="4" height="64" rx="2" fill="#059669"/>
+      <text x="100" y="194" font-family="Inter,sans-serif" font-size="10" font-weight="600" fill="#065f46">LAYER 1 · Feature Engineering</text>
+      <text x="100" y="210" font-family="JetBrains Mono,monospace" font-size="9" fill="#047857">Technical · Zone/ICT · Multi-TF · Regime · 52w dist</text>
+      <text x="100" y="226" font-family="JetBrains Mono,monospace" font-size="9" fill="#047857">~80 features  (features_ prefix)  →  panel_features.pkl</text>
+      <rect x="440" y="182" width="30" height="16" rx="8" fill="#dcfce7" stroke="#86efac"/>
+      <text x="455" y="194" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7.5" font-weight="600" fill="#16a34a">cache</text>
+
+      <!-- Arrow -->
+      <line x1="280" y1="236" x2="280" y2="258" stroke="#059669" stroke-width="2" marker-end="url(#arr-green)"/>
+
+      <!-- LAYER 2: Target Building -->
+      <rect x="80" y="258" width="400" height="64" rx="6" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <rect x="80" y="258" width="4" height="64" rx="2" fill="#d97706"/>
+      <text x="100" y="280" font-family="Inter,sans-serif" font-size="10" font-weight="600" fill="#92400e">LAYER 2 · Target Building</text>
+      <text x="100" y="296" font-family="JetBrains Mono,monospace" font-size="9" fill="#b45309">cs_rank_20d/40d/60d · cs_rank_composite</text>
+      <text x="100" y="312" font-family="JetBrains Mono,monospace" font-size="9" fill="#b45309">top_quintile · bot_quintile  →  panel_targets.pkl</text>
+      <rect x="440" y="268" width="30" height="16" rx="8" fill="#fef9c3" stroke="#fde047"/>
+      <text x="455" y="280" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="7.5" font-weight="600" fill="#a16207">cache</text>
+
+      <!-- SPLIT: two modes side by side -->
+      <line x1="280" y1="322" x2="280" y2="344" stroke="#94a3b8" stroke-width="1.5"/>
+      <line x1="160" y1="344" x2="640" y2="344" stroke="#94a3b8" stroke-width="1.5"/>
+      <line x1="160" y1="344" x2="160" y2="362" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="640" y1="344" x2="640" y2="362" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <text x="280" y="341" text-anchor="middle" font-family="Inter,sans-serif" font-size="9" fill="#64748b">Universe split  |  high_52w_dist threshold = −0.15</text>
+
+      <!-- MOMENTUM column -->
+      <rect x="560" y="362" width="200" height="44" rx="6" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+      <text x="660" y="381" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" font-weight="600" fill="#1e40af">MOMENTUM Universe</text>
+      <text x="660" y="397" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#3b82f6">high_52w_dist > −0.15</text>
+
+      <!-- REVERSAL column -->
+      <rect x="60" y="362" width="200" height="44" rx="6" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="160" y="381" text-anchor="middle" font-family="Inter,sans-serif" font-size="10" font-weight="600" fill="#5b21b6">REVERSAL Universe</text>
+      <text x="160" y="397" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="8.5" fill="#7c3aed">high_52w_dist ≤ −0.15</text>
+
+      <!-- Arrows down from universes -->
+      <line x1="160" y1="406" x2="160" y2="424" stroke="#7c3aed" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="660" y1="406" x2="660" y2="424" stroke="#2563eb" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- HPO + Train boxes -->
+      <rect x="60" y="424" width="200" height="96" rx="6" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <rect x="60" y="424" width="4" height="96" rx="2" fill="#7c3aed"/>
+      <text x="80" y="445" font-family="Inter,sans-serif" font-size="9.5" font-weight="600" fill="#5b21b6">CV + HPO (50 trials)</text>
+      <text x="80" y="461" font-family="JetBrains Mono,monospace" font-size="8" fill="#6d28d9">target: 1 − cs_rank_composite</text>
+      <text x="80" y="475" font-family="JetBrains Mono,monospace" font-size="8" fill="#6d28d9">label:  bot_quintile</text>
+      <text x="80" y="491" font-family="JetBrains Mono,monospace" font-size="8" fill="#6d28d9">NDCG: invert_relevance=True</text>
+      <text x="80" y="507" font-family="Inter,sans-serif" font-size="9" font-weight="600" fill="#7c3aed">→ Reversal Ranker PKL</text>
+
+      <rect x="560" y="424" width="200" height="96" rx="6" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+      <rect x="560" y="424" width="4" height="96" rx="2" fill="#2563eb"/>
+      <text x="580" y="445" font-family="Inter,sans-serif" font-size="9.5" font-weight="600" fill="#1e40af">CV + HPO (50 trials)</text>
+      <text x="580" y="461" font-family="JetBrains Mono,monospace" font-size="8" fill="#1d4ed8">target: cs_rank_composite</text>
+      <text x="580" y="475" font-family="JetBrains Mono,monospace" font-size="8" fill="#1d4ed8">label:  top_quintile</text>
+      <text x="580" y="491" font-family="JetBrains Mono,monospace" font-size="8" fill="#1d4ed8">NDCG: standard</text>
+      <text x="580" y="507" font-family="Inter,sans-serif" font-size="9" font-weight="600" fill="#2563eb">→ Momentum Ranker PKL</text>
+
+      <!-- Converge to scoring -->
+      <line x1="160" y1="520" x2="160" y2="538" stroke="#94a3b8" stroke-width="1.5"/>
+      <line x1="660" y1="520" x2="660" y2="538" stroke="#94a3b8" stroke-width="1.5"/>
+      <path d="M160,538 Q160,548 380,548" stroke="#94a3b8" stroke-width="1.5" fill="none"/>
+      <path d="M660,538 Q660,548 440,548" stroke="#94a3b8" stroke-width="1.5" fill="none"/>
+      <line x1="380" y1="548" x2="440" y2="548" stroke="#94a3b8" stroke-width="1.5"/>
+
+      <!-- Scoring box -->
+      <rect x="320" y="362" width="240" height="56" rx="6" fill="#ecfeff" stroke="#a5f3fc" stroke-width="1.5"/>
+      <rect x="320" y="362" width="4" height="56" rx="2" fill="#0891b2"/>
+      <text x="340" y="381" font-family="Inter,sans-serif" font-size="9.5" font-weight="600" fill="#155e75">LAYER 6 · Scoring</text>
+      <text x="340" y="396" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#0e7490">bull = 70% model + 30% SDZ composite</text>
+      <text x="340" y="410" font-family="JetBrains Mono,monospace" font-size="7.5" fill="#0e7490">bear = 65% (1−model) + 35% SSZ composite</text>
+
+      <!-- Arrow to output -->
+      <line x1="410" y1="548" x2="410" y2="536" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="440" y1="418" x2="440" y2="430" stroke="#0891b2" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Output boxes -->
+      <rect x="680" y="362" width="120" height="44" rx="6" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1.5"/>
+      <text x="740" y="381" text-anchor="middle" font-family="Inter,sans-serif" font-size="9.5" font-weight="600" fill="#065f46">Momentum</text>
+      <text x="740" y="396" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="8" fill="#047857">Bull + Bear CSV</text>
+
+      <rect x="820" y="362" width="120" height="44" rx="6" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="880" y="381" text-anchor="middle" font-family="Inter,sans-serif" font-size="9.5" font-weight="600" fill="#991b1b">Reversal</text>
+      <text x="880" y="396" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="8" fill="#b91c1c">Bull + Bear CSV</text>
+
+      <line x1="760" y1="406" x2="760" y2="424" stroke="#059669" stroke-width="1.5" marker-end="url(#arr)"/>
+      <line x1="880" y1="406" x2="880" y2="424" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <rect x="700" y="424" width="260" height="32" rx="6" fill="#f8f9fc" stroke="#e2e6ef" stroke-width="1.5"/>
+      <text x="830" y="437" text-anchor="middle" font-family="Inter,sans-serif" font-size="9.5" font-weight="600" fill="#374151">HTML Report + SHAP JSON</text>
+      <text x="830" y="450" text-anchor="middle" font-family="JetBrains Mono,monospace" font-size="8" fill="#6b7280">reports/report_nse_local.html</text>
+
+    </svg>
+  </div>
+</div>
+</section>
+
+<!-- ══ LAYER 0 ══════════════════════════════════════════════════════════════ -->
+<section id="layer0">
+<div class="container">
+  <div class="section-eyebrow c-blue"><span class="dot" style="background:var(--blue)"></span>Layer 0</div>
+  <h2>Data Ingestion</h2>
+  <p class="section-sub">Raw files are loaded in parallel, merged into one master panel, and validated before any processing begins.</p>
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-num bg-blue">LAYER 0</span>
+      <span class="layer-title">Data Loading &amp; Master Panel</span>
+    </div>
+    <div class="layer-body">
+      <div class="feat-grid">
+        <div class="feat-box">
+          <div class="feat-label c-blue">Stock CSVs</div>
+          <ul>
+            <li>499 NSE tickers from <code>constituentsi.csv</code></li>
+            <li>Daily OHLCV format, minimum 252 bars</li>
+            <li>Loaded in parallel via thread pool</li>
+            <li>~457 tickers pass quality gate</li>
+          </ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-blue">Benchmark</div>
+          <ul>
+            <li><code>^NSEI</code> daily close</li>
+            <li>Used for excess return targets</li>
+            <li>Used for NDCG validation metric</li>
+            <li>Used for portfolio Sharpe calculation</li>
+          </ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-blue">Master Panel</div>
+          <ul>
+            <li>MultiIndex: <code>(date, ticker)</code></li>
+            <li>~1.2M rows · date range 2010→now</li>
+            <li>Columns: open, high, low, close, volume</li>
+            <li>Sector from CSV or defaults to NSE</li>
+          </ul>
+        </div>
+      </div>
+      <div class="info-box">
+        <span class="info-icon">⚠️</span>
+        <span>Tickers with no date column, fewer than 252 bars, or CSV parse errors are skipped with a WARNING and excluded from all downstream processing. MemoryError and PermissionError are raised immediately — they are not silently swallowed.</span>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══ LAYER 1 ══════════════════════════════════════════════════════════════ -->
+<section id="layer1">
+<div class="container">
+  <div class="section-eyebrow c-green"><span class="dot" style="background:var(--green)"></span>Layer 1</div>
+  <h2>Feature Engineering <span style="font-size:.85rem;font-weight:500;color:var(--green)">✓ checkpoint</span></h2>
+  <p class="section-sub">~80 features computed per stock per day from price/volume history. Saved to <code>panel_features.pkl</code> and reused on every subsequent run unless manually deleted.</p>
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-num bg-green">LAYER 1</span>
+      <span class="layer-title">Feature Engineering — <code>pipeline/features/engineer.py</code></span>
+      <span class="layer-badge bg-green">~80 features</span>
+    </div>
+    <div class="layer-body">
+      <div class="feat-grid">
+        <div class="feat-box">
+          <div class="feat-label c-green">Technical</div>
+          <ul>
+            <li>ATR (Wilder), ADX, DI+/DI−</li>
+            <li>SMA 20 / 50 / 200 + slopes</li>
+            <li>Returns: 20d, 60d</li>
+            <li>Volatility: hist_vol_20d</li>
+            <li>Rolling beta (60d vs NSEI)</li>
+            <li>Vol contraction, ATR rank</li>
+            <li><strong>high_52w_dist</strong> — distance from 52w high</li>
+            <li><strong>low_52w_dist</strong> — distance from 52w low (bear)</li>
+          </ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-green">Zone / SDZ / SSZ</div>
+          <ul>
+            <li>SDZ / SSZ / DZ / SZ per timeframe</li>
+            <li>Per-TF flags: sdz_1wk/1mo/3mo/1y</li>
+            <li>Per-TF flags: ssz_1wk/1mo/3mo/1y</li>
+            <li>sdz_htf_score — trend-confirmed composite</li>
+            <li>ssz_htf_score — trend-confirmed composite</li>
+            <li>dz_raw_score, sz_raw_score</li>
+            <li>zone_htf_confluence (bull − bear)</li>
+            <li>inside_demand / inside_supply</li>
+          </ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-green">ICT Signals</div>
+          <ul>
+            <li>Bull / Bear Order Blocks (active, dist)</li>
+            <li>Bull / Bear Breaker Blocks</li>
+            <li>Bull / Bear Fair Value Gaps</li>
+            <li>BSL / SSL liquidity sweeps</li>
+            <li>Zone priority: BB=3 > OB=2 > FVG=1</li>
+            <li>ict_bull_zone_priority per TF</li>
+            <li>ict_bear_zone_priority per TF</li>
+            <li>ict_bull_htf_score, ict_bear_htf_score</li>
+          </ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-green">Multi-TF &amp; Regime</div>
+          <ul>
+            <li>HTF trend: weekly / monthly / quarterly / yearly</li>
+            <li>Each ICT signal carried to 1wk/1mo/3mo/1y</li>
+            <li>Regime: bull / bear / choppy</li>
+            <li>Sector relative strength (20d)</li>
+            <li>Market regime flag</li>
+            <li>Vol ratio 5d (volume expansion)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══ LAYER 2 ══════════════════════════════════════════════════════════════ -->
+<section id="layer2">
+<div class="container">
+  <div class="section-eyebrow c-amber"><span class="dot" style="background:var(--amber)"></span>Layer 2</div>
+  <h2>Target Building <span style="font-size:.85rem;font-weight:500;color:var(--amber)">✓ checkpoint</span></h2>
+  <p class="section-sub">For each (date, ticker) row, the pipeline looks forward in time to compute return-based labels used as training targets. The composite rank blends three horizons to reward consistency.</p>
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-num bg-amber">LAYER 2</span>
+      <span class="layer-title">Target Building — <code>pipeline/targets/builder.py</code></span>
+      <span class="layer-badge bg-amber">3 horizons</span>
+    </div>
+    <div class="layer-body">
+      <div class="feat-grid">
+        <div class="feat-box">
+          <div class="feat-label c-amber">Forward Returns</div>
+          <ul>
+            <li>future_20d_return (1 month)</li>
+            <li>future_40d_return (2 months)</li>
+            <li>future_60d_return (3 months)</li>
+            <li>future_20d_excess_return vs NSEI</li>
+            <li>max_drawdown_20d</li>
+            <li>future_vol_20d (annualised)</li>
+          </ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-amber">Cross-Section Ranks</div>
+          <ul>
+            <li>cs_rank_20d — percentile [0,1] vs all stocks same date</li>
+            <li>cs_rank_40d — same for 40d horizon</li>
+            <li>cs_rank_60d — same for 60d horizon</li>
+            <li>1.0 = best performer that day</li>
+            <li>0.0 = worst performer that day</li>
+          </ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-amber">Composite &amp; Labels</div>
+          <ul>
+            <li>cs_rank_composite = 50% × 20d + 30% × 40d + 20% × 60d</li>
+            <li>Rewards stocks that outperform consistently</li>
+            <li>top_quintile = top 20% on date (bull label)</li>
+            <li>bot_quintile = bottom 20% on date (bear label)</li>
+            <li>Most recent ~20 bars have NaN (no future data yet)</li>
+          </ul>
+        </div>
+      </div>
+      <div class="formula" style="border-left-color:var(--amber)">
+        <span class="f-comment"># Composite rank — blends consistency across horizons</span><br>
+        cs_rank_composite = <span class="f-val">0.50</span> × cs_rank_20d + <span class="f-val">0.30</span> × cs_rank_40d + <span class="f-val">0.20</span> × cs_rank_60d<br><br>
+        <span class="f-comment"># Bull ranker target (momentum mode)</span><br>
+        y_train = cs_rank_composite<br><br>
+        <span class="f-comment"># Bear ranker target (reversal mode) — inverted so declines rank highest</span><br>
+        y_train = <span class="f-val">1.0</span> − cs_rank_composite
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══ LAYER 3 CV ═══════════════════════════════════════════════════════════ -->
+<section id="layer3">
+<div class="container">
+  <div class="section-eyebrow c-purple"><span class="dot" style="background:var(--purple)"></span>Layer 3</div>
+  <h2>Walk-Forward Cross Validation</h2>
+  <p class="section-sub">The 16-year history is split into 12 expanding folds. Each fold trains on all history up to a cutoff and validates on the next year. Zones are recomputed fresh per fold to prevent future data leaking into zone boundaries.</p>
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-num bg-purple">LAYER 3</span>
+      <span class="layer-title">Purged Walk-Forward CV — <code>pipeline/validation/cv.py</code></span>
+      <span class="layer-badge bg-purple">12 folds · no lookahead</span>
+    </div>
+    <div class="layer-body">
+      <div class="feat-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+        <div class="feat-box" style="grid-column:span 2">
+          <div class="feat-label c-purple">Fold Structure</div>
+          <div style="font-family:var(--mono);font-size:.75rem;line-height:2;color:var(--text2)">
+            Fold&nbsp;0 &nbsp; Train 2010→2012 &nbsp;|&nbsp; Test 2012→2013 &nbsp;(skipped — insufficient history)<br>
+            Fold&nbsp;1 &nbsp; Train 2010→2013 &nbsp;|&nbsp; Test 2013→2014<br>
+            Fold&nbsp;2 &nbsp; Train 2010→2014 &nbsp;|&nbsp; Test 2014→2015<br>
+            &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;⋮<br>
+            Fold 10 &nbsp; Train 2010→2022 &nbsp;|&nbsp; Test 2022→2023<br>
+            Fold 11 &nbsp; Train 2010→2023 &nbsp;|&nbsp; Test 2023→2024
+          </div>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-purple">Guards</div>
+          <ul>
+            <li>min_train_window = 504 bars (2 yrs)</li>
+            <li>Zones recomputed per fold cutoff</li>
+            <li>Fold cache: zones computed once, reused across 50 HPO trials</li>
+            <li>avg_group_size &lt; 10 → fold skipped</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══ LAYER 4 HPO ══════════════════════════════════════════════════════════ -->
+<section id="layer4">
+<div class="container">
+  <div class="section-eyebrow c-purple"><span class="dot" style="background:var(--purple)"></span>Layer 4</div>
+  <h2>Optuna Hyperparameter Optimisation</h2>
+  <p class="section-sub">50 trials search the hyperparameter space using TPE sampler. Each trial runs across all valid folds. Pruning eliminates poor trials early. Progress is persisted to SQLite so the run can be resumed after a crash.</p>
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-num bg-purple">LAYER 4</span>
+      <span class="layer-title">Optuna HPO — 50 trials per mode</span>
+      <span class="layer-badge bg-purple">slowest step</span>
+    </div>
+    <div class="layer-body">
+      <div class="feat-grid">
+        <div class="feat-box">
+          <div class="feat-label c-purple">Search Space</div>
+          <ul>
+            <li>num_leaves: 20–200</li>
+            <li>learning_rate: 0.005–0.2</li>
+            <li>n_estimators: 100–1000</li>
+            <li>min_child_samples: 10–100</li>
+            <li>subsample: 0.5–1.0</li>
+            <li>colsample_bytree: 0.4–1.0</li>
+            <li>reg_lambda: 0.001–10</li>
+            <li>feature_top_K: 20/30/40/50</li>
+          </ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-purple">Objective &amp; Pruning</div>
+          <ul>
+            <li>Maximize: mean NDCG@10 − 0.5 × std</li>
+            <li>Penalises unstable trials</li>
+            <li>Prune if top-decile excess ≤ 0</li>
+            <li>Prune if fewer than 3 valid folds</li>
+            <li>MedianPruner: 10 startup trials, 2 warmup steps</li>
+            <li>Saves to <code>optuna_hpo.db</code> (resumable)</li>
+          </ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-purple">Feature Pre-selection</div>
+          <ul>
+            <li>FeatureSelector runs ONCE before HPO</li>
+            <li>Top-50 features selected via permutation importance + SHAP stability</li>
+            <li>Zone/ICT features force-included via ALWAYS_INCLUDE</li>
+            <li>HPO trials slice this pool (top_K = 20/30/40/50)</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══ LAYER 5 TRAINING ═════════════════════════════════════════════════════ -->
+<section id="layer5">
+<div class="container">
+  <div class="section-eyebrow c-blue"><span class="dot" style="background:var(--blue)"></span>Layer 5</div>
+  <h2>Two Independent Rankers</h2>
+  <p class="section-sub">Two LGBMRanker models are trained on different universes with different targets. The momentum ranker learns what makes stocks go up. The reversal ranker learns what makes stocks go down.</p>
+  <div class="split-grid">
+    <div class="split-card" style="background:var(--blue-l);border-color:var(--blue-b)">
+      <div class="split-title c-blue">📈 Momentum Ranker</div>
+      <p><strong>Universe:</strong> stocks within 15% of 52w high (<code>high_52w_dist > −0.15</code>)</p>
+      <p style="margin-top:.4rem"><strong>Target:</strong> <code>cs_rank_composite</code> — rank by highest future returns</p>
+      <p style="margin-top:.4rem"><strong>Label:</strong> <code>top_quintile</code> for FeatureSelector</p>
+      <p style="margin-top:.4rem"><strong>Learns:</strong> breakout continuation, demand zone entries near highs, ICT bull OB setups</p>
+      <p style="margin-top:.4rem"><strong>Saves to:</strong> <code>artefacts/nse_local/momentum/</code></p>
+    </div>
+    <div class="split-card" style="background:var(--purple-l);border-color:var(--purple-b)">
+      <div class="split-title c-purple">📉 Reversal Ranker</div>
+      <p><strong>Universe:</strong> stocks 15%+ below 52w high (<code>high_52w_dist ≤ −0.15</code>)</p>
+      <p style="margin-top:.4rem"><strong>Target:</strong> <code>1 − cs_rank_composite</code> — rank by lowest future returns (declines first)</p>
+      <p style="margin-top:.4rem"><strong>Label:</strong> <code>bot_quintile</code> for FeatureSelector</p>
+      <p style="margin-top:.4rem"><strong>Learns:</strong> supply zone rejections, SSZ entries, ICT bear OB setups, breakdown patterns</p>
+      <p style="margin-top:.4rem"><strong>Saves to:</strong> <code>artefacts/nse_local/reversal/</code></p>
+    </div>
+  </div>
+
+  <div class="layer" style="margin-top:1rem">
+    <div class="layer-header">
+      <span class="layer-num bg-blue">LAYER 5</span>
+      <span class="layer-title">FeatureSelector — <code>pipeline/selection/selector.py</code></span>
+    </div>
+    <div class="layer-body">
+      <div class="feat-grid">
+        <div class="feat-box">
+          <div class="feat-label c-blue">Step 1 — NaN Filter</div>
+          <ul><li>Drop features with &gt;5% missing values</li><li>Zone/ICT features kept even if NaN-heavy (imputed to 0)</li></ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-blue">Step 2 — Correlation Pruning</div>
+          <ul><li>Drop lower-importance feature in pairs with |ρ| &gt; 0.92</li><li>Zone features get 2.5× importance boost to win ties</li></ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-blue">Step 3 — Permutation Importance</div>
+          <ul><li>Rank remaining features on 20% held-out slice</li><li>Take top-K ordinary features</li></ul>
+        </div>
+        <div class="feat-box">
+          <div class="feat-label c-blue">Step 4 — SHAP Stability</div>
+          <ul><li>3 bootstrap resamplings</li><li>Flag features with rank std &gt; 10 as unstable</li><li>Zone/ICT features never flagged</li></ul>
+        </div>
+      </div>
+      <div class="info-box" style="margin-top:.75rem">
+        <span class="info-icon">🔒</span>
+        <span><strong>ALWAYS_INCLUDE</strong> — these features bypass all elimination: <code>sdz_htf_score</code>, <code>ssz_htf_score</code>, <code>sdz_1wk/1mo/3mo/1y</code>, <code>ssz_1wk/1mo/3mo/1y</code>, <code>dz_raw_score</code>, <code>sz_raw_score</code>, <code>zone_htf_confluence</code>, all ICT OB/FVG/BB active + dist features, BSL/SSL sweeps.</span>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══ LAYER 6 SCORING ══════════════════════════════════════════════════════ -->
+<section id="layer6">
+<div class="container">
+  <div class="section-eyebrow c-teal"><span class="dot" style="background:var(--teal)"></span>Layer 6</div>
+  <h2>Scoring &amp; Watchlist Construction</h2>
+  <p class="section-sub">All 457 stocks are scored on the latest date. The final score blends ML model output with a zone-only composite. Only stocks with an active SDZ or SSZ can appear on the watchlist.</p>
+
+  <div class="layer">
+    <div class="layer-header">
+      <span class="layer-num bg-teal">LAYER 6</span>
+      <span class="layer-title">score_and_rank() — <code>run_nse_local.py</code></span>
+    </div>
+    <div class="layer-body">
+      <div class="formula" style="border-left-color:var(--teal)">
+        <span class="f-comment"># Momentum mode</span><br>
+        bull_score = norm( <span class="f-val">0.70</span> × model_score  +  <span class="f-val">0.30</span> × SDZ_composite )<br>
+        bear_score = norm( <span class="f-val">0.70</span> × (1 − model_score)  +  <span class="f-val">0.30</span> × SSZ_composite )<br><br>
+        <span class="f-comment"># Reversal mode</span><br>
+        bull_score = norm( <span class="f-val">0.65</span> × model_score  +  <span class="f-val">0.35</span> × SDZ_composite )<br>
+        bear_score = norm( <span class="f-val">0.65</span> × (1 − model_score)  +  <span class="f-val">0.35</span> × SSZ_composite )
+      </div>
+
+      <div style="margin-top:1rem">
+        <div class="feat-label c-teal" style="font-family:var(--mono);font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;font-weight:600;margin-bottom:.5rem">SDZ / SSZ Composite — signal_weights.yaml</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+          <div class="feat-box">
+            <div class="feat-label c-green">Bull Composite (SDZ only)</div>
+            <div style="font-family:var(--mono);font-size:.77rem;line-height:2;color:var(--text2)">
+              sdz_htf_score &nbsp;&nbsp; w = 3.0<br>
+              sdz_1wk &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; w = 2.0<br>
+              sdz_1mo &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; w = 2.5<br>
+              sdz_3mo &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; w = 3.0<br>
+              sdz_1y &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; w = 3.5
+            </div>
+          </div>
+          <div class="feat-box">
+            <div class="feat-label c-red">Bear Composite (SSZ only)</div>
+            <div style="font-family:var(--mono);font-size:.77rem;line-height:2;color:var(--text2)">
+              ssz_htf_score &nbsp;&nbsp; w = 3.0<br>
+              ssz_1wk &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; w = 2.0<br>
+              ssz_1mo &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; w = 2.5<br>
+              ssz_3mo &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; w = 3.0<br>
+              ssz_1y &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; w = 3.5
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="info-box" style="margin-top:.75rem">
+        <span class="info-icon">🔍</span>
+        <span><strong>Zone presence filter:</strong> stocks with composite score = 0 (no active SDZ/SSZ signal) are excluded from the watchlist even if their model score is high. This enforces the design principle: every pick must have a zone backing it.</span>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══ OUTPUT ═══════════════════════════════════════════════════════════════ -->
+<section id="output">
+<div class="container">
+  <div class="section-eyebrow c-green"><span class="dot" style="background:var(--green)"></span>Output</div>
+  <h2>Pipeline Outputs</h2>
+  <p class="section-sub">Four watchlists, SHAP explanations, and an HTML report are produced on each run.</p>
+  <div class="output-grid">
+    <div class="output-card" style="background:var(--blue-l);border-color:var(--blue-b)">
+      <span class="oc-icon">📈</span>
+      <div>
+        <div class="oc-title c-blue">Momentum Bull</div>
+        <div class="oc-desc">Top-N stocks within 15% of 52w high with active SDZ. Breakout / continuation longs.</div>
+        <div style="margin-top:.35rem;font-family:var(--mono);font-size:.68rem;color:var(--blue)">watchlist_momentum_bull_DATE.csv</div>
+      </div>
+    </div>
+    <div class="output-card" style="background:var(--red-l);border-color:var(--red-b)">
+      <span class="oc-icon">📉</span>
+      <div>
+        <div class="oc-title c-red">Momentum Bear</div>
+        <div class="oc-desc">Top-N stocks near highs with active SSZ. Distribution tops / short entries.</div>
+        <div style="margin-top:.35rem;font-family:var(--mono);font-size:.68rem;color:var(--red)">watchlist_momentum_bear_DATE.csv</div>
+      </div>
+    </div>
+    <div class="output-card" style="background:var(--purple-l);border-color:var(--purple-b)">
+      <span class="oc-icon">🔄</span>
+      <div>
+        <div class="oc-title c-purple">Reversal Bull</div>
+        <div class="oc-desc">Top-N stocks 15%+ below 52w high with active SDZ. Demand zone bounce longs.</div>
+        <div style="margin-top:.35rem;font-family:var(--mono);font-size:.68rem;color:var(--purple)">watchlist_reversal_bull_DATE.csv</div>
+      </div>
+    </div>
+    <div class="output-card" style="background:var(--amber-l);border-color:var(--amber-b)">
+      <span class="oc-icon">⬇️</span>
+      <div>
+        <div class="oc-title c-amber">Reversal Bear</div>
+        <div class="oc-desc">Top-N stocks deep in pullback with active SSZ. Breakdown / continuation shorts.</div>
+        <div style="margin-top:.35rem;font-family:var(--mono);font-size:.68rem;color:var(--amber)">watchlist_reversal_bear_DATE.csv</div>
+      </div>
+    </div>
+    <div class="output-card" style="background:var(--bg2);border-color:var(--border)">
+      <span class="oc-icon">🧠</span>
+      <div>
+        <div class="oc-title">SHAP Explanations</div>
+        <div class="oc-desc">Per-stock feature attribution. Shows which signals drove the model score.</div>
+        <div style="margin-top:.35rem;font-family:var(--mono);font-size:.68rem;color:var(--text3)">explanations_DATE.json</div>
+      </div>
+    </div>
+    <div class="output-card" style="background:var(--bg2);border-color:var(--border)">
+      <span class="oc-icon">📊</span>
+      <div>
+        <div class="oc-title">HTML Report</div>
+        <div class="oc-desc">Equity curve, NDCG, Sharpe, max drawdown, top-decile excess return charts.</div>
+        <div style="margin-top:.35rem;font-family:var(--mono);font-size:.68rem;color:var(--text3)">reports/report_nse_local.html</div>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══ TIMING ════════════════════════════════════════════════════════════════ -->
+<section id="timing">
+<div class="container">
+  <div class="section-eyebrow c-amber"><span class="dot" style="background:var(--amber)"></span>Runtime</div>
+  <h2>Run Times &amp; Commands</h2>
+  <p class="section-sub">Feature and target checkpoints mean most steps only run once. Subsequent runs reuse them and go straight to training.</p>
+  <div class="timeline">
+    <div class="tl-row">
+      <div class="tl-left"><div class="tl-dot bg-blue">L1</div><div class="tl-line"></div></div>
+      <div class="tl-right">
+        <div class="tl-title">Feature Engineering</div>
+        <div class="tl-desc">Runs only when <code>panel_features.pkl</code> is absent or deleted. Processes 457 tickers with ICT, zone, and multi-TF signals.</div>
+        <div class="tl-time bg-blue">~3 min · once per data refresh</div>
+      </div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-left"><div class="tl-dot bg-amber">L2</div><div class="tl-line"></div></div>
+      <div class="tl-right">
+        <div class="tl-title">Target Building</div>
+        <div class="tl-desc">Computes forward returns and cross-section ranks for all 1.2M rows. Cached to <code>panel_targets.pkl</code>.</div>
+        <div class="tl-time bg-amber">~1 min · once</div>
+      </div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-left"><div class="tl-dot bg-purple">L3</div><div class="tl-line"></div></div>
+      <div class="tl-right">
+        <div class="tl-title">Fold Zone Pre-computation</div>
+        <div class="tl-desc">Zones recomputed per fold cutoff for each mode. Cached in memory for the HPO run. Cannot be skipped — zones must be honest about what was visible at each training cutoff.</div>
+        <div class="tl-time bg-purple">~20 min · per mode</div>
+      </div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-left"><div class="tl-dot bg-purple">L4</div><div class="tl-line"></div></div>
+      <div class="tl-right">
+        <div class="tl-title">HPO — 50 Optuna trials</div>
+        <div class="tl-desc">Each trial trains across all valid folds. MedianPruner eliminates weak trials early. Progress saved to SQLite — resume anytime without losing completed trials.</div>
+        <div class="tl-time bg-purple">~40 min · per mode</div>
+      </div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-left"><div class="tl-dot bg-blue">L5</div><div class="tl-line"></div></div>
+      <div class="tl-right">
+        <div class="tl-title">Final Model Training</div>
+        <div class="tl-desc">FeatureSelector + LGBMRanker on full filtered dataset. EnsembleRanker validation on held-out folds.</div>
+        <div class="tl-time bg-blue">~3 min · per mode</div>
+      </div>
+    </div>
+    <div class="tl-row">
+      <div class="tl-left"><div class="tl-dot bg-teal">L6</div></div>
+      <div class="tl-right">
+        <div class="tl-title">Scoring + Output</div>
+        <div class="tl-desc">Score all 457 stocks, apply zone filter, construct 4 watchlists, generate SHAP + HTML report.</div>
+        <div class="tl-time bg-teal">~1 min · per mode</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="feat-grid" style="margin-top:1.5rem">
+    <div class="feat-box">
+      <div class="feat-label c-blue">Full Run (first time)</div>
+      <div class="formula" style="border-left-color:var(--blue);margin-top:.5rem;padding:.6rem .9rem">
+        python run_nse_local.py --mode all<br>
+        <span class="f-comment"># ~90 min total</span>
+      </div>
+    </div>
+    <div class="feat-box">
+      <div class="feat-label c-green">Re-score only (no retrain)</div>
+      <div class="formula" style="border-left-color:var(--green);margin-top:.5rem;padding:.6rem .9rem">
+        python run_nse_local.py --skip_train<br>
+        <span class="f-comment"># ~2 min</span>
+      </div>
+    </div>
+    <div class="feat-box">
+      <div class="feat-label c-amber">Quick smoke test</div>
+      <div class="formula" style="border-left-color:var(--amber);margin-top:.5rem;padding:.6rem .9rem">
+        python run_nse_local.py --mode all \<br>
+        &nbsp;&nbsp;--n_trials 0 --n_folds 3<br>
+        <span class="f-comment"># ~15 min</span>
+      </div>
+    </div>
+    <div class="feat-box">
+      <div class="feat-label c-purple">Custom watchlist size</div>
+      <div class="formula" style="border-left-color:var(--purple);margin-top:.5rem;padding:.6rem .9rem">
+        python run_nse_local.py --skip_train \<br>
+        &nbsp;&nbsp;--top_n 15<br>
+        <span class="f-comment"># change list size, no retrain</span>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<footer>
+  NSE ML Stock Predictor &nbsp;·&nbsp; LightGBM LambdaRank &nbsp;·&nbsp; ICT + SMC Zone Signals &nbsp;·&nbsp; Walk-Forward CV
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,59 @@
+=== 1d OHLCV ===
+COLUMNS: ['Date', 'Close', 'High', 'Low', 'Open', 'Volume']
+         Date       Close        High         Low        Open   Volume
+0  2019-09-19  258.085297  258.085297  245.795521  245.795521  7109860
+1  2019-09-20  270.984497  270.984497  269.968813  269.968813  2760648
+2  2019-09-23  284.533722  284.533722  284.533722  284.533722    34096
+3  2019-09-24  298.753326  298.753326  298.753326  298.753326  2496652
+4  2019-09-25  285.397003  313.683799  283.822693  313.683799   530580
+
+=== 1d-Drv (zones) ===
+COLUMNS: ['Date', 'Close', 'High', 'Low', 'Open', 'Volume', 'Type', 'SubType', 'cndl_bodycolor', 'cndl_llinecolor', 'group_id', 'ZoneType', 'Distal', 'Proximal', 'Zone']
+         Date       Close        High         Low        Open   Volume   Type SubType cndl_bodycolor cndl_llinecolor  group_id ZoneType  Distal  Proximal   Zone
+0  2019-09-19  258.085297  258.085297  245.795521  245.795521  7109860     na      na             na              na         1        Z     0.0       0.0  Valid
+1  2019-09-20  270.984497  270.984497  269.968813  269.968813  2760648  Rally   Rally           teal           black         2        Z     0.0       0.0  Valid
+2  2019-09-23  284.533722  284.533722  284.533722  284.533722    34096     na      na             na              na         3        Z     0.0       0.0  Valid
+3  2019-09-24  298.753326  298.753326  298.753326  298.753326  2496652     na      na             na              na         3        Z     0.0       0.0  Valid
+4  2019-09-25  285.397003  313.683799  283.822693  313.683799   530580   Drop    Drop            red           black         4        Z     0.0       0.0  Valid
+5  2019-09-26  271.421265  298.611123  271.136868  275.250389    78256   Drop    Drop            red           black         4        Z     0.0       0.0  Valid
+6  2019-09-27  264.088043  279.313139  258.197075  270.984529  7044544   Drop    Drop            red           black         4        Z     0.0       0.0  Valid
+7  2019-09-30  250.884140  277.281760  250.884140  254.235898    69396   Drop    Drop            red           black         4        Z     0.0       0.0  Valid
+
+=== 1wk-Drv ===
+COLUMNS: ['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'Type', 'SubType', 'cndl_bodycolor', 'cndl_llinecolor', 'group_id', 'ZoneType', 'Distal', 'Proximal', 'Zone']
+         Date        Open        High         Low       Close    Volume   Type SubType cndl_bodycolor cndl_llinecolor  group_id ZoneType      Distal    Proximal     Zone
+0  2019-09-16  245.795521  270.984497  245.795521  270.984497   9870508     na      na             na              na         1        Z    0.000000    0.000000    Valid
+1  2019-09-23  254.235898  313.683799  238.340450  284.533722  10184128   Drop    Base            red           black         2        Z    0.000000    0.000000  Invalid
+2  2019-10-07  262.005847  264.047357  233.607279  234.815933    197396   Drop    Drop            red           black         3        Z    0.000000    0.000000    Valid
+3  2019-10-14  233.617477  261.589395  220.403419  244.322769   1333820  Rally    Base       honeydew           green         4       DZ  220.403419  244.322769  Invalid
+4  2019-10-21  251.889647  270.781350  229.554764  264.098145    151368  Rally   Rally           teal           black         5        Z    0.000000    0.000000    Valid
+5  2019-10-28  265.093590  274.092051  257.983800  272.485168    439704  Rally   Rally           teal           black         5        Z    0.000000    0.000000    Valid
+6  2019-11-04  272.659184  276.957865  248.801516  255.771530    163280   Drop    Drop            red           black         6        Z    0.000000    0.000000    Valid
+7  2019-11-11  247.491411  262.628954  246.887569  254.625247    141344   Drop    Base       honeydew           green         7       DZ  246.887569  254.625247  Invalid
+
+=== 1mo-Drv ===
+COLUMNS: ['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'Type', 'SubType', 'cndl_bodycolor', 'cndl_llinecolor', 'group_id', 'ZoneType', 'Distal', 'Proximal', 'Zone']
+         Date        Open        High         Low       Close    Volume   Type SubType cndl_bodycolor cndl_llinecolor  group_id ZoneType  Distal  Proximal     Zone
+0  2019-09-01  245.795521  313.683799  245.795521  250.884140  20124032     na      na             na              na         1        Z     0.0       0.0    Valid
+1  2019-10-01  244.373604  276.957865  220.403419  271.727783   2303416  Rally    Base       honeydew           black         2        Z     0.0       0.0  Invalid
+2  2019-12-01  270.202834  270.202834  189.141980  232.098053    752396   Drop    Drop            red           black         3        Z     0.0       0.0    Valid
+
+=== 3mo-Drv ===
+COLUMNS: ['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'Type', 'SubType', 'cndl_bodycolor', 'cndl_llinecolor', 'group_id', 'ZoneType', 'Distal', 'Proximal', 'Zone']
+         Date        Open        High         Low       Close    Volume  Type SubType cndl_bodycolor cndl_llinecolor  group_id ZoneType      Distal    Proximal   Zone
+0  2019-07-01  245.795521  313.683799  245.795521  250.884140  20124032    na      na             na              na         1        Z    0.000000    0.000000  Valid
+1  2019-10-01  244.373604  276.957865  189.141980  232.098053   3892912  Drop    Drop            red           black         2        Z    0.000000    0.000000  Valid
+2  2020-01-01  203.741399  343.239458  148.521532  232.067385   8627228  Drop    Base       honeydew           green         3       DZ  148.521532  232.067385  Valid
+
+=== 1y-Drv ===
+COLUMNS: ['Date', 'Open', 'High', 'Low', 'Close', 'Volume', 'Type', 'SubType', 'cndl_bodycolor', 'cndl_llinecolor', 'group_id', 'ZoneType', 'Distal', 'Proximal', 'Zone']
+         Date        Open        High         Low       Close    Volume   Type SubType cndl_bodycolor cndl_llinecolor  group_id ZoneType  Distal  Proximal   Zone
+0  2019-01-01  245.795521  313.683799  189.141980  232.098053  24016944     na      na             na              na         1     helo       0         0  Valid
+1  2020-01-01  216.322922  403.258855  148.521532  322.164581  31780324   Drop    Base            red           black         2     helo       0         0  Valid
+2  2022-01-01  319.974708  451.139430  284.070117  415.994965  76655720  Rally   Rally           teal           black         3     helo       0         0  Valid
+
+1d files: 500, 1d-Drv files: 476
+Sample tickers: ['360ONE.NS', '3MINDIA.NS', 'AADHARHFC.NS', 'AARTIIND.NS', 'AAVAS.NS']
+
+Full 1d shape: (1047, 6)
+Date col: Date Min: 2019-09-19 Max: 2023-12-08

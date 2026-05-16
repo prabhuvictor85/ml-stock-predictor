@@ -1,0 +1,210 @@
+"""
+download_nse_data.py — Download NSE stock data via yfinance.
+
+Reads tickers from constituentsi.csv (Symbol column, e.g. RELIANCE.NS),
+downloads daily OHLCV for each, saves as {TICKER}-1d.csv in stock_data/.
+Also refreshes the Nifty 50 benchmark (^NSEI-1d.csv).
+
+Usage:
+    python download_nse_data.py                    # skip files that already exist
+    python download_nse_data.py --refresh_after 7  # re-download if older than 7 days
+    python download_nse_data.py --tickers RELIANCE.NS TCS.NS   # specific tickers only
+    python download_nse_data.py --benchmark_only   # only refresh ^NSEI
+
+Output : C:/Victor/Learning_charts/stock_data/
+Tickers: C:/Victor/Learning_charts/stock_lists/constituentsi.csv
+"""
+from __future__ import annotations
+
+import argparse
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import List
+
+import pandas as pd
+import yfinance as yf
+
+# ── Config ─────────────────────────────────────────────────────────────────────
+STOCK_DATA_DIR  = Path(r"C:\Victor\Learning_charts\stock_data")
+STOCK_LIST_CSV  = Path(r"C:\Victor\Learning_charts\stock_lists\constituentsi.csv")
+BENCHMARK_TICKER = "^NSEI"
+START_DATE      = "2010-01-01"
+MAX_WORKERS     = 8
+RATE_LIMIT_SLEEP = 0.25
+
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(description="Download NSE stock data via yfinance")
+    p.add_argument("--refresh_after", type=int, default=0,
+                   help="Re-download files older than N days (0 = skip existing)")
+    p.add_argument("--tickers", nargs="+", default=None,
+                   help="Download only these tickers (bypasses constituent list)")
+    p.add_argument("--benchmark_only", action="store_true",
+                   help="Only refresh ^NSEI benchmark file")
+    p.add_argument("--start", default=START_DATE,
+                   help=f"History start date (default: {START_DATE})")
+    return p.parse_args()
+
+
+def load_tickers() -> List[str]:
+    """Read Symbol column from constituentsi.csv (e.g. RELIANCE.NS)."""
+    df = pd.read_csv(STOCK_LIST_CSV)
+    col = next((c for c in df.columns if c.strip().lower() == "symbol"), None)
+    if col is None:
+        raise ValueError(f"No 'Symbol' column in {STOCK_LIST_CSV}. Columns: {list(df.columns)}")
+    tickers = df[col].dropna().str.strip().tolist()
+    tickers = [t for t in tickers if t]
+    print(f"  Loaded {len(tickers)} tickers from {STOCK_LIST_CSV.name}")
+    return tickers
+
+
+def file_needs_update(path: Path, refresh_after_days: int) -> bool:
+    if not path.exists():
+        return True
+    if refresh_after_days <= 0:
+        return False
+    age = datetime.now() - datetime.fromtimestamp(path.stat().st_mtime)
+    return age > timedelta(days=refresh_after_days)
+
+
+def download_ticker(ticker: str, data_dir: Path, start: str,
+                    refresh_after_days: int) -> tuple[str, bool, str]:
+    """Download daily OHLCV for one ticker. Returns (ticker, success, message)."""
+    path = data_dir / f"{ticker}-1d.csv"
+
+    if not file_needs_update(path, refresh_after_days):
+        return ticker, True, "skipped (up to date)"
+
+    try:
+        df = yf.download(ticker, start=start, auto_adjust=True,
+                         progress=False, multi_level_index=False)
+        if df.empty:
+            return ticker, False, "empty response from yfinance"
+
+        # Flatten multi-level columns if present
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = df.columns.get_level_values(0)
+        df.columns = [c.strip() for c in df.columns]
+
+        # Rename to standard lower-case
+        rename = {}
+        for std in ("open", "high", "low", "close", "volume"):
+            match = next((c for c in df.columns if c.lower() == std), None)
+            if match:
+                rename[match] = std
+        df = df.rename(columns=rename)
+
+        for req in ("open", "high", "low", "close", "volume"):
+            if req not in df.columns:
+                return ticker, False, f"missing column '{req}'"
+
+        df = df[["open", "high", "low", "close", "volume"]].copy()
+        df.index.name = "Date"
+        df = df[df["close"].notna() & (df["close"] > 0)]
+
+        if len(df) < 50:
+            return ticker, False, f"only {len(df)} rows — likely delisted or new"
+
+        df.to_csv(path)
+        return ticker, True, f"{len(df)} rows saved"
+
+    except Exception as e:
+        return ticker, False, str(e)[:100]
+
+
+def download_all(tickers: List[str], data_dir: Path, start: str,
+                 refresh_after_days: int) -> None:
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    total     = len(tickers)
+    succeeded = 0
+    skipped   = 0
+    failed: List[str] = []
+
+    refresh_msg = (
+        f"older than {refresh_after_days} days" if refresh_after_days > 0
+        else "skipping existing files"
+    )
+    print(f"\nDownloading {total} tickers to {data_dir}")
+    print(f"  ({refresh_msg})\n")
+
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
+        futures = {
+            pool.submit(download_ticker, t, data_dir, start, refresh_after_days): t
+            for t in tickers
+        }
+        done = 0
+        for fut in as_completed(futures):
+            done += 1
+            ticker, ok, msg = fut.result()
+            if msg.startswith("skipped"):
+                skipped += 1
+            elif ok:
+                succeeded += 1
+            else:
+                failed.append(ticker)
+                if len(failed) <= 10:
+                    print(f"  FAIL [{ticker}]: {msg}")
+
+            if done % 50 == 0 or done == total:
+                print(f"  Progress: {done}/{total}  "
+                      f"(ok={succeeded}, skipped={skipped}, failed={len(failed)})")
+
+            if done % MAX_WORKERS == 0:
+                time.sleep(RATE_LIMIT_SLEEP)
+
+    print(f"\nDownload complete:")
+    print(f"  Succeeded : {succeeded}")
+    print(f"  Skipped   : {skipped} (already up to date)")
+    print(f"  Failed    : {len(failed)}")
+    if failed:
+        fail_path = data_dir / "_failed_tickers.txt"
+        fail_path.write_text("\n".join(failed))
+        print(f"  Failed list saved to: {fail_path}")
+
+
+def download_benchmark(data_dir: Path, start: str, refresh_after_days: int) -> None:
+    print(f"\nDownloading benchmark {BENCHMARK_TICKER} ...")
+    t, ok, msg = download_ticker(BENCHMARK_TICKER, data_dir, start,
+                                  max(1, refresh_after_days))
+    print(f"  [{'OK' if ok else 'FAILED'}] {BENCHMARK_TICKER}: {msg}")
+
+
+def main() -> None:
+    args = parse_args()
+    STOCK_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+    print("=" * 60)
+    print("  NSE Market Data Downloader")
+    print(f"  Start  : {args.start}")
+    print(f"  Output : {STOCK_DATA_DIR}")
+    print("=" * 60)
+
+    if args.benchmark_only:
+        download_benchmark(STOCK_DATA_DIR, args.start, max(1, args.refresh_after))
+        return
+
+    if args.tickers:
+        tickers = [t.strip() for t in args.tickers]
+        print(f"\nDownloading {len(tickers)} specified ticker(s) ...")
+        download_all(tickers, STOCK_DATA_DIR, args.start, args.refresh_after)
+        download_benchmark(STOCK_DATA_DIR, args.start, args.refresh_after)
+        return
+
+    print("\n[1/2] Loading constituent list ...")
+    tickers = load_tickers()
+
+    print(f"\n[2/2] Downloading {len(tickers)} NSE stocks ...")
+    download_all(tickers, STOCK_DATA_DIR, args.start, args.refresh_after)
+    download_benchmark(STOCK_DATA_DIR, args.start, max(1, args.refresh_after))
+
+    print(f"\n{'='*60}")
+    print("  Done! Next step:")
+    print("  python run_nse_local.py --skip_train")
+    print(f"{'='*60}")
+
+
+if __name__ == "__main__":
+    main()

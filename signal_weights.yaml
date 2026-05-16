@@ -1,0 +1,67 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  signal_weights.yaml  —  Bull & Bear signal weights
+#
+#  Edit these values to tune how much each signal contributes to the
+#  bull and bear watchlists.  No code changes needed — just edit and rerun:
+#
+#      python run_nse_local.py --skip_train
+#
+#  Weight scale: higher = more influence on the final score
+#    0.0  = signal completely ignored
+#    1.0  = normal weight
+#    2.0  = double influence
+#    3.0  = highest priority signal
+#
+#  model_weight : how much the ML model score contributes  (0.0 → 1.0)
+#  composite_weight : how much the signal composite contributes (= 1 - model_weight)
+#  These two must add up to 1.0
+#
+#  Design principle:
+#    The composite is SDZ/SSZ zone signals ONLY.
+#    Everything else (ICT, trend, momentum, regime, SMA, volume, ADX) is
+#    owned entirely by the ML model — it learns them from data.
+# ══════════════════════════════════════════════════════════════════════════════
+
+scoring:
+  model_weight:     0.6   # ML model contribution  (60%)
+  composite_weight: 0.4   # SDZ/SSZ zone composite (40%)
+
+# Momentum mode: stocks within 15% of 52w high — continuation/breakout plays
+momentum_scoring:
+  model_weight:     0.70
+  composite_weight: 0.30
+
+# Reversal mode: stocks 20%+ below 52w high — demand zone bounce plays
+reversal_scoring:
+  model_weight:     0.55
+  composite_weight: 0.45
+
+# ── BULL signals ──────────────────────────────────────────────────────────────
+# SDZ (Swap Demand Zone) signals only.
+# Each key maps to a feature column (features_ prefix is added automatically).
+bull:
+
+  # ── SDZ composite ─────────────────────────────────────────────────────────
+  sdz_htf_score:  3.0   # SDZ confirmed across HTF + trend aligned
+
+  # ── Per-timeframe SDZ flags ───────────────────────────────────────────────
+  # Binary 0/1: stock is sitting inside an SDZ on that specific timeframe.
+  # Higher TF = higher institutional conviction = higher weight.
+  sdz_1wk:        2.0   # Weekly SDZ active
+  sdz_1mo:        2.5   # Monthly SDZ active
+  sdz_3mo:        3.0   # Quarterly SDZ active
+  sdz_1y:         3.5   # Yearly SDZ active  (strongest institutional demand)
+
+
+# ── BEAR signals ──────────────────────────────────────────────────────────────
+# SSZ (Swap Supply Zone) signals only.
+bear:
+
+  # ── SSZ composite ─────────────────────────────────────────────────────────
+  ssz_htf_score:  3.0   # SSZ confirmed across HTF + trend aligned
+
+  # ── Per-timeframe SSZ flags ───────────────────────────────────────────────
+  ssz_1wk:        2.0   # Weekly SSZ active
+  ssz_1mo:        2.5   # Monthly SSZ active
+  ssz_3mo:        3.0   # Quarterly SSZ active
+  ssz_1y:         3.5   # Yearly SSZ active  (strongest institutional supply)

@@ -1,0 +1,34 @@
+"""S&P 500 MarketConfig preset."""
+from pipeline.config.base import MarketConfig, SlippageTier
+
+SP500_CONFIG = MarketConfig(
+    market_id="SP500",
+    exchange_calendar="XNYS",
+    benchmark_ticker="SPY",
+    currency="USD",
+    data_source_primary="polygon",        # Polygon.io
+    data_source_fallback="tiingo",        # Tiingo fallback
+    sector_classification="GICS_L1",
+    min_adv_usd=1_000_000,
+    slippage_tiers_bps=[
+        SlippageTier(adv_min_usd=50_000_000, adv_max_usd=float("inf"), slippage_bps=5),
+        SlippageTier(adv_min_usd=10_000_000, adv_max_usd=50_000_000,  slippage_bps=15),
+        SlippageTier(adv_min_usd=1_000_000,  adv_max_usd=10_000_000,  slippage_bps=40),
+        SlippageTier(adv_min_usd=0,          adv_max_usd=1_000_000,   slippage_bps=80),
+    ],
+    commission_bps=1.0,
+    lot_size=1,
+    adv_participation_cap=0.10,
+    allow_short=False,
+    universe_reconstitution_freq="monthly_first",
+    signal_rebalance_freq="weekly_last",
+    max_sector_weight=0.40,
+    max_single_stock_weight=0.15,
+    max_portfolio_beta=1.3,
+    profit_target_pct=0.08,
+    stop_loss_pct=0.04,
+    psi_alert_threshold=0.20,
+    psi_retrain_threshold=0.25,
+    random_seed=42,
+)
+

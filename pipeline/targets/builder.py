@@ -98,6 +98,15 @@ class TargetBuilder:
     ) -> pd.DataFrame:
         cfg = self.cfg
         panel = panel.copy()
+
+        # Deduplicate index — large universes (US stocks) can have duplicate
+        # (ticker, date) rows from delta merges; groupby().apply() raises on non-unique index
+        if not panel.index.is_unique:
+            before = len(panel)
+            panel = panel[~panel.index.duplicated(keep="last")]
+            panel = panel.sort_index()
+            log.warning("Deduplicated panel index: %d -> %d rows", before, len(panel))
+
         log.info("Building targets for horizons: 20d, 40d, 60d ...")
 
         bm = benchmark_close.copy()
@@ -133,7 +142,9 @@ class TargetBuilder:
             return pd.Series(hits, index=grp.index)
 
         panel["hit_target_20d"] = (
-            panel.groupby(level="ticker", group_keys=False).apply(_hit)
+            panel.groupby(level="ticker", group_keys=False)
+            .apply(_hit)
+            .reindex(panel.index)
         )
 
         # ── max_drawdown_20d ───────────────────────────────────────────────
@@ -151,7 +162,9 @@ class TargetBuilder:
             return pd.Series(result, index=grp.index)
 
         panel["max_drawdown_20d"] = (
-            panel.groupby(level="ticker", group_keys=False).apply(_max_dd_t)
+            panel.groupby(level="ticker", group_keys=False)
+            .apply(_max_dd_t)
+            .reindex(panel.index)
         )
 
         # ── future_vol_20d ─────────────────────────────────────────────────
@@ -175,7 +188,9 @@ class TargetBuilder:
             return pd.Series(result, index=grp.index)
 
         panel["future_vol_20d"] = (
-            panel.groupby(level="ticker", group_keys=False).apply(_future_vol_t)
+            panel.groupby(level="ticker", group_keys=False)
+            .apply(_future_vol_t)
+            .reindex(panel.index)
         )
 
         # ── cs_rank + quintile labels for ALL horizons ────────────────────

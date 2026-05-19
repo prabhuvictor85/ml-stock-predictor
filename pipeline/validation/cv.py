@@ -251,7 +251,7 @@ class PurgedWalkForwardCV:
         Drops groups smaller than min_group_size.
         Returns (filtered_panel, group_sizes_array).
         """
-        panel = panel[panel["in_universe"] == True].copy()
+        panel = panel[panel["in_universe"] == True]
 
         if "ticker" not in panel.columns:
             panel = panel.reset_index(level="ticker")

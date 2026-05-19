@@ -212,10 +212,10 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="NSE Local Pipeline Runner")
     p.add_argument("--top_n",      type=int,   default=30)
     p.add_argument("--weighting",  choices=["equal", "inverse_vol"], default="equal")
-    p.add_argument("--n_folds",    type=int,   default=14,
-                   help="Walk-forward CV folds (14 covers 2010-2026 data, ~1yr test window each)")
-    p.add_argument("--n_trials",   type=int,   default=50,
-                   help="Optuna trials (set to 0 to skip HPO and use defaults)")
+    p.add_argument("--n_folds",    type=int,   default=8,
+                   help="Walk-forward CV folds (8 = ~2yr test windows, faster; use 14 for exhaustive CV)")
+    p.add_argument("--n_trials",   type=int,   default=25,
+                   help="Optuna trials (set to 0 to skip HPO and use defaults; 25 = good balance of speed vs quality)")
     p.add_argument("--skip_train", action="store_true",
                    help="Skip training; load existing artefacts and re-score only")
     p.add_argument("--min_history_days", type=int, default=252,
@@ -595,7 +595,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
     with _train_perf.stage("[3/6] Walk-forward CV setup"):
         print(f"[3/6] Walk-forward CV ({n_folds} folds) ...")
-        cv = PurgedWalkForwardCV(n_folds=n_folds, min_train_window=504)
+        cv = PurgedWalkForwardCV(n_folds=n_folds, min_train_window=378)
         fold_specs = cv.get_fold_specs(train_panel)
         print(f"      {len(fold_specs)} folds generated")
 
@@ -700,7 +700,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             params = {
                 "num_leaves":        trial.suggest_int("num_leaves", 20, 200),
                 "learning_rate":     trial.suggest_float("lr", 0.005, 0.2, log=True),
-                "n_estimators":      trial.suggest_int("n_estimators", 100, 1000),
+                "n_estimators":      trial.suggest_int("n_estimators", 100, 600),
                 "min_child_samples": trial.suggest_int("min_child_samples", 10, 100),
                 "subsample":         trial.suggest_float("subsample", 0.5, 1.0),
                 "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.4, 1.0),
@@ -803,11 +803,18 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         print("[4/6] HPO skipped — using default params")
     _hpo_stage.__exit__(None, None, None)
 
+    # Free fold cache memory before final training
+    import gc
+    if 'fold_cache' in dir():
+        del fold_cache
+    gc.collect()
+    print(f"      RAM freed after HPO. Starting final training ...")
+
     with _train_perf.stage("[5/6] Final model training"):
         print(f"[5/6] Training final LightGBM ranker [{mode}] ...")
     full_grp, full_groups = cv.build_group_array(train_panel, min_group_size=5)
     avail    = [f for f in feat_cols if f in full_grp.columns]
-    X_full   = full_grp[avail]
+    X_full   = full_grp[avail].astype(np.float32)
     _rank_raw = full_grp["cs_rank_composite"].fillna(0)
     # Reversal mode trains a bear ranker: invert rank so stocks expected to
     # decline most get the highest label, mirroring how the bull ranker works.
@@ -1696,14 +1703,21 @@ def save_outputs(result: dict, panel: pd.DataFrame,
         all_bear_final.sort_values(ascending=False).index, 1
     )} if not all_bear_final.empty else {}
 
+    def _safe_scalar(series: pd.Series, ticker: str, default: float = 0.0) -> float:
+        """Extract a scalar from a possibly non-unique-indexed Series."""
+        val = series.get(ticker, default)
+        if isinstance(val, pd.Series):
+            return float(val.iloc[-1]) if not val.empty else default
+        return float(val) if val is not None else default
+
     def _scoring_detail(ticker: str, side: str) -> dict:
         """Build per-ticker scoring breakdown dict."""
         sig_cfg  = bull_signals_cfg if side == "bull" else bear_signals_cfg
         sig_vals = sig_details_bull.get(ticker, {}) if side == "bull" else sig_details_bear.get(ticker, {})
         rank_map = _bull_rank if side == "bull" else _bear_rank
-        m_score  = float(all_model_scores.get(ticker, 0.0))
-        c_score  = float(all_bull_composites.get(ticker, 0.0) if side == "bull"
-                         else all_bear_composites.get(ticker, 0.0))
+        m_score  = _safe_scalar(all_model_scores, ticker)
+        c_score  = _safe_scalar(all_bull_composites if side == "bull"
+                                else all_bear_composites, ticker)
         return {
             "ticker":           ticker,
             "side":             side,

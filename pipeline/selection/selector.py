@@ -134,7 +134,7 @@ class FeatureSelector:
             log.info(f"Step 1 removed {len(removed_nan)} features with >5% NaN: "
                      f"{list(removed_nan)[:5]}...")
         features = keep
-        X = X_train[features].fillna(0)
+        X = X_train[features].fillna(0).astype("float32")  # float32 halves memory vs float64
 
         # ── Step 2: Correlation clustering ────────────────────────────────
         # Compute quick importance; apply boost to zone/OB features so they

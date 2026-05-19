@@ -1,10 +1,10 @@
 """
-sync_stock_data.py — Download & incrementally update stock data for NSE or SP500.
+sync_stock_data.py - Download & incrementally update stock data for NSE or SP500.
 
 For each ticker in the constituent list:
-  - If {TICKER}-1d.csv does not exist → full download from --start
-  - If {TICKER}-1d.csv exists and is stale → fetch only the delta, merge & save
-  - If {TICKER}-1d.csv is already up to date → skip
+  - If {TICKER}-1d.csv does not exist -> full download from --start
+  - If {TICKER}-1d.csv exists and is stale -> fetch only the delta, merge & save
+  - If {TICKER}-1d.csv is already up to date -> skip
 
 Usage:
     python sync_stock_data.py --market nse
@@ -31,7 +31,7 @@ from typing import List, Optional
 import pandas as pd
 import yfinance as yf
 
-# ── Logging ────────────────────────────────────────────────────────────────────
+# -- Logging --------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -39,7 +39,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ── Market config ──────────────────────────────────────────────────────────────
+# -- Market config --------------------------------------------------------------
 MARKET_CONFIG = {
     "nse": {
         "data_dir":       Path(r"C:\Victor\Learning_charts\stock_data"),
@@ -58,10 +58,11 @@ MARKET_CONFIG = {
 }
 
 DEFAULT_START = "2010-01-01"
-MAX_WORKERS   = 8
-RATE_SLEEP    = 0.25   # seconds between batches — be polite to yfinance
+MAX_WORKERS   = 4      # keep low - Yahoo rate-limits aggressive parallel requests
+RATE_SLEEP    = 1.0    # seconds between batches - be polite to yfinance
+WRITE_RETRIES = 3      # retry CSV write on PermissionError (file lock from prev run)
 
-# ── Thread-safe per-file locks ─────────────────────────────────────────────────
+# -- Thread-safe per-file locks -------------------------------------------------
 _path_locks: dict[str, threading.Lock] = {}
 _locks_guard = threading.Lock()
 
@@ -74,10 +75,10 @@ def _get_lock(path: Path) -> threading.Lock:
         return _path_locks[key]
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
+# -- Helpers --------------------------------------------------------------------
 
 def _last_trading_day(end_date: Optional[datetime.date] = None) -> datetime.date:
-    """Last completed trading day — last weekday on or before reference date."""
+    """Last completed trading day - last weekday on or before reference date."""
     ref = end_date if end_date else datetime.date.today() - datetime.timedelta(days=1)
     while ref.weekday() >= 5:   # Saturday=5, Sunday=6
         ref -= datetime.timedelta(days=1)
@@ -142,7 +143,7 @@ def _fetch_from_yfinance(
         return df
 
     except Exception as e:
-        log.warning("%s — yfinance error: %s", ticker, str(e)[:120])
+        log.warning("%s - yfinance error: %s", ticker, str(e)[:120])
         return pd.DataFrame()
 
 
@@ -158,7 +159,22 @@ def _invalidate_drv_files(ticker: str, data_dir: Path) -> None:
                 pass
 
 
-# ── Core sync function ─────────────────────────────────────────────────────────
+def _csv_write(df: pd.DataFrame, path: Path) -> None:
+    """Write DataFrame to CSV with retries on PermissionError (file lock)."""
+    for attempt in range(WRITE_RETRIES):
+        try:
+            df.to_csv(path, index=False)
+            return
+        except PermissionError:
+            if attempt < WRITE_RETRIES - 1:
+                log.warning("PermissionError writing %s - retrying in 2s (attempt %d/%d)",
+                            path.name, attempt + 1, WRITE_RETRIES)
+                time.sleep(2)
+            else:
+                raise
+
+
+# -- Core sync function ---------------------------------------------------------
 
 def sync_ticker(
     ticker: str,
@@ -174,7 +190,7 @@ def sync_ticker(
     last_td   = _last_trading_day(end)
 
     with _get_lock(file_path):
-        # ── File exists: check if stale ──────────────────────────────────
+        # -- File exists: check if stale ----------------------------------
         if file_path.exists():
             try:
                 existing  = pd.read_csv(file_path)
@@ -190,7 +206,7 @@ def sync_ticker(
                 last_date + datetime.timedelta(days=1)
                 if last_date else start
             )
-            log.info("%s — fetching delta %s → %s", ticker, fetch_from, last_td)
+            log.info("%s - fetching delta %s -> %s", ticker, fetch_from, last_td)
             delta = _fetch_from_yfinance(ticker, fetch_from, end)
 
             if delta.empty:
@@ -205,26 +221,26 @@ def sync_ticker(
                 .sort_values("Date")
                 .reset_index(drop=True)
             )
-            combined.to_csv(file_path, index=False)
+            _csv_write(combined, file_path)
             _invalidate_drv_files(ticker, data_dir)
-            return ticker, f"delta +{len(delta)} rows → {len(combined)} total"
+            return ticker, f"delta +{len(delta)} rows -> {len(combined)} total"
 
-        # ── File does not exist: full download ───────────────────────────
-        log.info("%s — full download from %s", ticker, start)
+        # -- File does not exist: full download ---------------------------
+        log.info("%s - full download from %s", ticker, start)
         df = _fetch_from_yfinance(ticker, start, end)
 
         if df.empty:
-            return ticker, "FAILED — empty response"
+            return ticker, "FAILED - empty response"
 
         if len(df) < 50:
-            return ticker, f"SKIPPED — only {len(df)} rows (likely new/delisted)"
+            return ticker, f"SKIPPED - only {len(df)} rows (likely new/delisted)"
 
         data_dir.mkdir(parents=True, exist_ok=True)
-        df.to_csv(file_path, index=False)
-        return ticker, f"new — {len(df)} rows saved"
+        _csv_write(df, file_path)
+        return ticker, f"new - {len(df)} rows saved"
 
 
-# ── Batch runner ───────────────────────────────────────────────────────────────
+# -- Batch runner ---------------------------------------------------------------
 
 def sync_all(
     tickers: List[str],
@@ -240,9 +256,9 @@ def sync_all(
     delta_d   = 0
     failed: List[str] = []
 
-    print(f"\nSyncing {total} {label} tickers → {data_dir}")
+    print(f"\nSyncing {total} {label} tickers -> {data_dir}")
     end_str = str(end) if end else "today"
-    print(f"  Date range: {start} → {end_str}\n")
+    print(f"  Date range: {start} -> {end_str}\n")
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = {
@@ -259,7 +275,7 @@ def sync_all(
             elif msg.startswith("FAILED") or msg.startswith("READ ERROR"):
                 failed.append(ticker)
                 if len(failed) <= 10:
-                    print(f"  ✗ [{ticker}]: {msg}")
+                    print(f"  x [{ticker}]: {msg}")
             elif "delta" in msg:
                 delta_d += 1
                 succeeded += 1
@@ -289,7 +305,7 @@ def sync_all(
     print(f"{'='*60}\n")
 
 
-# ── Args ───────────────────────────────────────────────────────────────────────
+# -- Args -----------------------------------------------------------------------
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="Sync stock data (NSE or SP500)")
@@ -303,7 +319,7 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument(
         "--end", default=None,
-        help="End date cap — leave blank for today"
+        help="End date cap - leave blank for today"
     )
     p.add_argument(
         "--tickers", nargs="+", default=None,
@@ -316,7 +332,7 @@ def parse_args() -> argparse.Namespace:
     return p.parse_args()
 
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+# -- Main -----------------------------------------------------------------------
 
 def main() -> None:
     args   = parse_args()
@@ -325,7 +341,7 @@ def main() -> None:
     end    = datetime.date.fromisoformat(args.end) if args.end else None
 
     print("=" * 60)
-    print(f"  Stock Data Sync — {cfg['label']}")
+    print(f"  Stock Data Sync - {cfg['label']}")
     print(f"  Start : {start}")
     print(f"  End   : {end or 'today'}")
     print(f"  Output: {cfg['data_dir']}")
@@ -333,7 +349,7 @@ def main() -> None:
 
     data_dir = cfg["data_dir"]
 
-    # ── Benchmarks ─────────────────────────────────────────────────────────
+    # -- Benchmarks ---------------------------------------------------------
     print("\nSyncing benchmark(s) ...")
     for bm in cfg["benchmarks"]:
         _, msg = sync_ticker(bm, data_dir, start, end)
@@ -342,14 +358,14 @@ def main() -> None:
     if args.benchmarks_only:
         return
 
-    # ── Specific tickers ───────────────────────────────────────────────────
+    # -- Specific tickers ---------------------------------------------------
     if args.tickers:
         tickers = [t.strip() for t in args.tickers]
         print(f"\nSyncing {len(tickers)} specified ticker(s) ...")
         sync_all(tickers, data_dir, start, end, cfg["label"])
         return
 
-    # ── Full constituent list ──────────────────────────────────────────────
+    # -- Full constituent list ----------------------------------------------
     list_file = cfg["list_file"]
     if not list_file.exists():
         print(f"\nERROR: Constituent list not found: {list_file}")

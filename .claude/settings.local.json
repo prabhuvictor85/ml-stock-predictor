@@ -41,7 +41,30 @@
       "Bash(git commit -m ' *)",
       "Bash(grep -E \"\\\\.\\(pkl|db\\)$\")",
       "Bash(git add *)",
-      "Bash(git reset *)"
+      "Bash(git reset *)",
+      "Bash(ls \"C:/Victor/Learning_charts/\" 2>&1 *)",
+      "WebSearch",
+      "Bash(Get-ChildItem -Path \"C:\\\\Victor\\\\Project\\\\market-vision\" -Recurse -Force)",
+      "Bash(ConvertTo-Csv -NoTypeInformation)",
+      "Bash(Out-String)",
+      "Bash(grep -E \"\\\\.\\(py|json|yml|yaml|md|txt\\)$\")",
+      "Bash(.venv\\\\Scripts\\\\python.exe sync_stock_data.py --market sp500)",
+      "Bash(\".venv/Scripts/python.exe\" sync_stock_data.py --market sp500)",
+      "Bash(tasklist)",
+      "Bash(taskkill /F /PID 17396)",
+      "Bash(taskkill /F /PID 28280)",
+      "Bash(cmd /c \"taskkill /F /PID 17396\")",
+      "Bash(cmd /c \"taskkill /F /PID 28280\")",
+      "Bash(.venv/Scripts/python.exe -c ' *)",
+      "Bash(\".venv/Scripts/python.exe\" sync_stock_data.py --market sp500 --start 2010-01-01 --end 2024-03-01)",
+      "Bash(cmd /c \"dir C:\\\\Victor\\\\Learning_charts\\\\stock_data\\\\tradingview /B | head -20\")",
+      "Bash(cmd /c \"dir C:\\\\Victor\\\\Learning_charts\\\\stock_data\\\\tradingview /B | find /c /v \"\"\")",
+      "Bash(cmd /c \"dir C:\\\\Victor\\\\Learning_charts\\\\stock_data\\\\tradingview /B 2>&1\")",
+      "Bash(sort -k5 -rh)",
+      "Bash(\".venv/Scripts/python.exe\" evaluate_forward_performance.py --market sp500 --base_date 2024-03-01 --forward_date 2024-09-01)",
+      "Bash(.venv\\\\Scripts\\\\pip install *)",
+      "Bash(python -c \"print\\(sum\\(1 for _ in open\\(r'C:\\\\Victor\\\\Project\\\\ml-stock-predictor\\\\dashboard.py'\\)\\)\\)\")",
+      "PowerShell(cd \"C:\\\\Victor\\\\Project\\\\ml-stock-predictor\"; $env:PYTHONIOENCODING=\"utf-8\"; .\\\\.venv\\\\Scripts\\\\python.exe debug_tv.py 2>&1)"
     ]
   }
 }

@@ -1,6 +1,6 @@
 """
 NSE & US ML Stock Predictor — Streamlit Dashboard
-Run: .venv\Scripts\streamlit run dashboard.py
+Run: .venv/Scripts/streamlit run dashboard.py
 """
 from __future__ import annotations
 
@@ -37,6 +37,16 @@ MARKET_CONFIG = {
         "watchlist_prefix": "watchlist_momentum_bull_",
         "benchmark": "^GSPC / ^NDX",
         "icon": "🇺🇸",
+    },
+    "NSE TradingView": {
+        "script":    "run_nse_tradingv_local.py",
+        "output":    PROJECT_DIR / "output"    / "nse_tradingv",
+        "log_dir":   PROJECT_DIR / "artefacts" / "nse_tradingv" / "logs",
+        "shap_img":  PROJECT_DIR / "reports"   / "shap_global_nse_tradingv.png",
+        "pid_file":  PROJECT_DIR / ".dashboard_run_nse_tv.pid",
+        "watchlist_prefix": "watchlist_momentum_bull_",
+        "benchmark": "NIFTY (TradingView)",
+        "icon": "📺",
     },
 }
 
@@ -112,13 +122,34 @@ def latest_watchlists(cfg: dict) -> tuple[str, dict[str, pd.DataFrame]]:
                    key=lambda x: x.stat().st_mtime, reverse=True)
     if not files:
         return "", {}
-    date_str = files[0].stem.replace(prefix, "")
+    # Exclude per-tier files (e.g. watchlist_momentum_bull_large_*.csv) when
+    # detecting the scoring date — only main files have a plain YYYY-MM-DD stem.
+    _TIER_KEYS = ("large_", "mid_", "small_")
+    main_files = [f for f in files
+                  if not any(f.stem.replace(prefix, "").startswith(t)
+                             for t in _TIER_KEYS)]
+    if not main_files:
+        return "", {}
+    date_str = main_files[0].stem.replace(prefix, "")
     result: dict[str, pd.DataFrame] = {}
     for label, pattern in [
-        ("Momentum Bull", f"watchlist_momentum_bull_{date_str}.csv"),
-        ("Momentum Bear", f"watchlist_momentum_bear_{date_str}.csv"),
-        ("Reversal Bull", f"watchlist_reversal_bull_{date_str}.csv"),
-        ("Reversal Bear", f"watchlist_reversal_bear_{date_str}.csv"),
+        ("Momentum Bull",       f"watchlist_momentum_bull_{date_str}.csv"),
+        ("Momentum Bear",       f"watchlist_momentum_bear_{date_str}.csv"),
+        ("Reversal Bull",       f"watchlist_reversal_bull_{date_str}.csv"),
+        ("Reversal Bear",       f"watchlist_reversal_bear_{date_str}.csv"),
+        # Per-cap-tier top-10 (generated when Indices column present)
+        ("Momentum Bull large", f"watchlist_momentum_bull_large_{date_str}.csv"),
+        ("Momentum Bull mid",   f"watchlist_momentum_bull_mid_{date_str}.csv"),
+        ("Momentum Bull small", f"watchlist_momentum_bull_small_{date_str}.csv"),
+        ("Momentum Bear large", f"watchlist_momentum_bear_large_{date_str}.csv"),
+        ("Momentum Bear mid",   f"watchlist_momentum_bear_mid_{date_str}.csv"),
+        ("Momentum Bear small", f"watchlist_momentum_bear_small_{date_str}.csv"),
+        ("Reversal Bull large", f"watchlist_reversal_bull_large_{date_str}.csv"),
+        ("Reversal Bull mid",   f"watchlist_reversal_bull_mid_{date_str}.csv"),
+        ("Reversal Bull small", f"watchlist_reversal_bull_small_{date_str}.csv"),
+        ("Reversal Bear large", f"watchlist_reversal_bear_large_{date_str}.csv"),
+        ("Reversal Bear mid",   f"watchlist_reversal_bear_mid_{date_str}.csv"),
+        ("Reversal Bear small", f"watchlist_reversal_bear_small_{date_str}.csv"),
     ]:
         p = output_dir / pattern
         if p.exists():
@@ -163,6 +194,154 @@ def drift_summary(log_text: str):
     alerts   = [l for l in log_text.splitlines() if "Feature drift ALERT" in l]
     retrain  = any("RETRAIN TRIGGER" in l for l in log_text.splitlines())
     return alerts, retrain
+
+
+# ── Explain helpers ───────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def load_scores_detail(output_dir_str: str, date_str: str) -> dict:
+    """
+    Load scores_detail_momentum_{date}.json + scores_detail_reversal_{date}.json.
+    Returns {ticker: {"momentum": {...}, "reversal": {...}}} merged dict.
+    """
+    output_dir = Path(output_dir_str)
+    merged: dict = {}
+    for model in ["momentum", "reversal"]:
+        f = output_dir / f"scores_detail_{model}_{date_str}.json"
+        if not f.exists():
+            # older single-file fallback
+            f = output_dir / f"scores_detail_{date_str}.json"
+        if not f.exists():
+            continue
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            for ticker, info in data.items():
+                merged.setdefault(ticker, {})[model] = info
+        except Exception:
+            pass
+    return merged
+
+
+RESCORE_SCHEMES = {
+    "Pure ML":     (1.00, 0.00),
+    "Blend 85/15": (0.85, 0.15),
+}
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def rescore_tickers(output_dir_str: str, date_str: str, model_name: str,
+                    side: str, model_wt: float, comp_wt: float, top_n: int) -> pd.DataFrame:
+    """Re-rank a model+side using given weights from scores_detail JSON."""
+    output_dir = Path(output_dir_str)
+    f = output_dir / f"scores_detail_{model_name}_{date_str}.json"
+    if not f.exists():
+        f = output_dir / f"scores_detail_{date_str}.json"
+    if not f.exists():
+        return pd.DataFrame()
+
+    data = json.loads(f.read_text(encoding="utf-8"))
+    rows = []
+    for ticker, info in data.items():
+        sd = info.get(side, {})
+        if not sd:
+            continue
+        m_sc   = float(sd.get("model_score",     0))
+        c_sc   = float(sd.get("composite_score", 0))
+        final  = m_sc * model_wt + c_sc * comp_wt
+        orig_r = info.get(f"{side}_rank", sd.get("rank_in_universe"))
+        in_wl  = info.get(f"in_{side}_watchlist", False)
+        rows.append({
+            "rank":            0,          # filled below
+            "ticker":          ticker,
+            "final_score":     round(final, 4),
+            "model_score":     round(m_sc,  4),
+            "composite_score": round(c_sc,  4),
+            "orig_rank":       orig_r,
+            "in_orig_wl":      "✅" if in_wl else "",
+        })
+
+    df = (pd.DataFrame(rows)
+            .sort_values("final_score", ascending=False)
+            .reset_index(drop=True))
+    df["rank"] = df.index + 1
+    return df.head(top_n)
+
+
+def _render_explain(ticker: str, scores_all: dict, date_str: str):
+    """Render the per-ticker explain breakdown panel."""
+    data = scores_all.get(ticker)
+    if not data:
+        st.warning(f"No score detail found for **{ticker}** on {date_str}. "
+                   "Re-run scoring to generate scores_detail files.")
+        return
+
+    st.markdown(f"### Explain: **{ticker}**  —  scored {date_str}")
+
+    for model_name in ["momentum", "reversal"]:
+        model_data = data.get(model_name)
+        if not model_data:
+            st.caption(f"No {model_name} data for {ticker}")
+            continue
+
+        in_bull = model_data.get("in_bull_watchlist", False)
+        in_bear = model_data.get("in_bear_watchlist", False)
+        bull_icon = "🟢" if in_bull else "⚪"
+        bear_icon = "🔴" if in_bear else "⚪"
+        header = (
+            f"{bull_icon} **{model_name.title()} Bull** "
+            f"{'✅ IN WATCHLIST' if in_bull else ''}"
+            f"  |  "
+            f"{bear_icon} **{model_name.title()} Bear** "
+            f"{'✅ IN WATCHLIST' if in_bear else ''}"
+        )
+
+        with st.expander(header, expanded=True):
+            col_bull, col_bear = st.columns(2)
+
+            for col, side in [(col_bull, "bull"), (col_bear, "bear")]:
+                side_data = model_data.get(side, {})
+                if not side_data:
+                    col.caption(f"No {side} data")
+                    continue
+
+                rank          = side_data.get("rank_in_universe", "?")
+                universe      = side_data.get("universe_size", "?")
+                model_score   = float(side_data.get("model_score",     0))
+                composite_sc  = float(side_data.get("composite_score", 0))
+                model_wt      = float(side_data.get("model_weight",    0))
+                comp_wt       = float(side_data.get("composite_weight",0))
+                in_wl         = model_data.get(f"in_{side}_watchlist", False)
+                combined      = model_score * model_wt + composite_sc * comp_wt
+
+                icon = "🟢" if side == "bull" else "🔴"
+                badge = "  ✅" if in_wl else ""
+                col.markdown(f"**{icon} {side.upper()}{badge}**")
+                col.markdown(
+                    f"Rank **{rank}** / {universe}  "
+                    f"({'top ' + str(round(rank/universe*100, 1)) + '%' if isinstance(rank, int) and isinstance(universe, int) else ''})"
+                )
+                col.metric("Model score",     f"{model_score:.4f}",  help=f"Weight {model_wt:.0%}")
+                col.metric("Composite score", f"{composite_sc:.4f}", help=f"Weight {comp_wt:.0%}")
+                col.caption(
+                    f"Combined = {model_score:.4f} × {model_wt:.0%} "
+                    f"+ {composite_sc:.4f} × {comp_wt:.0%} = **{combined:.4f}**"
+                )
+
+                # Signal breakdown table
+                sig_weights = side_data.get("signal_weights", {})
+                sig_values  = side_data.get("signal_values",  {})
+                if sig_weights:
+                    rows = [
+                        {
+                            "Signal":       sig,
+                            "Weight":       w,
+                            "Value":        round(float(sig_values.get(sig, 0)), 4),
+                            "Contribution": round(w * float(sig_values.get(sig, 0)), 4),
+                        }
+                        for sig, w in sig_weights.items()
+                    ]
+                    df_sig = pd.DataFrame(rows).sort_values("Contribution", ascending=False)
+                    col.dataframe(df_sig, use_container_width=True, hide_index=True)
 
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
@@ -217,7 +396,7 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Auto-refresh")
-    auto = st.toggle("Live updates (5s)", value=running)
+    auto = st.toggle("Live updates (20 min)", value=running)
 
     st.divider()
     log_dir = cfg["log_dir"]
@@ -247,7 +426,33 @@ with tab_watch:
     if not watchlists:
         st.info(f"No watchlists found for {market_label}. Run a scoring pass first.")
     else:
-        st.subheader(f"Watchlists — as of {date_str}")
+        # ── Ranking method selector ───────────────────────────────────────────
+        rc1, rc2 = st.columns([3, 1])
+        with rc1:
+            rank_method = st.radio(
+                "Ranking method",
+                ["Original (70/30)", "Pure ML", "Blend 85/15"],
+                horizontal=True,
+                key="rank_method",
+            )
+        with rc2:
+            top_n = st.number_input("Top N", min_value=10, max_value=200,
+                                    value=30, step=10, key="wl_top_n")
+
+        mw, cw = {"Original (70/30)": (0.70, 0.30),
+                  "Pure ML":          (1.00, 0.00),
+                  "Blend 85/15":      (0.85, 0.15)}[rank_method]
+
+        st.subheader(f"Watchlists — as of {date_str}  |  {rank_method}")
+
+        # Highlight colours — tested against Streamlit dark theme
+        # Mid-tone values: visible on dark (#0e1117) and readable on light
+        SCHEME_COLORS = {
+            "both":    "#1a4731",   # deep green  — in Pure ML AND Blend
+            "ml_only": "#17375e",   # deep blue   — Pure ML only
+            "bl_only": "#5c3d00",   # deep amber  — Blend 85/15 only
+            "orig":    "#2d2d2d",   # dark grey   — Original only / neither
+        }
 
         DISPLAY_COLS = ["rank", "ticker", "side", "score",
                         "adx_14", "return_20d", "vol_contraction",
@@ -259,30 +464,184 @@ with tab_watch:
              "🔵 Reversal Bull",  "🟠 Reversal Bear"]
         )
 
-        def show_watchlist(tab, df: pd.DataFrame, side: str):
-            with tab:
-                cols    = [c for c in DISPLAY_COLS if c in df.columns]
-                display = df[cols].copy()
-                for c in ["score", "adx_14", "return_20d", "vol_contraction",
-                          "sector_rs_20d", "zone_htf_confluence",
-                          "sdz_htf_score", "ssz_htf_score"]:
-                    if c in display.columns:
-                        display[c] = display[c].apply(
-                            lambda x: f"{x:.2f}" if pd.notna(x) else ""
-                        )
-                st.dataframe(display, use_container_width=True, hide_index=True)
-                csv = df.to_csv(index=False).encode()
-                st.download_button(
-                    f"⬇️ Download {side}",
-                    csv,
-                    file_name=f"watchlist_{side.lower().replace(' ', '_')}_{date_str}.csv",
-                    mime="text/csv",
+        TAB_META = [
+            (wt1, "Momentum Bull", "momentum", "bull"),
+            (wt2, "Momentum Bear", "momentum", "bear"),
+            (wt3, "Reversal Bull", "reversal",  "bull"),
+            (wt4, "Reversal Bear", "reversal",  "bear"),
+        ]
+
+        for tab_obj, label, model_name, side in TAB_META:
+            with tab_obj:
+                # Always fetch Pure ML and Blend sets for cross-highlighting
+                df_ml = rescore_tickers(str(cfg["output"]), date_str,
+                                        model_name, side, 1.00, 0.00, int(top_n))
+                df_bl = rescore_tickers(str(cfg["output"]), date_str,
+                                        model_name, side, 0.85, 0.15, int(top_n))
+                ml_set = set(df_ml["ticker"]) if not df_ml.empty else set()
+                bl_set = set(df_bl["ticker"]) if not df_bl.empty else set()
+
+                def _scheme_tag(ticker):
+                    in_ml = ticker in ml_set
+                    in_bl = ticker in bl_set
+                    if in_ml and in_bl:   return "ML + Blend"
+                    if in_ml:             return "Pure ML"
+                    if in_bl:             return "Blend 85/15"
+                    return ""
+
+                def _row_color(row):
+                    t = row["ticker"]
+                    in_ml = t in ml_set
+                    in_bl = t in bl_set
+                    if in_ml and in_bl:
+                        c = SCHEME_COLORS["both"]
+                    elif in_ml:
+                        c = SCHEME_COLORS["ml_only"]
+                    elif in_bl:
+                        c = SCHEME_COLORS["bl_only"]
+                    else:
+                        c = SCHEME_COLORS["orig"]
+                    return [f"background-color: {c}; color: #e8e8e8"] * len(row)
+
+                if rank_method == "Original (70/30)":
+                    df = watchlists.get(label, pd.DataFrame())
+                    if df.empty:
+                        st.info(f"No {label} watchlist found.")
+                        continue
+                    df = df.head(int(top_n)).copy()
+
+                    # Add scheme tag column
+                    if "ticker" in df.columns:
+                        df.insert(2, "schemes", df["ticker"].apply(_scheme_tag))
+
+                    cols    = ["schemes"] + [c for c in DISPLAY_COLS if c in df.columns]
+                    display = df[[c for c in cols if c in df.columns]].copy()
+                    for c in ["score", "adx_14", "return_20d", "vol_contraction",
+                              "sector_rs_20d", "zone_htf_confluence",
+                              "sdz_htf_score", "ssz_htf_score"]:
+                        if c in display.columns:
+                            display[c] = display[c].apply(
+                                lambda x: f"{x:.2f}" if pd.notna(x) else ""
+                            )
+                    st.dataframe(
+                        display.style.apply(_row_color, axis=1),
+                        use_container_width=True, hide_index=True,
+                    )
+                    csv = df.to_csv(index=False).encode()
+                    st.download_button(
+                        f"⬇️ Download {label}",
+                        csv,
+                        file_name=f"watchlist_{label.lower().replace(' ','_')}_{date_str}.csv",
+                        mime="text/csv",
+                    )
+
+                else:
+                    df = rescore_tickers(str(cfg["output"]), date_str,
+                                         model_name, side, mw, cw, int(top_n))
+                    if df.empty:
+                        st.warning(f"No scores_detail data for {label}.")
+                        continue
+
+                    display = df.copy()
+                    display.insert(2, "schemes", display["ticker"].apply(_scheme_tag))
+                    display["orig_wl"] = display["in_orig_wl"].apply(
+                        lambda v: "Yes" if v == "✅" else ""
+                    )
+                    display = display.drop(columns=["in_orig_wl"])
+                    col_order = ["rank", "ticker", "schemes", "orig_wl",
+                                 "final_score", "model_score", "composite_score", "orig_rank"]
+                    display = display[[c for c in col_order if c in display.columns]]
+
+                    st.dataframe(
+                        display.style.apply(_row_color, axis=1),
+                        use_container_width=True, hide_index=True,
+                    )
+
+                    n_both   = sum(1 for t in df["ticker"] if t in ml_set and t in bl_set)
+                    n_ml     = sum(1 for t in df["ticker"] if t in ml_set and t not in bl_set)
+                    n_bl     = sum(1 for t in df["ticker"] if t not in ml_set and t in bl_set)
+                    n_orig   = (df["in_orig_wl"] == "✅").sum()
+                    mc1, mc2, mc3, mc4 = st.columns(4)
+                    mc1.metric("In original (70/30)", int(n_orig))
+                    mc2.metric("ML + Blend",          n_both)
+                    mc3.metric("Pure ML only",         n_ml)
+                    mc4.metric("Blend 85/15 only",     n_bl)
+
+                    csv = df.to_csv(index=False).encode()
+                    st.download_button(
+                        f"⬇️ Download {label} ({rank_method})",
+                        csv,
+                        file_name=f"rescore_{model_name}_{side}_{rank_method.lower().replace(' ','_')}_{date_str}.csv",
+                        mime="text/csv",
+                    )
+
+                # ── Colour legend (always shown) ──────────────────────────────
+                st.markdown(
+                    "<div style='font-size:0.82rem; margin-top:6px;'>"
+                    "<span style='background:#1a4731; color:#e8e8e8; "
+                    "padding:2px 8px; border-radius:4px; margin-right:8px;'>"
+                    "&#9632; ML + Blend</span>"
+                    "<span style='background:#17375e; color:#e8e8e8; "
+                    "padding:2px 8px; border-radius:4px; margin-right:8px;'>"
+                    "&#9632; Pure ML only</span>"
+                    "<span style='background:#5c3d00; color:#e8e8e8; "
+                    "padding:2px 8px; border-radius:4px; margin-right:8px;'>"
+                    "&#9632; Blend 85/15 only</span>"
+                    "<span style='background:#2d2d2d; color:#e8e8e8; "
+                    "padding:2px 8px; border-radius:4px;'>"
+                    "&#9632; Not in either</span>"
+                    "</div>",
+                    unsafe_allow_html=True,
                 )
 
-        for tab_obj, (label, df) in zip(
-            [wt1, wt2, wt3, wt4], watchlists.items()
-        ):
-            show_watchlist(tab_obj, df, label)
+                # ── Cap-tier breakdown (shown when tier files exist) ───────────
+                _tier_data = {}
+                for _tk, _tl in [("large", "🔵 Large Cap"),
+                                  ("mid",   "🟡 Mid Cap"),
+                                  ("small", "🟢 Small Cap")]:
+                    _key = f"{label} {_tk}"
+                    if _key in watchlists and not watchlists[_key].empty:
+                        _tier_data[_tl] = watchlists[_key]
+                if _tier_data:
+                    with st.expander("📊 By Market Cap Tier — Top 10 each", expanded=False):
+                        _tier_cols = st.columns(len(_tier_data))
+                        _tier_show_cols = ["rank", "ticker", "score",
+                                           "return_20d", "adx_14", "sector_rs_20d"]
+                        for (_tlabel, _tdf), _tcol in zip(_tier_data.items(), _tier_cols):
+                            with _tcol:
+                                st.markdown(f"**{_tlabel}**")
+                                _show = _tdf[[c for c in _tier_show_cols
+                                              if c in _tdf.columns]].copy()
+                                for _fc in ["score", "return_20d", "adx_14", "sector_rs_20d"]:
+                                    if _fc in _show.columns:
+                                        _show[_fc] = _show[_fc].apply(
+                                            lambda x: f"{x:.2f}" if pd.notna(x) else ""
+                                        )
+                                st.dataframe(_show, use_container_width=True,
+                                             hide_index=True)
+
+        # ── Explain Panel ─────────────────────────────────────────────────────
+        st.divider()
+        st.subheader("🔍 Explain a Ticker")
+
+        scores_all = load_scores_detail(str(cfg["output"]), date_str)
+
+        # Watchlist tickers first, then all scored tickers
+        wl_tickers = sorted({
+            str(t) for df in watchlists.values()
+            if "ticker" in df.columns
+            for t in df["ticker"].dropna().tolist()
+        })
+        extra = [t for t in sorted(scores_all.keys()) if t not in wl_tickers]
+        ticker_options = ["— select —"] + wl_tickers + extra
+
+        explain_ticker = st.selectbox(
+            "Select ticker (watchlist tickers listed first)",
+            ticker_options,
+            key=f"explain_{st.session_state['market']}",
+        )
+        if explain_ticker and explain_ticker != "— select —":
+            _render_explain(explain_ticker, scores_all, date_str)
 
 
 # ── Tab: Live Log ─────────────────────────────────────────────────────────────
@@ -373,5 +732,5 @@ with tab_drift:
 
 # ── Auto-refresh loop ─────────────────────────────────────────────────────────
 if auto and is_running(cfg):
-    time.sleep(5)
+    time.sleep(1200)  # 20 minutes
     st.rerun()

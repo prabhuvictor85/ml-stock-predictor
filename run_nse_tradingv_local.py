@@ -1,35 +1,32 @@
 """
-run_sp500_local.py — End-to-end S&P 500 + NASDAQ 100 pipeline using LOCAL CSV stock data.
-
-Universe  : S&P 500 + NASDAQ 100 combined (~540-560 unique tickers after dedup)
-Benchmark : Blended SPX (40%) + NDX (60%) — reflects a tech-heavy portfolio
+run_nse_tradingv_local.py — NSE pipeline using TradingView dividend-adjusted CSVs.
 
 Reads:
-  - Stock list  : C:/Victor/Learning_charts/stock_lists/constituents_us_combined.csv
-                  Columns: Symbol, Name, Sector, Indices
-  - Daily data  : C:/Victor/Learning_charts/stock_data/us_stocks/{TICKER}-1d.csv
-                  Columns: Date, Close, High, Low, Open, Volume
-  - Benchmarks  : ^GSPC-1d.csv and ^NDX-1d.csv in us_data/ (or fetched via yfinance)
+  - Stock list  : C:/Victor/Learning_charts/stock_lists/constituents_nse_tradingv.csv
+                  Columns: Symbol, TV_ticker, rows
+  - Daily data  : C:/Victor/Learning_charts/stock_data/tradingview/NSE_{TV_ticker}_1D_TV_div_adj.csv
+                  Columns: ts (unix), o, h, l, c, v
+  - Benchmark   : NSE_NIFTY_1D_TV_div_adj.csv (same directory)
+
+Artefacts: artefacts/nse_tradingv/   (completely separate from nse_local)
+Output   : output/nse_tradingv/       (completely separate from nse_local)
 
 Steps:
   1.  Load all local CSVs → master panel
   2.  Feature engineering (Wilder ATR/ADX, ICT, zones, multi-TF, regime)
   3.  Target building (cs_rank_20d, top_quintile, hit_target …)
-  4.  Purged walk-forward CV (12-14 folds)
-  5.  LGBMRanker training (momentum + reversal modes)
+  4.  Purged walk-forward CV (5 folds)
+  5.  LGBMRanker training
   6.  Isotonic calibration
   7.  Ensemble scoring on latest cross-section
-  8.  Portfolio construction (top-30 stocks, equal weight)
+  8.  Portfolio construction (top-20 NSE stocks, equal weight)
   9.  SHAP global importance
  10.  Output: watchlist CSV + explanations JSON + HTML report
 
 Usage:
-    python run_sp500_local.py
-    python run_sp500_local.py --top_n 15 --weighting inverse_vol
-    python run_sp500_local.py --skip_train  (load existing artefacts and re-score)
-
-First-time setup:
-    python download_us_data.py   (downloads all stock CSVs and benchmark files)
+    python run_nse_tradingv_local.py
+    python run_nse_tradingv_local.py --top_n 15 --weighting inverse_vol
+    python run_nse_tradingv_local.py --skip_train  (load existing artefacts and re-score)
 """
 from __future__ import annotations
 
@@ -53,19 +50,13 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-STOCK_LIST_CSV  = Path(r"C:\Victor\Learning_charts\stock_lists\constituents_us_combined.csv")
-STOCK_DATA_DIR  = Path(r"C:\Victor\Learning_charts\stock_data\us_stocks")
-ARTEFACTS_DIR   = Path("artefacts/us_local")
-OUTPUT_DIR      = Path("output/us_local")
+STOCK_LIST_CSV  = Path(r"C:\Victor\Learning_charts\stock_lists\constituents_nse_tradingv.csv")
+STOCK_DATA_DIR  = Path(r"C:\Victor\Learning_charts\stock_data\tradingview")
+ARTEFACTS_DIR   = Path("artefacts/nse_tradingv")
+OUTPUT_DIR      = Path("output/nse_tradingv")
 REPORTS_DIR     = Path("reports")
 
-# ── Dual benchmark: SPX + NDX blended (tech-heavy portfolio) ───────────────
-SPX_TICKER   = "^GSPC"
-NDX_TICKER   = "^NDX"
-SPX_WEIGHT   = 0.40   # 40% S&P 500
-NDX_WEIGHT   = 0.60   # 60% NASDAQ 100 — adjust to match your portfolio mix
-SPX_FILE     = STOCK_DATA_DIR / "^GSPC-1d.csv"
-NDX_FILE     = STOCK_DATA_DIR / "^NDX-1d.csv"
+BENCHMARK_FILE  = STOCK_DATA_DIR / "NSE_NIFTY_1D_TV_div_adj.csv"
 
 # ── Two-ranker mode directories ─────────────────────────────────────────────
 MOMENTUM_ARTEFACTS_DIR = ARTEFACTS_DIR / "momentum"
@@ -172,22 +163,25 @@ class PerfTimer:
 
 def get_csv_max_date(data_dir: Path, min_ticker_pct: float = 0.80) -> Optional[pd.Timestamp]:
     """
-    Scan all plain *-1d.csv files (excluding *-Drv.csv) in data_dir and
+    Scan all NSE_*_1D_TV_div_adj.csv files in data_dir and
     return the latest date at which at least min_ticker_pct of tickers have data.
 
     Using raw MAX would return the date of whichever single ticker has the newest
     data, causing all other tickers to be missing from the scoring cross-section.
     """
     ticker_max_dates: List[pd.Timestamp] = []
-    for csv_path in data_dir.glob("*-1d.csv"):
-        if "Drv" in csv_path.name:
+    # Exclude benchmark/index files
+    EXCLUDE_NAMES = {"NSE_NIFTY", "NSE_BANKNIFTY", "NSE_FINNIFTY",
+                     "NSE_MIDCPNIFTY", "NSE_NIFTYNXT50"}
+    for csv_path in data_dir.glob("NSE_*_1D_TV_div_adj.csv"):
+        stem = csv_path.stem.replace("_1D_TV_div_adj", "")
+        if stem in EXCLUDE_NAMES:
             continue
         try:
-            df = pd.read_csv(csv_path, usecols=lambda c: c in ("Date", "date", "datetime", "timestamp"))
+            df = pd.read_csv(csv_path, usecols=["ts"])
             if df.empty:
                 continue
-            col = df.columns[0]
-            dt = pd.to_datetime(df[col], errors="coerce").max()
+            dt = pd.to_datetime(df["ts"], unit="s").dt.normalize().max()
             if pd.notna(dt):
                 ticker_max_dates.append(dt)
         except Exception:
@@ -221,7 +215,7 @@ def set_seeds(seed: int = 42) -> None:
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="US (S&P500 + NASDAQ100) Local Pipeline Runner")
+    p = argparse.ArgumentParser(description="NSE Local Pipeline Runner")
     p.add_argument("--top_n",      type=int,   default=30)
     p.add_argument("--weighting",  choices=["equal", "inverse_vol"], default="equal")
     p.add_argument("--n_folds",    type=int,   default=8,
@@ -230,13 +224,21 @@ def parse_args() -> argparse.Namespace:
                    help="Optuna trials (set to 0 to skip HPO and use defaults; 25 = good balance of speed vs quality)")
     p.add_argument("--skip_train", action="store_true",
                    help="Skip training; load existing artefacts and re-score only")
-    p.add_argument("--min_history_days", type=int, default=252,
-                   help="Minimum trading days required per ticker")
+    p.add_argument("--min_history_days", type=int, default=500,
+                   help="Minimum trading days required per ticker (default 500 = ~2 years)")
+    p.add_argument("--train_start", type=str, default="2010-01-01",
+                   help="Earliest date to include in training panel (default: 2010-01-01). "
+                        "Rows before this date are dropped. Stocks listed after this date "
+                        "use all available data. Set to 'none' to use full history.")
+    p.add_argument("--train_end", type=str, default="latest",
+                   help="Latest date to include in training panel (default: 'latest' = "
+                        "auto-detect from CSV files). Set to a date e.g. 2024-12-31 to "
+                        "freeze training at a point in time and score as of that date.")
     p.add_argument("--gpu", action="store_true",
                    help="Enable GPU acceleration for LightGBM (no effect — LightGBM GPU requires a custom CUDA build)")
     p.add_argument("--explain", type=str, default=None, metavar="TICKER",
                    help="Explain why TICKER was/wasn't selected. Uses the last run's scores. "
-                        "E.g.: --explain AAPL")
+                        "E.g.: --explain HINDCOPPER.NS")
     p.add_argument("--mode",
                    choices=["all", "momentum", "reversal", "legacy"],
                    default="all",
@@ -253,10 +255,10 @@ def parse_args() -> argparse.Namespace:
 # ── 1. Load local CSV data ──────────────────────────────────────────────────
 
 def load_local_ohlcv(ticker: str, data_dir: Path) -> pd.DataFrame:
-    """Load {ticker}-1d.csv from data_dir. Returns DataFrame indexed by date."""
-    path = data_dir / f"{ticker}-1d.csv"
+    """Load NSE_{ticker}_1D_TV_div_adj.csv from data_dir. Returns DataFrame indexed by date."""
+    path = data_dir / f"NSE_{ticker}_1D_TV_div_adj.csv"
     if not path.exists():
-        return pd.DataFrame()   # legitimate skip — file simply not downloaded yet
+        return pd.DataFrame()   # legitimate skip
     try:
         df = pd.read_csv(path)
     except MemoryError:
@@ -265,10 +267,15 @@ def load_local_ohlcv(ticker: str, data_dir: Path) -> pd.DataFrame:
         raise PermissionError(f"Permission denied reading {path} — check file locks")
     except (pd.errors.ParserError, pd.errors.EmptyDataError) as _e:
         print(f"  WARNING [{ticker}]: CSV parse error — skipping ({_e})")
-        return pd.DataFrame()   # corrupted file: skip but log visibly
+        return pd.DataFrame()
     # Normalise column names to lower-case
     df.columns = [c.strip().lower() for c in df.columns]
-    # Find date column
+    # TradingView format: ts (unix epoch), o, h, l, c, v
+    if "ts" in df.columns:
+        df["date"] = pd.to_datetime(df["ts"], unit="s").dt.normalize()
+        df = df.rename(columns={"o": "open", "h": "high", "l": "low",
+                                 "c": "close", "v": "volume"})
+    # Find date column (fallback for any other format)
     date_col = next((c for c in df.columns if c in ("date", "datetime", "timestamp")), None)
     if date_col is None:
         print(f"  WARNING [{ticker}]: no date column found in {path.name} — skipping")
@@ -397,77 +404,45 @@ def merge_htf_zones_to_daily(
 
 
 def load_benchmark(data_dir: Path) -> pd.Series:
-    """Load blended SPX+NDX benchmark. Tech-heavy blend (SPX_WEIGHT/NDX_WEIGHT).
-
-    Blending approach:
-      1. Load SPX (^GSPC) and NDX (^NDX) close prices — local file first, yfinance fallback
-      2. Compute daily returns for each index
-      3. Blend: blend_return = SPX_WEIGHT * spx_ret + NDX_WEIGHT * ndx_ret
-      4. Reconstruct price series from blended returns (base = 100)
-
-    This gives a single benchmark that reflects a tech-heavy US portfolio rather
-    than just SPX (which underweights tech) or just NDX (which ignores large-caps).
-    """
-    import yfinance as yf
-
-    def _load_one(ticker: str, local_file: Path) -> pd.Series:
-        if local_file.exists():
-            raw_ticker = ticker.lstrip("^")
-            df = load_local_ohlcv(ticker, data_dir)
-            if df.empty:
-                # try without caret in filename
-                df = load_local_ohlcv(raw_ticker, data_dir)
-            if not df.empty:
-                return df["close"]
-        try:
-            bm = yf.download(ticker, start="2010-01-01", auto_adjust=True, progress=False)
-            if isinstance(bm.columns, pd.MultiIndex):
-                bm.columns = bm.columns.get_level_values(0)
-            return bm["Close"]
-        except Exception as e:
-            print(f"  WARNING: Could not fetch {ticker}: {e}")
-            return pd.Series(dtype=float)
-
-    spx = _load_one(SPX_TICKER, SPX_FILE)
-    ndx = _load_one(NDX_TICKER, NDX_FILE)
-
-    if spx.empty and ndx.empty:
-        print("WARNING: Both SPX and NDX unavailable — benchmark will be empty")
+    """Load NIFTY benchmark from TradingView CSV (ts/o/h/l/c/v format)."""
+    if not BENCHMARK_FILE.exists():
+        print(f"WARNING: Benchmark file not found: {BENCHMARK_FILE}")
         return pd.Series(dtype=float)
-    if spx.empty:
-        print(f"  WARNING: SPX unavailable — using NDX only as benchmark")
-        return ndx.rename("benchmark_close")
-    if ndx.empty:
-        print(f"  WARNING: NDX unavailable — using SPX only as benchmark")
-        return spx.rename("benchmark_close")
-
-    # Align dates and blend daily returns
-    spx_r = spx.pct_change().dropna()
-    ndx_r = ndx.pct_change().dropna()
-    both  = pd.concat([spx_r.rename("spx"), ndx_r.rename("ndx")], axis=1).dropna()
-    blend_r = SPX_WEIGHT * both["spx"] + NDX_WEIGHT * both["ndx"]
-
-    # Reconstruct price index from blended returns (arbitrary base = 100)
-    blend_close = (1 + blend_r).cumprod() * 100
-    blend_close.name = "benchmark_close"
-    print(
-        f"  Blended benchmark: {SPX_WEIGHT:.0%} SPX + {NDX_WEIGHT:.0%} NDX  "
-        f"({len(blend_close)} days, "
-        f"{blend_close.index.min().date()} → {blend_close.index.max().date()})"
-    )
-    return blend_close
+    try:
+        df = pd.read_csv(BENCHMARK_FILE)
+        df.columns = [c.strip().lower() for c in df.columns]
+        if "ts" in df.columns:
+            df["date"] = pd.to_datetime(df["ts"], unit="s").dt.normalize()
+            df = df.rename(columns={"c": "close"})
+        else:
+            date_col = next((c for c in df.columns if c in ("date", "datetime")), None)
+            df["date"] = pd.to_datetime(df[date_col], errors="coerce")
+        df = df.dropna(subset=["date"]).set_index("date").sort_index()
+        return df["close"].rename("benchmark_close")
+    except Exception as e:
+        print(f"WARNING: Could not load benchmark {BENCHMARK_FILE.name}: {e}")
+        return pd.Series(dtype=float)
 
 
 def build_panel_from_local(
     tickers: List[str],
     data_dir: Path,
-    min_history_days: int = 252,
+    min_history_days: int = 500,
     sector_map: Optional[Dict[str, str]] = None,
+    train_start: Optional[str] = "2010-01-01",
+    train_end: Optional[str] = "latest",
 ) -> pd.DataFrame:
     """
     Load all local CSVs, compute adv_20d_usd (INR proxy — volume×close),
     set in_universe=True for tickers with enough history, assign group_date.
     Uses ThreadPoolExecutor for parallel CSV I/O.
+
+    train_start : if set, rows before this date are dropped from the panel.
+                  Stocks listed after train_start use all their available data.
+                  Set to None or 'none' to use full history.
+    train_end   : if set (not 'latest'), rows after this date are dropped.
+                  Useful to freeze the model at a historical point.
+                  Default 'latest' = use all data up to the newest CSV row.
     """
     from pipeline.config.nse import NSE_CONFIG
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -491,7 +466,7 @@ def build_panel_from_local(
         dollar_vol = df["volume"] * df["close"]
         df["adv_20d_usd"] = dollar_vol.rolling(20, min_periods=10).mean()
         df["market_cap_usd"] = np.nan
-        df["sector"] = _sector_map.get(ticker, "US")
+        df["sector"] = _sector_map.get(ticker, "NSE")
         df["in_universe"] = True
         return df
 
@@ -526,6 +501,24 @@ def build_panel_from_local(
     panel = pd.concat(frames)
     panel.index.name = "date"
     panel = panel.reset_index().set_index(["date", "ticker"]).sort_index()
+
+    # Apply train_start cutoff
+    _ts = str(train_start or "").strip().lower()
+    if _ts and _ts != "none":
+        cutoff = pd.Timestamp(_ts)
+        before = len(panel)
+        panel  = panel[panel.index.get_level_values("date") >= cutoff]
+        print(f"  train_start={_ts}: dropped {before - len(panel):,} rows before cutoff "
+              f"| {panel.index.get_level_values('ticker').nunique()} tickers remain")
+
+    # Apply train_end cutoff
+    _te = str(train_end or "").strip().lower()
+    if _te and _te not in ("latest", "none", ""):
+        end_cutoff = pd.Timestamp(_te)
+        before     = len(panel)
+        panel      = panel[panel.index.get_level_values("date") <= end_cutoff]
+        print(f"  train_end={_te}  : dropped {before - len(panel):,} rows after cutoff "
+              f"| panel ends {panel.index.get_level_values('date').max().date()}")
 
     # group_date = first day of each calendar month (monthly gives ~60 stocks/group
     # vs ~3 for weekly in early folds — Fix 1)
@@ -576,6 +569,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
     # FeatureEngineer is always instantiated — needed for per-fold zone recompute
     fe = FeatureEngineer(cfg, benchmark_close)
+
     _train_perf = PerfTimer()
 
     # ── Checkpoint 1: Feature-engineered panel ────────────────────────────
@@ -652,7 +646,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         print(f"[3/6] Walk-forward CV ({n_folds} folds) ...")
         cv = PurgedWalkForwardCV(n_folds=n_folds, min_train_window=378)
         fold_specs = cv.get_fold_specs(train_panel)
-    print(f"      {len(fold_specs)} folds generated")
+        print(f"      {len(fold_specs)} folds generated")
 
     # ── Optuna HPO ──────────────────────────────────────────────────────────
     best_params = {
@@ -673,7 +667,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         _hpo_ckpt.mkdir(parents=True, exist_ok=True)
         hpo_db    = _hpo_ckpt / "optuna_hpo.db"
         storage   = f"sqlite:///{hpo_db.as_posix()}"
-        study_name = f"us_local_hpo_{mode}"
+        study_name = f"nse_tradingv_hpo_{mode}"
         print(f"      HPO progress saved to: {hpo_db}")
         print(f"      (delete {hpo_db.name} to restart HPO from scratch)")
 
@@ -858,7 +852,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         print("[4/6] HPO skipped — using default params")
     _hpo_stage.__exit__(None, None, None)
 
-    # Free fold cache memory before final training — it holds ~2-3 GB on large panels
+    # Free fold cache memory before final training
     import gc
     if 'fold_cache' in dir():
         del fold_cache
@@ -869,7 +863,6 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         print(f"[5/6] Training final LightGBM ranker [{mode}] ...")
     full_grp, full_groups = cv.build_group_array(train_panel, min_group_size=5)
     avail    = [f for f in feat_cols if f in full_grp.columns]
-    # Downcast to float32 to halve memory usage on large panels
     X_full   = full_grp[avail].astype(np.float32)
     _rank_raw = full_grp["cs_rank_composite"].fillna(0)
     # Reversal mode trains a bear ranker: invert rank so stocks expected to
@@ -1166,7 +1159,7 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
     # ── SHAP explanations ─────────────────────────────────────────────────
     explanations_bull: List[dict] = []
     explanations_bear: List[dict] = []
-    shap_img_path = REPORTS_DIR / "shap_global_us_local.png"
+    shap_img_path = REPORTS_DIR / "shap_global_nse_tradingv.png"
 
     try:
         shap_exp      = SHAPExplainer(ensemble.lgbm)
@@ -1623,15 +1616,13 @@ def explain_ticker(ticker: str, date_str: Optional[str] = None) -> None:
     sep  = "═" * 66
     sep2 = "─" * 66
 
-    # Normalise ticker for lookup (US tickers: AAPL, MSFT etc — no suffix)
-    tkey = ticker.upper().strip()
+    # Normalise ticker for lookup (handle .NS suffix flexibility)
+    tkey = ticker
     if tkey not in scores_detail:
-        # Try case-insensitive match
-        tkey_lower = tkey.lower()
-        for k in scores_detail:
-            if k.lower() == tkey_lower:
-                tkey = k
-                break
+        # Try with/without .NS
+        alt = ticker + ".NS" if not ticker.endswith(".NS") else ticker[:-3]
+        if alt in scores_detail:
+            tkey = alt
 
     if tkey not in scores_detail:
         # Fuzzy: find closest
@@ -1729,8 +1720,7 @@ def explain_ticker(ticker: str, date_str: Optional[str] = None) -> None:
 
 def save_outputs(result: dict, panel: pd.DataFrame,
                  benchmark_close: pd.Series, cfg,
-                 mode: str = "legacy",
-                 cap_tier_map: dict | None = None) -> None:
+                 mode: str = "legacy") -> None:
     from pipeline.features.engineer import FEATURE_PREFIX
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1885,34 +1875,6 @@ def save_outputs(result: dict, panel: pd.DataFrame,
     combined_path = OUTPUT_DIR / f"watchlist{_sfx}_combined_{date_str}.csv"
     combined_df.to_csv(combined_path, index=False)
 
-    # ── Per-cap-tier top-10 watchlists (Large / Mid / Small) ─────────────
-    if cap_tier_map:
-        _TIER_DEFS = [("large", "Large Cap"), ("mid", "Mid Cap"), ("small", "Small Cap")]
-        for side_key, side_label, all_final in [
-            ("bull", "BULL", all_bull_final),
-            ("bear", "BEAR", all_bear_final),
-        ]:
-            if all_final.empty:
-                continue
-            # Deduplicated sort (guards against non-unique index)
-            sorted_tickers = list(dict.fromkeys(
-                all_final.sort_values(ascending=False).index.tolist()
-            ))
-            for tier_key, tier_label in _TIER_DEFS:
-                tier_tickers = [t for t in sorted_tickers
-                                if cap_tier_map.get(t) == tier_key][:10]
-                if not tier_tickers:
-                    continue
-                tier_weights = {t: _safe_scalar(all_final, t) for t in tier_tickers}
-                tier_rows = _build_rows(tier_weights, side_label)
-                for i, row in enumerate(tier_rows, 1):
-                    row["rank"] = i
-                    row["cap_tier"] = tier_label
-                tier_df_out = pd.DataFrame(tier_rows)
-                tier_path = OUTPUT_DIR / f"watchlist{_sfx}_{side_key}_{tier_key}_{date_str}.csv"
-                tier_df_out.to_csv(tier_path, index=False)
-                print(f"    {tier_label} {side_label} top-10: {tier_path}")
-
     # ── SHAP explanations JSON ────────────────────────────────────────────
     all_expl = result["explanations"] + result["explanations_bear"]
     expl_path = OUTPUT_DIR / f"explanations_{date_str}.json"
@@ -1992,11 +1954,11 @@ def save_outputs(result: dict, panel: pd.DataFrame,
         all_expl = result.get("explanations", []) + result.get("explanations_bear", [])
         rg = ReportGenerator(
             report=perf,
-            market_id="US_LOCAL",
+            market_id="NSE_TRADINGV",
             shap_img=result.get("shap_img"),
             stock_explanations=all_expl,
         )
-        html_path = rg.generate(REPORTS_DIR / "report_us_local.html")
+        html_path = rg.generate(REPORTS_DIR / "report_nse_tradingv.html")
         print(f"\n  HTML report: {html_path}")
     except Exception as e:
         print(f"  Report warning: {e}")
@@ -2047,7 +2009,7 @@ def main() -> None:
     # ── Initialise per-run log file ───────────────────────────────────────
     from datetime import datetime
     from pathlib import Path
-    _log_dir = Path("artefacts/us_local/logs")
+    _log_dir = Path("artefacts/nse_tradingv/logs")
     _log_dir.mkdir(parents=True, exist_ok=True)
     _run_ts  = datetime.now().strftime("%Y%m%d_%H%M%S")
     _log_path = _log_dir / f"run_{_run_ts}.log"
@@ -2079,16 +2041,19 @@ def main() -> None:
         # ── Load ticker list ──────────────────────────────────────────────
         with perf.stage("Load ticker list"):
             ticker_df = pd.read_csv(STOCK_LIST_CSV)
-            # Filter out benchmark index symbols (^GSPC, ^NDX etc.) — not tradeable stocks
-            ticker_df = ticker_df[~ticker_df["Symbol"].str.startswith("^", na=True)]
-            tickers = ticker_df["Symbol"].str.strip().dropna().tolist()
+            # TV_ticker is the filename key (NSE_{TV_ticker}_1D_TV_div_adj.csv)
+            # Fall back to Symbol if TV_ticker column absent
+            if "TV_ticker" in ticker_df.columns:
+                tickers = ticker_df["TV_ticker"].str.strip().dropna().tolist()
+            else:
+                tickers = ticker_df["Symbol"].str.strip().dropna().tolist()
             print(f"Ticker list: {len(tickers)} symbols from {STOCK_LIST_CSV.name}")
 
         # Build sector map from CSV if a sector/industry column is present.
         # Without real sectors, sector_rs and portfolio sector-cap are meaningless.
         _sec_col = next(
             (c for c in ticker_df.columns
-             if c.strip().lower() in ("sector", "industry", "industryname", "sectorname", "gics_sector", "gics sector")),
+             if c.strip().lower() in ("sector", "industry", "industryname", "sectorname", "gics_sector")),
             None,
         )
         sector_map: Dict[str, str] = {}
@@ -2104,30 +2069,13 @@ def main() -> None:
             print(f"  Sector map: {len(sector_map)} tickers mapped from column '{_sec_col}'")
         else:
             print(
-                "  WARNING: No sector column found in ticker CSV — all stocks default to 'US'.\n"
-                "           Run download_us_data.py to get a constituent CSV with sector data."
+                "  WARNING: No sector column found in ticker CSV — all stocks default to 'NSE'.\n"
+                "           Add a 'Sector' or 'Industry' column for meaningful sector features."
             )
-
-        # Build cap-tier map: SPX/NDX → large, MID → mid, SML → small
-        cap_tier_map: Dict[str, str] = {}
-        if "Indices" in ticker_df.columns:
-            for _sym, _idx in zip(ticker_df["Symbol"].str.strip(),
-                                   ticker_df["Indices"].fillna("")):
-                _idx_s = str(_idx).strip()
-                if "SPX" in _idx_s or "NDX" in _idx_s:
-                    cap_tier_map[str(_sym).strip()] = "large"
-                elif _idx_s == "MID":
-                    cap_tier_map[str(_sym).strip()] = "mid"
-                elif _idx_s == "SML":
-                    cap_tier_map[str(_sym).strip()] = "small"
-            _lc = sum(1 for v in cap_tier_map.values() if v == "large")
-            _mc = sum(1 for v in cap_tier_map.values() if v == "mid")
-            _sc = sum(1 for v in cap_tier_map.values() if v == "small")
-            print(f"  Cap tier map: {_lc} large-cap, {_mc} mid-cap, {_sc} small-cap")
 
         # ── Benchmark ─────────────────────────────────────────────────────
         with perf.stage("Load benchmark"):
-            print(f"Loading blended benchmark ({SPX_WEIGHT:.0%} SPX + {NDX_WEIGHT:.0%} NDX)...")
+            print("Loading benchmark (NSE_NIFTY TradingView)...")
             benchmark_close = load_benchmark(STOCK_DATA_DIR)
             if benchmark_close.empty:
                 print("  WARNING: Benchmark unavailable — using equal-weight index proxy")
@@ -2150,7 +2098,9 @@ def main() -> None:
         with perf.stage("Load CSV panel (parallel I/O)"):
             panel = build_panel_from_local(tickers, STOCK_DATA_DIR,
                                            min_history_days=args.min_history_days,
-                                           sector_map=sector_map)
+                                           sector_map=sector_map,
+                                           train_start=args.train_start,
+                                           train_end=args.train_end)
             if benchmark_close.empty:
                 benchmark_close = panel.groupby(level="date")["close"].mean().rename("benchmark_close")
 
@@ -2224,12 +2174,19 @@ def main() -> None:
                 except Exception as e:
                     print(f"Drift monitor warning [{m}]: {e}")
 
-        # ── Determine scoring date from CSV max date ───────────────────────
-        csv_max_date = get_csv_max_date(STOCK_DATA_DIR)
-        if csv_max_date is not None:
-            print(f"\nCSV max date detected: {csv_max_date.date()} — using as scoring as-of date")
+        # ── Determine scoring date ─────────────────────────────────────────
+        # If train_end is explicitly set, use it as the scoring as-of date
+        # (model is frozen at that point). Otherwise auto-detect from CSV files.
+        _te_arg = str(args.train_end or "").strip().lower()
+        if _te_arg and _te_arg not in ("latest", "none", ""):
+            csv_max_date = pd.Timestamp(_te_arg)
+            print(f"\ntrain_end override: scoring as-of date = {csv_max_date.date()}")
         else:
-            print("\nCould not determine CSV max date — falling back to panel max date")
+            csv_max_date = get_csv_max_date(STOCK_DATA_DIR)
+            if csv_max_date is not None:
+                print(f"\nCSV max date detected: {csv_max_date.date()} — using as scoring as-of date")
+            else:
+                print("\nCould not determine CSV max date — falling back to panel max date")
 
         # ── Score & rank each mode, save outputs ───────────────────────────
         for m, art in results_by_mode.items():
@@ -2249,8 +2206,7 @@ def main() -> None:
                     mode=m,
                 )
             with perf.stage(f"Save outputs — {m}"):
-                save_outputs(result, panel, benchmark_close, cfg, mode=m,
-                             cap_tier_map=cap_tier_map if cap_tier_map else None)
+                save_outputs(result, panel, benchmark_close, cfg, mode=m)
 
         # ── --explain (post-run, if requested) ───────────────────────────
         if args.explain:

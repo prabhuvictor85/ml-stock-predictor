@@ -61,6 +61,8 @@ def load_tickers() -> List[str]:
         raise ValueError(f"No 'Symbol' column in {STOCK_LIST_CSV}. Columns: {list(df.columns)}")
     tickers = df[col].dropna().str.strip().tolist()
     tickers = [t for t in tickers if t]
+    # Append .NS suffix if not already present (yfinance requires it for NSE)
+    tickers = [t if t.endswith(".NS") else f"{t}.NS" for t in tickers]
     print(f"  Loaded {len(tickers)} tickers from {STOCK_LIST_CSV.name}")
     return tickers
 

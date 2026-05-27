@@ -48,6 +48,8 @@ def parse_args() -> argparse.Namespace:
                    help="Only refresh ^NSEI benchmark file")
     p.add_argument("--start", default=START_DATE,
                    help=f"History start date (default: {START_DATE})")
+    p.add_argument("--end", default=None,
+                   help="History end date e.g. 2024-12-31 (default: today)")
     return p.parse_args()
 
 
@@ -73,7 +75,7 @@ def file_needs_update(path: Path, refresh_after_days: int) -> bool:
 
 
 def download_ticker(ticker: str, data_dir: Path, start: str,
-                    refresh_after_days: int) -> tuple[str, bool, str]:
+                    refresh_after_days: int, end: str = None) -> tuple[str, bool, str]:
     """Download daily OHLCV for one ticker. Returns (ticker, success, message)."""
     path = data_dir / f"{ticker}-1d.csv"
 
@@ -81,7 +83,7 @@ def download_ticker(ticker: str, data_dir: Path, start: str,
         return ticker, True, "skipped (up to date)"
 
     try:
-        df = yf.download(ticker, start=start, auto_adjust=True,
+        df = yf.download(ticker, start=start, end=end, auto_adjust=True,
                          progress=False, multi_level_index=False)
         if df.empty:
             return ticker, False, "empty response from yfinance"
@@ -118,7 +120,7 @@ def download_ticker(ticker: str, data_dir: Path, start: str,
 
 
 def download_all(tickers: List[str], data_dir: Path, start: str,
-                 refresh_after_days: int) -> None:
+                 refresh_after_days: int, end: str = None) -> None:
     data_dir.mkdir(parents=True, exist_ok=True)
 
     total     = len(tickers)
@@ -135,7 +137,7 @@ def download_all(tickers: List[str], data_dir: Path, start: str,
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = {
-            pool.submit(download_ticker, t, data_dir, start, refresh_after_days): t
+            pool.submit(download_ticker, t, data_dir, start, refresh_after_days, end): t
             for t in tickers
         }
         done = 0
@@ -168,10 +170,10 @@ def download_all(tickers: List[str], data_dir: Path, start: str,
         print(f"  Failed list saved to: {fail_path}")
 
 
-def download_benchmark(data_dir: Path, start: str, refresh_after_days: int) -> None:
+def download_benchmark(data_dir: Path, start: str, refresh_after_days: int, end: str = None) -> None:
     print(f"\nDownloading benchmark {BENCHMARK_TICKER} ...")
     t, ok, msg = download_ticker(BENCHMARK_TICKER, data_dir, start,
-                                  max(1, refresh_after_days))
+                                  max(1, refresh_after_days), end)
     print(f"  [{'OK' if ok else 'FAILED'}] {BENCHMARK_TICKER}: {msg}")
 
 
@@ -182,26 +184,27 @@ def main() -> None:
     print("=" * 60)
     print("  NSE Market Data Downloader")
     print(f"  Start  : {args.start}")
+    print(f"  End    : {args.end or 'today'}")
     print(f"  Output : {STOCK_DATA_DIR}")
     print("=" * 60)
 
     if args.benchmark_only:
-        download_benchmark(STOCK_DATA_DIR, args.start, max(1, args.refresh_after))
+        download_benchmark(STOCK_DATA_DIR, args.start, max(1, args.refresh_after), args.end)
         return
 
     if args.tickers:
         tickers = [t.strip() for t in args.tickers]
         print(f"\nDownloading {len(tickers)} specified ticker(s) ...")
-        download_all(tickers, STOCK_DATA_DIR, args.start, args.refresh_after)
-        download_benchmark(STOCK_DATA_DIR, args.start, args.refresh_after)
+        download_all(tickers, STOCK_DATA_DIR, args.start, args.refresh_after, args.end)
+        download_benchmark(STOCK_DATA_DIR, args.start, args.refresh_after, args.end)
         return
 
     print("\n[1/2] Loading constituent list ...")
     tickers = load_tickers()
 
     print(f"\n[2/2] Downloading {len(tickers)} NSE stocks ...")
-    download_all(tickers, STOCK_DATA_DIR, args.start, args.refresh_after)
-    download_benchmark(STOCK_DATA_DIR, args.start, max(1, args.refresh_after))
+    download_all(tickers, STOCK_DATA_DIR, args.start, args.refresh_after, args.end)
+    download_benchmark(STOCK_DATA_DIR, args.start, max(1, args.refresh_after), args.end)
 
     print(f"\n{'='*60}")
     print("  Done! Next step:")

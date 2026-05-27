@@ -801,10 +801,20 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         if completed > 0:
             print(f"      Resuming HPO: {completed} trials already done, {remaining} remaining")
         study.optimize(objective, n_trials=remaining, show_progress_bar=True)
-        best_params = study.best_params.copy()
-        best_k = best_params.pop("feature_top_K", 30)
-        best_params["learning_rate"] = best_params.pop("lr", best_params.get("learning_rate", 0.05))
-        print(f"      Best NDCG objective: {study.best_value:.4f}")
+        completed_after = len([t for t in study.trials if t.state.name == "COMPLETE"])
+        if completed_after == 0:
+            print("      WARNING: All HPO trials were pruned — using default params")
+            best_params = {
+                "learning_rate": 0.05, "num_leaves": 63, "min_child_samples": 20,
+                "subsample": 0.8, "colsample_bytree": 0.8, "reg_alpha": 0.1,
+                "reg_lambda": 0.1, "n_estimators": 300,
+            }
+            best_k = 30
+        else:
+            best_params = study.best_params.copy()
+            best_k = best_params.pop("feature_top_K", 30)
+            best_params["learning_rate"] = best_params.pop("lr", best_params.get("learning_rate", 0.05))
+            print(f"      Best NDCG objective: {study.best_value:.4f}")
     else:
         print("[4/6] HPO skipped — using default params")
     _hpo_stage.__exit__(None, None, None)

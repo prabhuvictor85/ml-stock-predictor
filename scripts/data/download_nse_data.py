@@ -79,7 +79,9 @@ def file_needs_update(path: Path, refresh_after_days: int) -> bool:
 def download_ticker(ticker: str, data_dir: Path, start: str,
                     refresh_after_days: int, end: str = None) -> tuple[str, bool, str]:
     """Download daily OHLCV for one ticker. Returns (ticker, success, message)."""
-    path = data_dir / f"{ticker}-1d.csv"
+    # Strip .NS suffix for filename — pipeline expects RELIANCE-1d.csv not RELIANCE.NS-1d.csv
+    file_ticker = ticker.replace(".NS", "").replace(".BO", "")
+    path = data_dir / f"{file_ticker}-1d.csv"
 
     if not file_needs_update(path, refresh_after_days):
         return ticker, True, "skipped (up to date)"

@@ -8,9 +8,13 @@ import re
 import pandas as pd
 from pathlib import Path
 
-LOG_FILE  = Path(r"C:\Victor\Project\ml-stock-predictor\artefacts\us_local\logs\nse_mcap_download.log")
-TV_CSV    = Path(r"C:\Victor\Learning_charts\stock_lists\constituents_nse_tradingv.csv")
-OUT_CSV   = Path(r"C:\Victor\Learning_charts\stock_lists\nse_cap_tiers.csv")
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+
+LOG_FILE  = PATHS.project_root / "artefacts" / "us_local" / "logs" / "nse_mcap_download.log"
+TV_CSV    = PATHS.stock_lists.nse_tv
+OUT_CSV   = PATHS.stock_lists.nse_cap_tiers
 
 # Thresholds
 LARGE = 105000

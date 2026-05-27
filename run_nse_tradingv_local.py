@@ -50,8 +50,10 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-STOCK_LIST_CSV  = Path(r"C:\Victor\Learning_charts\stock_lists\constituents_nse_tradingv.csv")
-STOCK_DATA_DIR  = Path(r"C:\Victor\Learning_charts\stock_data\tradingview")
+from pipeline.config.paths import PATHS
+STOCK_LIST_CSV    = PATHS.stock_lists.nse_tv
+NSE_CAP_TIERS_CSV = PATHS.stock_lists.nse_cap_tiers
+STOCK_DATA_DIR    = PATHS.stock_data.nse_tv
 ARTEFACTS_DIR   = Path("artefacts/nse_tradingv")
 OUTPUT_DIR      = Path("output/nse_tradingv")
 REPORTS_DIR     = Path("reports")
@@ -236,6 +238,11 @@ def parse_args() -> argparse.Namespace:
                         "freeze training at a point in time and score as of that date.")
     p.add_argument("--gpu", action="store_true",
                    help="Enable GPU acceleration for LightGBM (no effect — LightGBM GPU requires a custom CUDA build)")
+    p.add_argument("--strict_data_check", action="store_true",
+                   help="Treat data-staleness warnings as errors (block run on stale data). "
+                        "Default: log warnings and continue. Auto-disabled when --train_end is set.")
+    p.add_argument("--max_data_lag_days", type=int, default=7,
+                   help="Max calendar days since the latest bar before flagging staleness (default 7)")
     p.add_argument("--explain", type=str, default=None, metavar="TICKER",
                    help="Explain why TICKER was/wasn't selected. Uses the last run's scores. "
                         "E.g.: --explain HINDCOPPER.NS")
@@ -246,7 +253,7 @@ def parse_args() -> argparse.Namespace:
                        "Ranker mode(s) to run. "
                        "'all' trains and scores both momentum and reversal (default). "
                        "'momentum' = continuation plays, stocks within 15%% of 52w high. "
-                       "'reversal' = demand zone bounce plays, stocks 20%%+ below 52w high. "
+                       "'reversal' = demand zone bounce plays, stocks 15%%+ below 52w high. "
                        "'legacy' = original single-ranker (backward compat)."
                    ))
     return p.parse_args()
@@ -544,7 +551,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     mode: "legacy" | "momentum" | "reversal"
       legacy   — original single-ranker, no universe filter
       momentum — trains only on stocks within 15% of their 52w high
-      reversal — trains only on stocks 20%+ below their 52w high
+      reversal — trains only on stocks 15%+ below their 52w high
     mode_artefacts_dir: where to save mode-specific artefacts (ensemble, ranker, etc.)
       Defaults to ARTEFACTS_DIR for legacy mode.
     """
@@ -965,7 +972,7 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
     mode controls which stocks are eligible for the watchlist:
       legacy   — all stocks (original behaviour)
       momentum — only stocks within 15% of their 52w high
-      reversal — only stocks 20%+ below their 52w high
+      reversal — only stocks 15%+ below their 52w high
     All stocks are scored regardless — the filter only affects watchlist selection.
     """
     from pipeline.portfolio.constructor import PortfolioConstructor
@@ -1144,6 +1151,15 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
     pc_bear = PortfolioConstructor(cfg, top_n=top_n, weighting=weighting)
     bear_ticker_scores, bear_weights = pc_bear.construct(cross_wl_bear, bear_score_wl)
 
+    # Store original bull composite score for display
+    bull_scores_orig = {}
+    for t in bull_weights:
+        try:
+            val = bull_score_series.xs(t, level="ticker")
+            bull_scores_orig[t] = round(float(val.iloc[0] if hasattr(val, "iloc") else val), 4)
+        except Exception:
+            bull_scores_orig[t] = 0.0
+
     # Store original bear composite score for display
     bear_scores_orig = {}
     for t in bear_weights:
@@ -1252,6 +1268,7 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
         # Bear
         "bear_weights":         bear_weights,
         "bear_ticker_scores":   bear_ticker_scores,
+        "bull_scores_orig":     bull_scores_orig,
         "bear_scores_orig":     bear_scores_orig,
         "explanations_bear":    explanations_bear,
         # Shared
@@ -1685,10 +1702,10 @@ def explain_ticker(ticker: str, date_str: Optional[str] = None) -> None:
             print(f"    {s:<35} {w:>6.1f}  {v*100:>6.1f}%  {contrib:>12.2f}{flag}")
 
     # ── Bear breakdown ─────────────────────────────────────────────────────
-    m_score_b = bear_d["model_score"]
+    m_score_b = bear_d["model_score"]   # already (1 - raw) — inverted in _scoring_detail
     c_score_b = bear_d["composite_score"]
     print(f"\n  BEAR SIDE   rank #{bear_rank} / {u_size}")
-    print(f"    Model (bearish) : {(1-m_score_b)*100:.1f}%  (inverted model)")
+    print(f"    Model (bearish) : {m_score_b*100:.1f}%  (inverted model)")
     print(f"    Composite score : {c_score_b*100:.1f}%  (weight {c_w:.0%})")
     sig_weights_b = bear_d.get("signal_weights", {})
     sig_values_b  = bear_d.get("signal_values", {})
@@ -1720,13 +1737,15 @@ def explain_ticker(ticker: str, date_str: Optional[str] = None) -> None:
 
 def save_outputs(result: dict, panel: pd.DataFrame,
                  benchmark_close: pd.Series, cfg,
-                 mode: str = "legacy") -> None:
+                 mode: str = "legacy",
+                 cap_tier_map: dict | None = None) -> None:
     from pipeline.features.engineer import FEATURE_PREFIX
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
 
     bull_weights        = result["weights"]
     bear_weights        = result["bear_weights"]
+    bull_scores_orig    = result["bull_scores_orig"]
     bear_scores         = result["bear_scores_orig"]
     latest_date         = result["latest_date"]
     cross               = result["cross"]
@@ -1764,7 +1783,9 @@ def save_outputs(result: dict, panel: pd.DataFrame,
         sig_cfg  = bull_signals_cfg if side == "bull" else bear_signals_cfg
         sig_vals = sig_details_bull.get(ticker, {}) if side == "bull" else sig_details_bear.get(ticker, {})
         rank_map = _bull_rank if side == "bull" else _bear_rank
-        m_score  = _safe_scalar(all_model_scores, ticker)
+        _raw_m   = _safe_scalar(all_model_scores, ticker)
+        # Bear model score is the complement: high raw score = bearish setup
+        m_score  = (1.0 - _raw_m) if side == "bear" else _raw_m
         c_score  = _safe_scalar(all_bull_composites if side == "bull"
                                 else all_bear_composites, ticker)
         return {
@@ -1857,7 +1878,7 @@ def save_outputs(result: dict, panel: pd.DataFrame,
             rows.append(row)
         return rows
 
-    bull_rows = _build_rows(bull_weights, "BULL")
+    bull_rows = _build_rows(bull_weights, "BULL", score_override=bull_scores_orig)
     bear_rows = _build_rows(bear_weights, "BEAR", score_override=bear_scores)
 
     bull_df = pd.DataFrame(bull_rows)
@@ -1874,6 +1895,45 @@ def save_outputs(result: dict, panel: pd.DataFrame,
     combined_df = pd.concat([bull_df, bear_df], ignore_index=True)
     combined_path = OUTPUT_DIR / f"watchlist{_sfx}_combined_{date_str}.csv"
     combined_df.to_csv(combined_path, index=False)
+
+    # ── Per-cap-tier top-10 watchlists (Large / Mid / Small / Micro) ─────
+    # tier_weights[t] is the composite score from all_bull_final / all_bear_final.
+    # _build_rows uses it as both `weight_pct` (×100) and `score` (when no
+    # override is passed) — matching SP500's pattern. Don't pass a
+    # score_override here: bull_scores_orig / bear_scores only contain the
+    # top-12 main-watchlist tickers, so a partial override would zero-out
+    # scores for tier members outside the main watchlist.
+    if cap_tier_map:
+        _TIER_DEFS = [
+            ("large", "Large Cap"),
+            ("mid",   "Mid Cap"),
+            ("small", "Small Cap"),
+            ("micro", "Micro Cap"),
+        ]
+        for side_key, side_label, all_final in [
+            ("bull", "BULL", all_bull_final),
+            ("bear", "BEAR", all_bear_final),
+        ]:
+            if all_final.empty:
+                continue
+            # Deduplicated sort (guards against non-unique index)
+            sorted_tickers = list(dict.fromkeys(
+                all_final.sort_values(ascending=False).index.tolist()
+            ))
+            for tier_key, tier_label in _TIER_DEFS:
+                tier_tickers = [t for t in sorted_tickers
+                                if cap_tier_map.get(t) == tier_key][:10]
+                if not tier_tickers:
+                    continue
+                tier_weights = {t: _safe_scalar(all_final, t) for t in tier_tickers}
+                tier_rows = _build_rows(tier_weights, side_label)
+                for i, row in enumerate(tier_rows, 1):
+                    row["rank"] = i
+                    row["cap_tier"] = tier_label
+                tier_df_out = pd.DataFrame(tier_rows)
+                tier_path = OUTPUT_DIR / f"watchlist{_sfx}_{side_key}_{tier_key}_{date_str}.csv"
+                tier_df_out.to_csv(tier_path, index=False)
+                print(f"    {tier_label} {side_label} top-10: {tier_path}")
 
     # ── SHAP explanations JSON ────────────────────────────────────────────
     all_expl = result["explanations"] + result["explanations_bear"]
@@ -1916,7 +1976,7 @@ def save_outputs(result: dict, panel: pd.DataFrame,
             print(card)
         print(f"\n{'═'*66}")
 
-    _render_side(bull_weights, "bull")
+    _render_side(bull_weights, "bull", score_override=bull_scores_orig)
     _render_side(bear_weights, "bear", score_override=bear_scores)
 
     print(f"\n  Projection legend:")
@@ -1929,13 +1989,19 @@ def save_outputs(result: dict, panel: pd.DataFrame,
     print(f"    Scores detail   : {detail_path}")
 
     # ── HTML report ───────────────────────────────────────────────────────
+    from pipeline.reports.generator import ReportGenerator
+
+    # Step A: compute performance metrics (memory-safe — only select 2 columns)
+    perf = None
     try:
         from pipeline.backtest.reporter import PerformanceReporter
-        from pipeline.reports.generator import ReportGenerator
 
-        univ = panel[panel["in_universe"] == True]
+        # Select only the 2 needed columns before filtering rows — avoids copying
+        # the full 5.65M × 123-column panel into memory (which causes OOM).
+        univ_mask = panel["in_universe"] == True
+        fut_cols  = panel.loc[univ_mask, ["group_date", "future_20d_return"]]
         weekly_port_rets = (
-            univ.groupby("group_date")["future_20d_return"]
+            fut_cols.groupby("group_date")["future_20d_return"]
             .apply(lambda x: x.nlargest(max(1, len(x) // 5)).mean())
             .dropna()
         )
@@ -1950,7 +2016,11 @@ def save_outputs(result: dict, panel: pd.DataFrame,
         )
         perf = rpt_obj.report()
         rpt_obj.print_summary(perf)
+    except Exception as e:
+        print(f"  Report perf warning (metrics skipped): {e}")
 
+    # Step B: generate HTML with stock list — runs even if perf metrics failed
+    try:
         all_expl = result.get("explanations", []) + result.get("explanations_bear", [])
         rg = ReportGenerator(
             report=perf,
@@ -2073,6 +2143,44 @@ def main() -> None:
                 "           Add a 'Sector' or 'Industry' column for meaningful sector features."
             )
 
+        # ── Build cap-tier map from nse_cap_tiers.csv ────────────────────────
+        # SEBI thresholds (applied here as the source of truth — the file's
+        # `cap_tier` column is ignored, tiers are recomputed from
+        # `market_cap_crore` to guard against future drift in the CSV):
+        #   Large : market_cap_crore >= 1,05,000
+        #   Mid   :    34,700 <= market_cap_crore < 1,05,000
+        #   Small :     5,000 <= market_cap_crore <   34,700
+        #   Micro :                market_cap_crore <    5,000
+        # Map is keyed by TV_ticker (matches the panel index).
+        def _sebi_tier(mcap_crore: float) -> str:
+            if mcap_crore >= 105_000: return "large"
+            if mcap_crore >=  34_700: return "mid"
+            if mcap_crore >=   5_000: return "small"
+            return "micro"
+
+        cap_tier_map: Dict[str, str] = {}
+        if NSE_CAP_TIERS_CSV.exists():
+            _tier_df = pd.read_csv(NSE_CAP_TIERS_CSV)
+            _key_col = "TV_ticker" if "TV_ticker" in _tier_df.columns else "Symbol"
+            if "market_cap_crore" in _tier_df.columns:
+                cap_tier_map = {
+                    str(sym).strip(): _sebi_tier(float(mcap))
+                    for sym, mcap in zip(_tier_df[_key_col], _tier_df["market_cap_crore"])
+                    if pd.notna(sym) and pd.notna(mcap)
+                }
+                _lc = sum(1 for v in cap_tier_map.values() if v == "large")
+                _mc = sum(1 for v in cap_tier_map.values() if v == "mid")
+                _sc = sum(1 for v in cap_tier_map.values() if v == "small")
+                _uc = sum(1 for v in cap_tier_map.values() if v == "micro")
+                print(f"  Cap tier map (SEBI thresholds): {_lc} large | {_mc} mid | "
+                      f"{_sc} small | {_uc} micro (from {NSE_CAP_TIERS_CSV.name})")
+            else:
+                print(f"  WARNING: {NSE_CAP_TIERS_CSV.name} has no 'market_cap_crore' "
+                      f"column — per-tier outputs disabled.")
+        else:
+            print(f"  WARNING: {NSE_CAP_TIERS_CSV} not found — per-tier outputs disabled.\n"
+                  f"           Run download_nse_marketcap.py to generate this file.")
+
         # ── Benchmark ─────────────────────────────────────────────────────
         with perf.stage("Load benchmark"):
             print("Loading benchmark (NSE_NIFTY TradingView)...")
@@ -2103,6 +2211,35 @@ def main() -> None:
                                            train_end=args.train_end)
             if benchmark_close.empty:
                 benchmark_close = panel.groupby(level="date")["close"].mean().rename("benchmark_close")
+
+        # ── Data freshness checks (StaleDataGuard) ─────────────────────────
+        # Skipped when --train_end is explicitly set (backtest mode — operator
+        # has intentionally fixed an as-of date in the past).
+        _te = str(args.train_end or "").strip().lower()
+        _is_backtest = _te and _te not in ("latest", "none", "")
+        if not _is_backtest:
+            from pipeline.monitoring.stale_data_guard import StaleDataGuard, StaleDataError
+            guard = StaleDataGuard(
+                max_lag_days=args.max_data_lag_days,
+                min_coverage_pct=0.80,
+            )
+            try:
+                if args.strict_data_check:
+                    guard.assert_fresh(panel, benchmark_close)
+                else:
+                    issues = guard.check(panel, benchmark_close)
+                    if any(i.severity == "error" for i in issues):
+                        print("  ⚠ Data freshness issues detected (use --strict_data_check to block):")
+                        for i in issues:
+                            if i.severity == "error":
+                                print(f"    {i}")
+            except StaleDataError as _e:
+                print(f"\n✗ Stale data check failed:\n{_e}\n")
+                print("  Rerun without --strict_data_check to proceed anyway, "
+                      "or refresh source data.")
+                raise
+        else:
+            print(f"  StaleDataGuard skipped (--train_end={_te}; backtest mode)")
 
         results_by_mode: Dict[str, dict] = {}
 
@@ -2206,7 +2343,8 @@ def main() -> None:
                     mode=m,
                 )
             with perf.stage(f"Save outputs — {m}"):
-                save_outputs(result, panel, benchmark_close, cfg, mode=m)
+                save_outputs(result, panel, benchmark_close, cfg, mode=m,
+                             cap_tier_map=cap_tier_map if cap_tier_map else None)
 
         # ── --explain (post-run, if requested) ───────────────────────────
         if args.explain:

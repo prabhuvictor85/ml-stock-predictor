@@ -40,17 +40,21 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # -- Market config --------------------------------------------------------------
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+
 MARKET_CONFIG = {
     "nse": {
-        "data_dir":       Path(r"C:\Victor\Learning_charts\stock_data"),
-        "list_file":      Path(r"C:\Victor\Learning_charts\stock_lists\constituentsi.csv"),
+        "data_dir":       PATHS.stock_data.nse_local,
+        "list_file":      PATHS.stock_lists.nse_local,
         "symbol_col":     "Symbol",          # column holding the ticker (e.g. RELIANCE.NS)
         "benchmarks":     ["^NSEI"],
         "label":          "NSE",
     },
     "sp500": {
-        "data_dir":       Path(r"C:\Victor\Learning_charts\stock_data\us_stocks"),
-        "list_file":      Path(r"C:\Victor\Learning_charts\stock_lists\constituents_us_combined.csv"),
+        "data_dir":       PATHS.stock_data.us,
+        "list_file":      PATHS.stock_lists.us_combined,
         "symbol_col":     "Symbol",          # column holding the ticker (e.g. AAPL)
         "benchmarks":     ["^GSPC", "^NDX"],
         "label":          "SP500 + NASDAQ",

@@ -5,10 +5,13 @@ Also resolves the actual filename ticker (TV Symbol if present, else Symbol).
 """
 import pandas as pd
 from pathlib import Path
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
 
-SRC   = Path(r"C:\Victor\Learning_charts\stock_lists\TV_data_status.xlsx")
-OUT   = Path(r"C:\Victor\Learning_charts\stock_lists\constituents_nse_tradingv.csv")
-TV_DIR = Path(r"C:\Victor\Learning_charts\stock_data\tradingview")
+SRC    = PATHS.stock_lists.lists_dir / "TV_data_status.xlsx"
+OUT    = PATHS.stock_lists.nse_tv
+TV_DIR = PATHS.stock_data.nse_tv
 
 # Index/benchmark tickers to exclude
 EXCLUDE = {"NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY", "NIFTYNXT50",

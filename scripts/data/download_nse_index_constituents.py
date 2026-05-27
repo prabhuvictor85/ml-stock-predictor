@@ -21,7 +21,10 @@ from pathlib import Path
 import pandas as pd
 import requests
 
-OUT_FILE = Path(r"C:\Victor\Learning_charts\stock_lists\nse_cap_tiers.csv")
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+OUT_FILE = PATHS.stock_lists.nse_cap_tiers
 OUT_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 # ── NSE index definitions ──────────────────────────────────────────────────────

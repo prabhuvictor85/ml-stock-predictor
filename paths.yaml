@@ -1,0 +1,38 @@
+# ══════════════════════════════════════════════════════════════════════════════
+#  paths.yaml — Centralized path configuration
+#
+#  All filesystem paths used by the pipeline. Edit this file to match your
+#  local environment, or override individual paths via environment variables.
+#
+#  Environment variable overrides (highest priority):
+#    ML_DATA_ROOT          → data_root
+#    ML_PROJECT_ROOT       → project_root
+#    ML_STOCK_LIST_NSE_LOCAL    → stock_lists.nse_local
+#    ML_STOCK_LIST_NSE_TV       → stock_lists.nse_tv
+#    ML_STOCK_LIST_NSE_CAP_TIERS → stock_lists.nse_cap_tiers
+#    ML_STOCK_LIST_US_COMBINED  → stock_lists.us_combined
+#    ML_STOCK_DATA_NSE_LOCAL    → stock_data.nse_local
+#    ML_STOCK_DATA_NSE_TV       → stock_data.nse_tv
+#    ML_STOCK_DATA_US           → stock_data.us
+#
+#  Path templates support {data_root} and {project_root} substitution.
+# ══════════════════════════════════════════════════════════════════════════════
+
+# ── Roots ─────────────────────────────────────────────────────────────────────
+data_root:    "C:/Victor/Learning_charts"
+project_root: "C:/Victor/Project/ml-stock-predictor"
+
+# ── Ticker / constituent lists ────────────────────────────────────────────────
+stock_lists:
+  nse_local:     "{data_root}/stock_lists/constituentsi.csv"
+  nse_tv:        "{data_root}/stock_lists/constituentsi.csv"
+  nse_cap_tiers: "{data_root}/stock_lists/nse_cap_tiers.csv"
+  us_combined:   "{data_root}/stock_lists/constituents_us_combined.csv"
+  lists_dir:     "{data_root}/stock_lists"
+
+# ── Daily OHLCV CSV directories ───────────────────────────────────────────────
+stock_data:
+  nse_local: "{data_root}/stock_data/nse_local"
+  nse_tv:    "{data_root}/stock_data/tradingview"
+  us:        "{data_root}/stock_data/us_stocks"
+  us_alt:    "{data_root}/us_data"   # legacy yfinance download target

@@ -11,8 +11,9 @@ import numpy as np
 import pandas as pd
 from pathlib import Path
 
-STOCK_DATA_DIR = Path(r"C:\Victor\Learning_charts\stock_data")
-STOCK_LIST_CSV = Path(r"C:\Victor\Learning_charts\stock_lists\constituentsi.csv")
+from pipeline.config.paths import PATHS
+STOCK_DATA_DIR = PATHS.stock_data.nse_local
+STOCK_LIST_CSV = PATHS.stock_lists.nse_local
 N_STOCKS = 10   # small sample — fast
 
 print("=" * 60)

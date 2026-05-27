@@ -83,13 +83,18 @@ class FeatureDriftMonitor:
         Compute training-distribution bin edges (equal-frequency, 10 bins)
         from the training panel for each feature.
         """
+        # PSI with 10 bins needs at most ~10k reference points.
+        # Storing the full panel (5M+ rows × 60+ features) causes OOM on large datasets.
+        _MAX_DRIFT_SAMPLES = 10_000
+        _rng = np.random.default_rng(42)
+
         for feat in self.feature_cols:
             if feat not in train_panel.columns:
                 continue
             values = train_panel[feat].dropna().values
             if len(values) < 20:
                 continue
-            # Equal-frequency bins
+            # Equal-frequency bins (computed on full distribution for accuracy)
             percentiles = np.linspace(0, 100, N_PSI_BINS + 1)
             bin_edges = np.percentile(values, percentiles)
             # Ensure monotonically increasing bins
@@ -97,6 +102,9 @@ class FeatureDriftMonitor:
             if len(bin_edges) < 3:
                 continue
             self._training_bins[feat] = bin_edges
+            # Store a capped sample for PSI reference — 10k is sufficient for 10-bin PSI
+            if len(values) > _MAX_DRIFT_SAMPLES:
+                values = _rng.choice(values, size=_MAX_DRIFT_SAMPLES, replace=False)
             self._training_data[feat] = values
         log.info(f"Drift monitor baseline fitted for {len(self._training_bins)} features.")
 

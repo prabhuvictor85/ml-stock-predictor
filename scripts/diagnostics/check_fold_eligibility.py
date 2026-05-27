@@ -3,8 +3,11 @@ import pandas as pd
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
 
-DATA_DIR   = Path(r"C:\Victor\Learning_charts\stock_data")
-STOCK_LIST = Path(r"C:\Victor\Learning_charts\stock_lists\constituentsi.csv")
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+DATA_DIR   = PATHS.stock_data.nse_local
+STOCK_LIST = PATHS.stock_lists.nse_local
 
 tickers_df = pd.read_csv(STOCK_LIST)
 ticker_col = "Symbol"  # constituentsi.csv has Symbol (with .NS suffix) and Symbol1

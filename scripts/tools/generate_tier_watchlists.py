@@ -21,7 +21,10 @@ from pathlib import Path
 import pandas as pd
 
 # ── Paths ──────────────────────────────────────────────────────────────────────
-STOCK_LIST_CSV = Path(r"C:\Victor\Learning_charts\stock_lists\constituents_us_combined.csv")
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+STOCK_LIST_CSV = PATHS.stock_lists.us_combined
 OUTPUT_DIR     = Path("output/us_local")
 TOP_N_TIER     = 10   # top stocks per cap tier
 

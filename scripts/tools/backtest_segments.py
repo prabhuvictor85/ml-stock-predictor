@@ -55,13 +55,17 @@ IC_WATCH         = 0.10
 # MARKET CONFIGS
 # ══════════════════════════════════════════════════════════════════════════════
 
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+
 MARKET_CONFIGS = {
     "sp500": {
         "label":          "SP500 (US Stocks)",
         "output_dir":     Path("output/us_local"),
         "eval_dir":       Path("output/evaluation"),
-        "stock_data_dir": Path(r"C:\Victor\Learning_charts\stock_data\us_stocks"),
-        "stock_list_csv": Path(r"C:\Victor\Learning_charts\stock_lists\constituents_us_combined.csv"),
+        "stock_data_dir": PATHS.stock_data.us,
+        "stock_list_csv": PATHS.stock_lists.us_combined,
         "cap_tier_source":"indices_column",   # Indices col in stock_list_csv
         "cap_tier_csv":   None,
         "ticker_col":     "Symbol",           # col used as ticker key in scores_detail
@@ -73,10 +77,10 @@ MARKET_CONFIGS = {
         "label":          "NSE (India)",
         "output_dir":     Path("output/nse_local"),
         "eval_dir":       Path("output/evaluation"),
-        "stock_data_dir": Path(r"C:\Victor\Learning_charts\stock_data"),
-        "stock_list_csv": Path(r"C:\Victor\Learning_charts\stock_lists\constituentsi.csv"),
+        "stock_data_dir": PATHS.stock_data.nse_local,
+        "stock_list_csv": PATHS.stock_lists.nse_local,
         "cap_tier_source":"nse_cap_tiers_csv",
-        "cap_tier_csv":   Path(r"C:\Victor\Learning_charts\stock_lists\nse_cap_tiers.csv"),
+        "cap_tier_csv":   PATHS.stock_lists.nse_cap_tiers,
         # NSE local scores_detail uses Symbol (with .NS); strip .NS for cap tier lookup
         "ticker_col":     "Symbol",           # col with .NS suffix (RELIANCE.NS)
         "ticker_plain_col": "Symbol1",        # plain symbol (RELIANCE) for file + tier lookup
@@ -88,10 +92,10 @@ MARKET_CONFIGS = {
         "label":          "NSE TradingView",
         "output_dir":     Path("output/nse_tradingv"),
         "eval_dir":       Path("output/evaluation"),
-        "stock_data_dir": Path(r"C:\Victor\Learning_charts\stock_data\tradingview"),
-        "stock_list_csv": Path(r"C:\Victor\Learning_charts\stock_lists\constituents_nse_tradingv.csv"),
+        "stock_data_dir": PATHS.stock_data.nse_tv,
+        "stock_list_csv": PATHS.stock_lists.nse_tv,
         "cap_tier_source":"nse_cap_tiers_csv",
-        "cap_tier_csv":   Path(r"C:\Victor\Learning_charts\stock_lists\nse_cap_tiers.csv"),
+        "cap_tier_csv":   PATHS.stock_lists.nse_cap_tiers,
         "ticker_col":     "TV_ticker",        # TV_ticker used in scores_detail
         "symbol_col":     "Symbol",           # plain NSE symbol for cap tier lookup
         "yf_suffix":      ".NS",

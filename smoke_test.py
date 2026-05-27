@@ -27,8 +27,9 @@ warnings.filterwarnings("ignore")
 sys.path.insert(0, ".")
 
 # ── Config ─────────────────────────────────────────────────────────────────
-STOCK_LIST_CSV = Path(r"C:\Victor\Learning_charts\stock_lists\constituentsi.csv")
-STOCK_DATA_DIR = Path(r"C:\Victor\Learning_charts\stock_data")
+from pipeline.config.paths import PATHS
+STOCK_LIST_CSV = PATHS.stock_lists.nse_local
+STOCK_DATA_DIR = PATHS.stock_data.nse_local
 SMOKE_ARTEFACTS = Path("artefacts/smoke_test")
 N_TICKERS   = 40
 N_FOLDS     = 5

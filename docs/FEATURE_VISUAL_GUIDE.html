@@ -1,0 +1,1872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="author" content="Victor Prabhu">
+<meta name="owner" content="Victrix">
+<meta name="copyright" content="© 2026 Victor Prabhu · Victrix. All rights reserved.">
+<meta name="description" content="Proprietary ML stock prediction feature reference — Victrix Research. Confidential. Not for distribution.">
+<meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+<meta name="rights" content="All intellectual property rights reserved. Victor Prabhu · Victrix 2026.">
+<title>NSE ML Stock Predictor — Feature Visual Guide · Victrix © Victor Prabhu</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #ffffff;
+    --bg2:      #f8f9fc;
+    --bg3:      #f0f2f7;
+    --border:   #e2e6ef;
+    --border2:  #d0d6e4;
+    --text:     #1a1f2e;
+    --text2:    #4a5468;
+    --text3:    #8492a6;
+    --blue:     #2563eb;
+    --blue-l:   #eff6ff;
+    --blue-b:   #bfdbfe;
+    --green:    #059669;
+    --green-l:  #ecfdf5;
+    --green-b:  #a7f3d0;
+    --amber:    #d97706;
+    --amber-l:  #fffbeb;
+    --amber-b:  #fde68a;
+    --red:      #dc2626;
+    --red-l:    #fef2f2;
+    --red-b:    #fecaca;
+    --purple:   #7c3aed;
+    --purple-l: #f5f3ff;
+    --purple-b: #ddd6fe;
+    --mono:     'JetBrains Mono', monospace;
+    --sans:     'Inter', sans-serif;
+    --radius:   8px;
+    --shadow:   0 1px 3px rgba(0,0,0,.08), 0 4px 16px rgba(0,0,0,.04);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { background: var(--bg); color: var(--text); font-family: var(--sans); line-height: 1.6; font-size: 15px; }
+
+  /* ── HEADER ── */
+  header { background: var(--bg); border-bottom: 1px solid var(--border); padding: 3.5rem 2rem 3rem; text-align: center; }
+  .header-badge { display: inline-flex; align-items: center; gap: .4rem; font-family: var(--mono); font-size: .68rem; letter-spacing: .12em; text-transform: uppercase; color: var(--blue); background: var(--blue-l); border: 1px solid var(--blue-b); padding: .3rem .8rem; border-radius: 20px; margin-bottom: 1.5rem; }
+  header h1 { font-size: clamp(1.8rem, 4vw, 2.8rem); font-weight: 700; letter-spacing: -.03em; line-height: 1.15; margin-bottom: .75rem; }
+  header h1 span { color: var(--blue); }
+  header p { color: var(--text2); font-size: .9rem; max-width: 620px; margin: 0 auto; line-height: 1.7; }
+
+  /* ── NAV ── */
+  nav { position: sticky; top: 0; z-index: 100; background: rgba(255,255,255,.95); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); padding: .75rem 2rem; display: flex; justify-content: center; gap: .25rem; flex-wrap: wrap; }
+  nav a { font-family: var(--mono); font-size: .7rem; letter-spacing: .04em; text-transform: uppercase; color: var(--text3); text-decoration: none; padding: .3rem .7rem; border-radius: 4px; transition: all .15s; }
+  nav a:hover, nav a.active { color: var(--blue); background: var(--blue-l); }
+
+  /* ── LAYOUT ── */
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 2rem; }
+  section { padding: 4rem 0; border-bottom: 1px solid var(--border); }
+  section:last-child { border-bottom: none; }
+
+  .eyebrow { display: inline-flex; align-items: center; gap: .5rem; font-family: var(--mono); font-size: .68rem; letter-spacing: .15em; text-transform: uppercase; margin-bottom: .6rem; font-weight: 600; }
+  .eyebrow .dot { width: 6px; height: 6px; border-radius: 50%; display: inline-block; }
+  h2 { font-size: 1.55rem; font-weight: 700; letter-spacing: -.025em; margin-bottom: .5rem; }
+  .sub { color: var(--text2); font-size: .875rem; margin-bottom: 2rem; max-width: 700px; line-height: 1.7; }
+
+  /* ── DIAGRAM WRAP ── */
+  .diagram-wrap { background: var(--bg2); border: 1px solid var(--border); border-radius: 12px; padding: 2rem 1.5rem; overflow-x: auto; margin: 1.5rem 0; }
+  .diagram-wrap svg { display: block; margin: 0 auto; }
+
+  /* ── SUBSECTION ── */
+  .subsection { margin-top: 2.5rem; padding-top: 2rem; border-top: 1px solid var(--border); }
+  h3 { font-size: 1.1rem; font-weight: 600; letter-spacing: -.01em; margin-bottom: .4rem; }
+  h3 code { font-size: .9rem; }
+  p.desc { color: var(--text2); font-size: .875rem; line-height: 1.7; margin-bottom: .75rem; }
+
+  /* ── FORMULA ── */
+  .formula { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--blue); border-radius: 0 6px 6px 0; padding: .85rem 1.1rem; font-family: var(--mono); font-size: .78rem; color: var(--text); margin: .75rem 0; line-height: 1.9; }
+
+  /* ── CALLOUT ── */
+  .callout { display: flex; gap: .6rem; padding: .9rem 1.1rem; border-radius: 6px; font-size: .83rem; line-height: 1.6; margin: .75rem 0; }
+  .callout.bull { background: var(--green-l); border: 1px solid var(--green-b); color: #065f46; }
+  .callout.bear { background: var(--red-l); border: 1px solid var(--red-b); color: #7f1d1d; }
+  .callout.info { background: var(--blue-l); border: 1px solid var(--blue-b); color: #1e3a8a; }
+  .callout.warn { background: var(--amber-l); border: 1px solid var(--amber-b); color: #78350f; }
+
+  /* ── SPLIT GRID ── */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; margin: 1rem 0; }
+  @media(max-width:640px) { .split { grid-template-columns: 1fr; } }
+  .split-card { border: 1px solid var(--border); border-radius: 8px; padding: 1.1rem 1.25rem; }
+  .split-card .stitle { font-weight: 600; font-size: .875rem; margin-bottom: .4rem; display: flex; align-items: center; gap: .4rem; }
+  .split-card p { font-size: .8rem; color: var(--text2); margin: 0; }
+
+  /* ── TAG ── */
+  .tag { display: inline-block; font-family: var(--mono); font-size: .65rem; font-weight: 600; padding: .2rem .55rem; border-radius: 20px; letter-spacing: .04em; }
+  .tag-green { background: var(--green-l); color: var(--green); border: 1px solid var(--green-b); }
+  .tag-red { background: var(--red-l); color: var(--red); border: 1px solid var(--red-b); }
+  .tag-blue { background: var(--blue-l); color: var(--blue); border: 1px solid var(--blue-b); }
+  .tag-amber { background: var(--amber-l); color: var(--amber); border: 1px solid var(--amber-b); }
+
+  /* ── PHASE GRID ── */
+  .phase-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 1rem; margin: 1.5rem 0; }
+  @media(max-width:640px){ .phase-grid { grid-template-columns:1fr; } }
+  .phase-card { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  .phase-head { padding: .6rem 1rem; font-family: var(--mono); font-size: .72rem; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+  .phase-body { padding: .9rem 1rem; font-size: .8rem; color: var(--text2); }
+
+  /* ── TABLE ── */
+  table { width: 100%; border-collapse: collapse; font-size: .82rem; margin: 1rem 0; }
+  th { background: var(--bg2); color: var(--text2); font-weight: 600; font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; padding: .7rem 1rem; text-align: left; border: 1px solid var(--border); }
+  td { padding: .7rem 1rem; border: 1px solid var(--border); color: var(--text2); }
+  tr:hover td { background: var(--bg2); }
+
+  /* ── FOOTER ── */
+  footer { text-align: center; padding: 3rem 2rem; color: var(--text3); font-size: .8rem; font-family: var(--mono); }
+  footer a { color: var(--blue); text-decoration: none; }
+
+  code { font-family: var(--mono); font-size: .8rem; background: var(--bg3); padding: .1rem .4rem; border-radius: 3px; color: var(--purple); }
+
+  /* ── IP PROTECTION ── */
+  .ip-bar {
+    background: #1a1f2e;
+    color: #94a3b8;
+    font-family: var(--mono);
+    font-size: .65rem;
+    letter-spacing: .1em;
+    padding: .45rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 200;
+    border-bottom: 1px solid #2d3748;
+  }
+  .ip-bar .ip-brand {
+    color: #e2e8f0;
+    font-weight: 600;
+    letter-spacing: .14em;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+  .ip-bar .ip-brand .v-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #2563eb; display: inline-block;
+  }
+  .ip-bar .ip-center { color: #64748b; text-align: center; flex: 1; }
+  .ip-bar .ip-right { color: #64748b; text-align: right; white-space: nowrap; }
+
+  /* Diagonal tiled watermark */
+  .watermark {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    pointer-events: none;
+    z-index: 9999;
+    overflow: hidden;
+  }
+
+  /* Legal footer */
+  .legal-footer {
+    background: #1a1f2e;
+    color: #64748b;
+    padding: 3rem 2rem 2rem;
+    margin-top: 0;
+  }
+  .legal-footer .lf-inner {
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  .legal-footer .lf-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 2rem;
+    flex-wrap: wrap;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid #2d3748;
+    margin-bottom: 1.5rem;
+  }
+  .legal-footer .lf-brand h3 {
+    font-family: var(--mono);
+    font-size: 1rem;
+    font-weight: 700;
+    color: #e2e8f0;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    margin-bottom: .3rem;
+  }
+  .legal-footer .lf-brand p {
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: #94a3b8;
+    line-height: 1.6;
+  }
+  .legal-footer .lf-links {
+    display: flex;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+  .legal-footer .lf-links a {
+    font-family: var(--mono);
+    font-size: .7rem;
+    color: #475569;
+    text-decoration: none;
+    letter-spacing: .04em;
+    transition: color .15s;
+  }
+  .legal-footer .lf-links a:hover { color: #94a3b8; }
+  .legal-footer .lf-bottom {
+    font-family: var(--mono);
+    font-size: .68rem;
+    color: #475569;
+    line-height: 1.7;
+  }
+  .legal-footer .lf-bottom strong { color: #94a3b8; }
+  .legal-footer .lf-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .35rem;
+    background: rgba(37,99,235,.12);
+    border: 1px solid rgba(37,99,235,.25);
+    color: #60a5fa;
+    font-family: var(--mono);
+    font-size: .62rem;
+    padding: .2rem .6rem;
+    border-radius: 3px;
+    letter-spacing: .08em;
+    margin-bottom: 1rem;
+  }
+
+  /* Disable text selection on sensitive content */
+  .no-select { user-select: none; -webkit-user-select: none; }
+</style>
+</head>
+<body>
+
+<!-- Diagonal tiled watermark -->
+<div class="watermark" aria-hidden="true">
+  <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <pattern id="wm" x="0" y="0" width="420" height="180" patternUnits="userSpaceOnUse" patternTransform="rotate(-35)">
+        <text x="10" y="90" font-size="13" fill="rgba(37,99,235,0.055)" font-family="'JetBrains Mono',monospace" font-weight="700" letter-spacing="6">VICTOR PRABHU · VICTRIX · PROPRIETARY</text>
+      </pattern>
+    </defs>
+    <rect width="100%" height="100%" fill="url(#wm)"/>
+  </svg>
+</div>
+
+<!-- IP / Confidentiality bar -->
+<div class="ip-bar no-select">
+  <div class="ip-brand"><span class="v-dot"></span> VICTRIX &nbsp;·&nbsp; VICTOR PRABHU</div>
+  <div class="ip-center">&#128274;&nbsp; CONFIDENTIAL &amp; PROPRIETARY &nbsp;—&nbsp; NOT FOR DISTRIBUTION</div>
+  <div class="ip-right">&#169; 2026 All Rights Reserved</div>
+</div>
+
+<header>
+  <div class="header-badge">&#9679; Feature Visual Guide · NSE ML Pipeline</div>
+  <h1>Stock Predictor — <span>Feature Reference</span></h1>
+  <p>Every signal the model sees, visualized. Candlestick patterns, zone mechanics, ICT concepts,
+     and the composite scoring pipeline — with real diagrams.</p>
+</header>
+
+<nav>
+  <a href="#pipeline">Pipeline</a>
+  <a href="#volatility">Volatility</a>
+  <a href="#trend">Trend & Momentum</a>
+  <a href="#sma">SMA & Range</a>
+  <a href="#volume">Volume & Regime</a>
+  <a href="#ict">ICT Features</a>
+  <a href="#zones">Supply/Demand Zones</a>
+  <a href="#scoring">Composite Scoring</a>
+</nav>
+
+<!-- ═══════════════════════════════════════════════════ 1. PIPELINE ══ -->
+<section id="pipeline">
+<div class="container">
+  <div class="eyebrow"><span class="dot" style="background:var(--blue)"></span><span style="color:var(--blue)">Section 01</span></div>
+  <h2>Pipeline Overview</h2>
+  <p class="sub">Raw OHLCV data flows through six transformation layers before reaching the LightGBM LambdaRank model.
+     Each layer adds dimensionless, cross-sectionally comparable signals.</p>
+
+  <div class="diagram-wrap">
+    <svg viewBox="0 0 620 580" width="620" height="580" font-family="Inter,sans-serif">
+      <defs>
+        <marker id="arr" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0,9 3.5,0 7" fill="#94a3b8"/>
+        </marker>
+        <marker id="arr-blue" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0,9 3.5,0 7" fill="#2563eb"/>
+        </marker>
+      </defs>
+
+      <!-- Box 1: Raw OHLCV -->
+      <rect x="170" y="10" width="280" height="48" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+      <text x="310" y="30" text-anchor="middle" font-size="12" font-weight="600" fill="#1e40af">Raw OHLCV Data</text>
+      <text x="310" y="48" text-anchor="middle" font-size="10" fill="#3b82f6">(TradingView CSV — per ticker)</text>
+
+      <!-- Arrow 1-->
+      <line x1="310" y1="58" x2="310" y2="78" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Box 2: ATR -->
+      <rect x="170" y="80" width="280" height="48" rx="8" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+      <text x="310" y="100" text-anchor="middle" font-size="12" font-weight="600" fill="#5b21b6">ATR Computation</text>
+      <text x="310" y="118" text-anchor="middle" font-size="10" fill="#7c3aed">Wilder 14-day — normalization denominator</text>
+
+      <!-- Arrow 2 -->
+      <line x1="310" y1="128" x2="310" y2="148" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Box 3: Feature Engineering (wide) -->
+      <rect x="60" y="150" width="500" height="100" rx="8" fill="#f8f9fc" stroke="#e2e6ef" stroke-width="1.5"/>
+      <text x="310" y="173" text-anchor="middle" font-size="12" font-weight="600" fill="#1a1f2e">Per-Ticker Feature Engineering</text>
+      <!-- Sub items in 2 cols -->
+      <text x="130" y="193" font-size="10" fill="#4a5468">• ATR pct rank, vol contraction</text>
+      <text x="130" y="210" font-size="10" fill="#4a5468">• Returns 1d/5d/20d/60d (ATR-norm)</text>
+      <text x="130" y="227" font-size="10" fill="#4a5468">• SMA20/50/200 + slopes</text>
+      <text x="350" y="193" font-size="10" fill="#4a5468">• 52-week high/low distance</text>
+      <text x="350" y="210" font-size="10" fill="#4a5468">• Volume ratios · Rolling beta</text>
+      <text x="350" y="227" font-size="10" fill="#4a5468">• ICT signals · Supply/Demand zones</text>
+
+      <!-- Arrow 3 -->
+      <line x1="310" y1="250" x2="310" y2="270" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Box 4: Cross-Sectional -->
+      <rect x="130" y="272" width="360" height="60" rx="8" fill="#ecfdf5" stroke="#a7f3d0" stroke-width="1.5"/>
+      <text x="310" y="293" text-anchor="middle" font-size="12" font-weight="600" fill="#065f46">Cross-Sectional Features</text>
+      <text x="310" y="312" text-anchor="middle" font-size="10" fill="#059669">sector_rs_20d · market_breadth · regime_bull/choppy/bear</text>
+
+      <!-- Arrow 4 -->
+      <line x1="310" y1="332" x2="310" y2="352" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Box 5: Multi-TF Zone Confluence -->
+      <rect x="100" y="354" width="420" height="60" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+      <text x="310" y="375" text-anchor="middle" font-size="12" font-weight="600" fill="#78350f">Multi-TF Trends + Zone × Trend Confluence</text>
+      <text x="310" y="394" text-anchor="middle" font-size="10" fill="#d97706">weekly/monthly/quarterly/yearly trend · sdz_htf_score · ssz_htf_score</text>
+
+      <!-- Winsorize arrow -->
+      <line x1="310" y1="414" x2="310" y2="432" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+      <text x="315" y="427" font-size="9" fill="#8492a6">Winsorize (clip 1st–99th pct per date)</text>
+
+      <!-- Box 6: LightGBM -->
+      <rect x="130" y="434" width="360" height="60" rx="8" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+      <text x="310" y="455" text-anchor="middle" font-size="12" font-weight="600" fill="#7f1d1d">LightGBM LambdaRank</text>
+      <text x="310" y="474" text-anchor="middle" font-size="10" fill="#dc2626">71 features (momentum) · 52 features (reversal) · ndcg@10</text>
+
+      <!-- Arrow 6 -->
+      <line x1="310" y1="494" x2="310" y2="514" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+      <!-- Box 7: Output -->
+      <rect x="170" y="516" width="280" height="48" rx="8" fill="#1a1f2e" stroke="#1a1f2e"/>
+      <text x="310" y="535" text-anchor="middle" font-size="12" font-weight="600" fill="#ffffff">Bull / Bear Tier Rankings</text>
+      <text x="310" y="553" text-anchor="middle" font-size="10" fill="#94a3b8">Tier 1 watchlist · daily refresh</text>
+    </svg>
+  </div>
+
+  <div class="callout info">
+    <span>&#9432;</span>
+    <span><strong>ATR normalization</strong> — almost every distance and slope feature is divided by Wilder's 14-day ATR,
+    making signals dimensionless and comparable across stocks at ₹100 vs ₹10,000.</span>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════════ 2. VOLATILITY ══ -->
+<section id="volatility">
+<div class="container">
+  <div class="eyebrow"><span class="dot" style="background:var(--purple)"></span><span style="color:var(--purple)">Section 02</span></div>
+  <h2>Volatility Features</h2>
+  <p class="sub">ATR is the universal ruler. Every distance, slope, and return feature is expressed in ATR units so signals are
+     comparable across the full universe regardless of price or sector.</p>
+
+  <!-- ATR True Range -->
+  <div class="subsection">
+    <h3>True Range — the 3-component measurement</h3>
+    <p class="desc">Wilder's ATR uses the <em>largest</em> of three possible ranges each day, capturing gap moves that a simple High−Low misses.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 500 300" width="500" height="300" font-family="Inter,sans-serif" font-size="11">
+        <defs>
+          <marker id="da" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><circle cx="3.5" cy="3.5" r="2.5" fill="#2563eb"/></marker>
+          <marker id="db" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><circle cx="3.5" cy="3.5" r="2.5" fill="#7c3aed"/></marker>
+          <marker id="dc" markerWidth="7" markerHeight="7" refX="3.5" refY="3.5" orient="auto"><circle cx="3.5" cy="3.5" r="2.5" fill="#dc2626"/></marker>
+          <marker id="ae" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#2563eb"/></marker>
+          <marker id="be" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#7c3aed"/></marker>
+          <marker id="ce" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#dc2626"/></marker>
+          <marker id="as" markerWidth="8" markerHeight="6" refX="0" refY="3" orient="auto"><polygon points="8 0,0 3,8 6" fill="#2563eb"/></marker>
+          <marker id="bs" markerWidth="8" markerHeight="6" refX="0" refY="3" orient="auto"><polygon points="8 0,0 3,8 6" fill="#7c3aed"/></marker>
+          <marker id="cs" markerWidth="8" markerHeight="6" refX="0" refY="3" orient="auto"><polygon points="8 0,0 3,8 6" fill="#dc2626"/></marker>
+        </defs>
+
+        <!-- Grid line labels -->
+        <text x="10" y="45" fill="#8492a6" font-size="10">High</text>
+        <text x="10" y="68" fill="#8492a6" font-size="10">Open</text>
+        <text x="10" y="150" fill="#8492a6" font-size="10">prev</text>
+        <text x="10" y="161" fill="#8492a6" font-size="10">Close</text>
+        <text x="10" y="235" fill="#8492a6" font-size="10">Close</text>
+        <text x="10" y="263" fill="#8492a6" font-size="10">Low</text>
+
+        <!-- Prev candle (bearish, cx=145) -->
+        <text x="145" y="15" text-anchor="middle" font-size="10" fill="#8492a6">Bar t−1</text>
+        <line x1="145" y1="38" x2="145" y2="170" stroke="#dc2626" stroke-width="2"/>
+        <rect x="131" y="62" width="28" height="88" fill="#dc2626" rx="2"/>
+
+        <!-- Current candle (bearish, cx=270) -->
+        <text x="270" y="15" text-anchor="middle" font-size="10" fill="#8492a6">Bar t (current)</text>
+        <line x1="270" y1="55" x2="270" y2="260" stroke="#dc2626" stroke-width="2"/>
+        <rect x="256" y="80" width="28" height="152" fill="#dc2626" rx="2"/>
+
+        <!-- prev close dashed line -->
+        <line x1="50" y1="150" x2="380" y2="150" stroke="#94a3b8" stroke-width="1" stroke-dasharray="5,4"/>
+        <text x="385" y="154" font-size="10" fill="#8492a6">prev Close</text>
+
+        <!-- ① H-L: full range of current candle -->
+        <line x1="340" y1="55" x2="340" y2="260" stroke="#2563eb" stroke-width="1.5" marker-start="url(#as)" marker-end="url(#ae)"/>
+        <rect x="346" y="140" width="80" height="18" rx="3" fill="#eff6ff"/>
+        <text x="350" y="153" font-size="10" fill="#1d4ed8" font-weight="600">① H − L</text>
+
+        <!-- ② |H - prevClose| -->
+        <line x1="378" y1="55" x2="378" y2="150" stroke="#7c3aed" stroke-width="1.5" marker-start="url(#bs)" marker-end="url(#be)"/>
+        <rect x="384" y="90" width="108" height="18" rx="3" fill="#f5f3ff"/>
+        <text x="388" y="103" font-size="10" fill="#6d28d9" font-weight="600">② |H − prevClose|</text>
+
+        <!-- ③ |L - prevClose| -->
+        <line x1="415" y1="150" x2="415" y2="260" stroke="#dc2626" stroke-width="1.5" marker-start="url(#cs)" marker-end="url(#ce)"/>
+        <rect x="421" y="196" width="108" height="18" rx="3" fill="#fef2f2"/>
+        <text x="425" y="209" font-size="10" fill="#b91c1c" font-weight="600">③ |L − prevClose|</text>
+
+        <!-- TR formula -->
+        <rect x="50" y="275" width="380" height="20" rx="4" fill="#f8f9fc"/>
+        <text x="240" y="289" text-anchor="middle" font-size="11" font-family="JetBrains Mono,monospace" fill="#1a1f2e">TR = max(①, ②, ③)   →   ATR = 0.929·ATR_prev + 0.071·TR</text>
+      </svg>
+    </div>
+    <div class="formula">atr_pct_rank_252  =  rank_pct( ATR_t  within rolling 252-day window )
+<span style="color:#8492a6">— low rank ≈ pre-breakout coil (calm before storm)</span>
+vol_contraction   =  ATR_t / max(ATR over last 60 days)   →  range (0, 1]
+compression_score =  1 − vol_contraction                   →  high = squeezed</div>
+  </div>
+
+  <!-- VCP -->
+  <div class="subsection">
+    <h3>Volatility Contraction Pattern (VCP)</h3>
+    <p class="desc"><code>vol_contraction</code> detects the classic squeeze before a breakout — ATR shrinks relative to its 60-day peak. Lower = more compressed = higher <code>compression_score</code>.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 640 210" width="640" height="210" font-family="Inter,sans-serif">
+        <!-- Axes -->
+        <line x1="40" y1="170" x2="610" y2="170" stroke="#e2e6ef" stroke-width="1"/>
+        <text x="15" y="30" font-size="10" fill="#8492a6" transform="rotate(-90,15,30)" text-anchor="middle">ATR</text>
+        <text x="325" y="195" text-anchor="middle" font-size="10" fill="#8492a6">Time →</text>
+
+        <!-- Bars: decreasing ATR, simulating VCP squeeze -->
+        <!-- Heights: [128,118,135,112,125,105,118,97,108,90,82,76,68,60,52,42,34,26,20,14] -->
+        <rect x="43"  y="42"  width="20" height="128" fill="#bfdbfe" rx="2"/>
+        <rect x="66"  y="52"  width="20" height="118" fill="#bfdbfe" rx="2"/>
+        <rect x="89"  y="35"  width="20" height="135" fill="#bfdbfe" rx="2"/>
+        <rect x="112" y="58"  width="20" height="112" fill="#93c5fd" rx="2"/>
+        <rect x="135" y="45"  width="20" height="125" fill="#93c5fd" rx="2"/>
+        <rect x="158" y="65"  width="20" height="105" fill="#93c5fd" rx="2"/>
+        <rect x="181" y="52"  width="20" height="118" fill="#7dd3fc" rx="2"/>
+        <rect x="204" y="73"  width="20" height="97"  fill="#7dd3fc" rx="2"/>
+        <rect x="227" y="62"  width="20" height="108" fill="#60a5fa" rx="2"/>
+        <rect x="250" y="80"  width="20" height="90"  fill="#60a5fa" rx="2"/>
+        <rect x="273" y="88"  width="20" height="82"  fill="#3b82f6" rx="2"/>
+        <rect x="296" y="94"  width="20" height="76"  fill="#3b82f6" rx="2"/>
+        <rect x="319" y="102" width="20" height="68"  fill="#2563eb" rx="2"/>
+        <rect x="342" y="110" width="20" height="60"  fill="#2563eb" rx="2"/>
+        <rect x="365" y="118" width="20" height="52"  fill="#1d4ed8" rx="2"/>
+        <rect x="388" y="128" width="20" height="42"  fill="#1d4ed8" rx="2"/>
+        <rect x="411" y="136" width="20" height="34"  fill="#1e40af" rx="2"/>
+        <rect x="434" y="144" width="20" height="26"  fill="#1e40af" rx="2"/>
+        <rect x="457" y="150" width="20" height="20"  fill="#1e3a8a" rx="2"/>
+        <rect x="480" y="156" width="20" height="14"  fill="#1e3a8a" rx="2"/>
+
+        <!-- Breakout arrow -->
+        <line x1="510" y1="165" x2="590" y2="40" stroke="#059669" stroke-width="2.5" stroke-dasharray="6,3" marker-end="url(#arr-blue)"/>
+        <defs><marker id="arr-blue" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,9 3.5,0 7" fill="#059669"/></marker></defs>
+        <text x="596" y="36" font-size="11" fill="#059669" font-weight="600">BREAKOUT</text>
+
+        <!-- Labels -->
+        <text x="43"  y="185" font-size="9"  fill="#8492a6">Peak ATR</text>
+        <text x="390" y="185" font-size="9"  fill="#8492a6">Squeeze</text>
+        <text x="430" y="155" font-size="9"  fill="#1e3a8a">compression</text>
+        <text x="430" y="165" font-size="9"  fill="#1e3a8a">_score ≈ 0.9</text>
+
+        <!-- Brace -->
+        <rect x="450" y="32" width="38" height="12" rx="3" fill="#ecfdf5" stroke="#a7f3d0"/>
+        <text x="469" y="42" text-anchor="middle" font-size="9" fill="#059669" font-weight="600">setup!</text>
+      </svg>
+    </div>
+
+    <div class="split">
+      <div class="split-card" style="border-left:3px solid var(--red)">
+        <div class="stitle" style="color:var(--red)">High vol_contraction (≈ 1.0)</div>
+        <p>ATR at 60-day peak — explosive move or trend start. Wide daily ranges.</p>
+      </div>
+      <div class="split-card" style="border-left:3px solid var(--green)">
+        <div class="stitle" style="color:var(--green)">Low vol_contraction (&lt; 0.25)</div>
+        <p>ATR compressed — textbook VCP / Bollinger squeeze. High compression_score → setup pending.</p>
+      </div>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════ 3. TREND & MOMENTUM ══ -->
+<section id="trend">
+<div class="container">
+  <div class="eyebrow"><span class="dot" style="background:var(--green)"></span><span style="color:var(--green)">Section 03</span></div>
+  <h2>Trend &amp; Momentum Features</h2>
+  <p class="sub">ADX measures trend <em>strength</em> (not direction). SMA slopes confirm direction. Return features capture momentum persistence across four timeframes.</p>
+
+  <!-- ADX Gauge -->
+  <div class="subsection">
+    <h3>ADX — Trend Strength Gauge</h3>
+    <p class="desc">0–100 range, direction-agnostic. Low ADX = sideways/choppy; high ADX = strong trend.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 580 140" width="580" height="140" font-family="Inter,sans-serif">
+        <!-- Zone rects -->
+        <rect x="40"  y="40" width="74"  height="36" fill="#f1f5f9" rx="4 0 0 4"/>
+        <rect x="114" y="40" width="110" height="36" fill="#dbeafe"/>
+        <rect x="224" y="40" width="110" height="36" fill="#dcfce7"/>
+        <rect x="334" y="40" width="110" height="36" fill="#fef9c3"/>
+        <rect x="444" y="40" width="96"  height="36" fill="#fee2e2" rx="0 4 4 0"/>
+
+        <!-- Zone borders -->
+        <rect x="40" y="40" width="500" height="36" fill="none" stroke="#e2e6ef" stroke-width="1" rx="4"/>
+        <!-- Dividers -->
+        <line x1="114" y1="40" x2="114" y2="76" stroke="#e2e6ef"/>
+        <line x1="224" y1="40" x2="224" y2="76" stroke="#e2e6ef"/>
+        <line x1="334" y1="40" x2="334" y2="76" stroke="#e2e6ef"/>
+        <line x1="444" y1="40" x2="444" y2="76" stroke="#e2e6ef"/>
+
+        <!-- Zone labels (top) -->
+        <text x="77"  y="33" text-anchor="middle" font-size="10" fill="#64748b">0–15</text>
+        <text x="169" y="33" text-anchor="middle" font-size="10" fill="#3b82f6">15–25</text>
+        <text x="279" y="33" text-anchor="middle" font-size="10" fill="#16a34a">25–40</text>
+        <text x="389" y="33" text-anchor="middle" font-size="10" fill="#ca8a04">40–60</text>
+        <text x="492" y="33" text-anchor="middle" font-size="10" fill="#dc2626">60+</text>
+
+        <!-- Zone descriptions -->
+        <text x="77"  y="54" text-anchor="middle" font-size="10" font-weight="600" fill="#475569">Weak</text>
+        <text x="77"  y="67" text-anchor="middle" font-size="9" fill="#64748b">No trend</text>
+        <text x="169" y="54" text-anchor="middle" font-size="10" font-weight="600" fill="#1d4ed8">Forming</text>
+        <text x="169" y="67" text-anchor="middle" font-size="9" fill="#3b82f6">Neutral</text>
+        <text x="279" y="54" text-anchor="middle" font-size="10" font-weight="600" fill="#15803d">Trending</text>
+        <text x="279" y="67" text-anchor="middle" font-size="9" fill="#16a34a">Best zone</text>
+        <text x="389" y="54" text-anchor="middle" font-size="10" font-weight="600" fill="#a16207">Strong</text>
+        <text x="389" y="67" text-anchor="middle" font-size="9" fill="#ca8a04">Near peak</text>
+        <text x="492" y="54" text-anchor="middle" font-size="10" font-weight="600" fill="#b91c1c">Extreme</text>
+        <text x="492" y="67" text-anchor="middle" font-size="9" fill="#dc2626">Fade risk</text>
+
+        <!-- Tick marks -->
+        <line x1="40"  y1="76" x2="40"  y2="84" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="114" y1="76" x2="114" y2="84" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="224" y1="76" x2="224" y2="84" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="334" y1="76" x2="334" y2="84" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="444" y1="76" x2="444" y2="84" stroke="#94a3b8" stroke-width="1"/>
+        <line x1="540" y1="76" x2="540" y2="84" stroke="#94a3b8" stroke-width="1"/>
+
+        <text x="40"  y="95" text-anchor="middle" font-size="9" fill="#8492a6">0</text>
+        <text x="114" y="95" text-anchor="middle" font-size="9" fill="#8492a6">15</text>
+        <text x="224" y="95" text-anchor="middle" font-size="9" fill="#8492a6">25</text>
+        <text x="334" y="95" text-anchor="middle" font-size="9" fill="#8492a6">40</text>
+        <text x="444" y="95" text-anchor="middle" font-size="9" fill="#8492a6">60</text>
+        <text x="540" y="95" text-anchor="middle" font-size="9" fill="#8492a6">100</text>
+
+        <!-- Strategy callouts -->
+        <text x="77"  y="118" text-anchor="middle" font-size="9" fill="#64748b">Wait for zone</text>
+        <text x="169" y="118" text-anchor="middle" font-size="9" fill="#3b82f6">Watch for entry</text>
+        <text x="279" y="118" text-anchor="middle" font-size="9" fill="#16a34a">Momentum mode</text>
+        <text x="389" y="118" text-anchor="middle" font-size="9" fill="#a16207">Size smaller</text>
+        <text x="492" y="118" text-anchor="middle" font-size="9" fill="#dc2626">Anticipate reversal</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Multi-TF Trend Stack -->
+  <div class="subsection">
+    <h3>Multi-Timeframe Trend Stack</h3>
+    <p class="desc">Four rolling SMA thresholds define whether each timeframe is "up" or "down". All four green = institutional confirmation.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 620 240" width="620" height="240" font-family="Inter,sans-serif" font-size="12">
+        <!-- Header row -->
+        <rect x="20" y="20" width="580" height="30" fill="#f8f9fc" rx="4 4 0 0"/>
+        <text x="110" y="40" text-anchor="middle" font-weight="600" font-size="11" fill="#8492a6">TIMEFRAME</text>
+        <text x="260" y="40" text-anchor="middle" font-weight="600" font-size="11" fill="#8492a6">FEATURE</text>
+        <text x="390" y="40" text-anchor="middle" font-weight="600" font-size="11" fill="#8492a6">SMA THRESHOLD</text>
+        <text x="520" y="40" text-anchor="middle" font-weight="600" font-size="11" fill="#8492a6">ALL GREEN →</text>
+
+        <!-- Row 1: Yearly -->
+        <rect x="20" y="50" width="580" height="40" fill="#ffffff" stroke="#e2e6ef"/>
+        <rect x="480" y="54" width="110" height="32" fill="#ecfdf5" rx="4"/>
+        <text x="110" y="75" text-anchor="middle" font-size="12" fill="#1a1f2e" font-weight="500">Yearly</text>
+        <text x="260" y="75" text-anchor="middle" font-size="11" font-family="JetBrains Mono,monospace" fill="#7c3aed">features_yearly_trend</text>
+        <text x="390" y="75" text-anchor="middle" font-size="11" fill="#4a5468">Close &gt; SMA(240)</text>
+        <text x="535" y="71" text-anchor="middle" font-size="10" fill="#059669" font-weight="600">Institutional</text>
+        <text x="535" y="84" text-anchor="middle" font-size="10" fill="#059669">bias confirmed</text>
+
+        <!-- Row 2: Quarterly -->
+        <rect x="20" y="90" width="580" height="40" fill="#f8f9fc" stroke="#e2e6ef"/>
+        <rect x="480" y="94" width="110" height="32" fill="#ecfdf5" rx="4"/>
+        <text x="110" y="115" text-anchor="middle" font-size="12" fill="#1a1f2e" font-weight="500">Quarterly</text>
+        <text x="260" y="115" text-anchor="middle" font-size="11" font-family="JetBrains Mono,monospace" fill="#7c3aed">features_quarterly_trend</text>
+        <text x="390" y="115" text-anchor="middle" font-size="11" fill="#4a5468">Close &gt; SMA(120)</text>
+        <text x="535" y="111" text-anchor="middle" font-size="10" fill="#059669" font-weight="600">Medium-term</text>
+        <text x="535" y="124" text-anchor="middle" font-size="10" fill="#059669">structure intact</text>
+
+        <!-- Row 3: Monthly -->
+        <rect x="20" y="130" width="580" height="40" fill="#ffffff" stroke="#e2e6ef"/>
+        <rect x="480" y="134" width="110" height="32" fill="#ecfdf5" rx="4"/>
+        <text x="110" y="155" text-anchor="middle" font-size="12" fill="#1a1f2e" font-weight="500">Monthly</text>
+        <text x="260" y="155" text-anchor="middle" font-size="11" font-family="JetBrains Mono,monospace" fill="#7c3aed">features_monthly_trend</text>
+        <text x="390" y="155" text-anchor="middle" font-size="11" fill="#4a5468">Close &gt; SMA(60)</text>
+        <text x="535" y="151" text-anchor="middle" font-size="10" fill="#059669" font-weight="600">Swing trend</text>
+        <text x="535" y="164" text-anchor="middle" font-size="10" fill="#059669">momentum valid</text>
+
+        <!-- Row 4: Weekly -->
+        <rect x="20" y="170" width="580" height="40" fill="#f8f9fc" stroke="#e2e6ef" rx="0 0 4 4"/>
+        <rect x="480" y="174" width="110" height="32" fill="#ecfdf5" rx="4"/>
+        <text x="110" y="195" text-anchor="middle" font-size="12" fill="#1a1f2e" font-weight="500">Weekly</text>
+        <text x="260" y="195" text-anchor="middle" font-size="11" font-family="JetBrains Mono,monospace" fill="#7c3aed">features_weekly_trend</text>
+        <text x="390" y="195" text-anchor="middle" font-size="11" fill="#4a5468">Close &gt; SMA(20)</text>
+        <text x="535" y="191" text-anchor="middle" font-size="10" fill="#059669" font-weight="600">Pullback done,</text>
+        <text x="535" y="204" text-anchor="middle" font-size="10" fill="#059669">entry imminent</text>
+
+        <!-- Arrow decoration -->
+        <text x="535" y="228" text-anchor="middle" font-size="10" fill="#059669" font-weight="700">HIGHEST CONVICTION LONG</text>
+      </svg>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════ 3b. SMA & RANGE ══ -->
+<section id="sma">
+<div class="container">
+  <div class="eyebrow"><span class="dot" style="background:var(--purple)"></span><span style="color:var(--purple)">Section 03b</span></div>
+  <h2>SMA-Based &amp; 52-Week Range Features</h2>
+  <p class="sub">Price position relative to the three key moving averages tells the model "where in its trend lifecycle" a stock sits.
+     The 52-week range position acts as the primary universe filter that splits stocks into momentum vs reversal mode.</p>
+
+  <!-- SMA Chart -->
+  <div class="subsection">
+    <h3>Price vs SMA20 / SMA50 / SMA200</h3>
+    <p class="desc">Each distance is expressed in ATR units: <code>(Close − SMA_N) / ATR_14</code>. Positive = above SMA (bullish). A stock above SMA200 with rising SMA200 slope is a Minervini Stage 2 setup — the model weights this heavily.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 640 300" width="640" height="300" font-family="Inter,sans-serif" font-size="11">
+        <defs>
+          <marker id="sm-arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#8492a6"/></marker>
+        </defs>
+
+        <!-- Background grid -->
+        <line x1="30" y1="20" x2="30" y2="248" stroke="#e2e6ef" stroke-width="1"/>
+        <line x1="30" y1="248" x2="590" y2="248" stroke="#e2e6ef" stroke-width="1"/>
+
+        <!-- SMA200 — nearly flat, long-term baseline (purple) -->
+        <polyline points="60,200 105,198 150,196 195,195 240,193 285,192 330,190 375,189 420,187 465,186 510,184 555,183"
+                  fill="none" stroke="#7c3aed" stroke-width="2"/>
+        <!-- SMA50 — steadily rising (orange) -->
+        <polyline points="60,215 105,208 150,200 195,194 240,187 285,180 330,174 375,168 420,162 465,155 510,148 555,140"
+                  fill="none" stroke="#d97706" stroke-width="2" stroke-dasharray="8,4"/>
+        <!-- SMA20 — closest to price, rising faster (blue) -->
+        <polyline points="60,210 105,195 150,188 195,175 240,162 285,155 330,152 375,145 420,132 465,118 510,105 555,88"
+                  fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+        <!-- Candles -->
+        <!-- Bar 1 bullish cx=60 -->
+        <line x1="60" y1="190" x2="60" y2="220" stroke="#059669" stroke-width="1.5"/>
+        <rect x="51" y="195" width="18" height="20" fill="#059669" rx="1"/>
+        <!-- Bar 2 bullish cx=105 -->
+        <line x1="105" y1="172" x2="105" y2="204" stroke="#059669" stroke-width="1.5"/>
+        <rect x="96" y="178" width="18" height="20" fill="#059669" rx="1"/>
+        <!-- Bar 3 bearish cx=150 -->
+        <line x1="150" y1="168" x2="150" y2="192" stroke="#dc2626" stroke-width="1.5"/>
+        <rect x="141" y="174" width="18" height="12" fill="#dc2626" rx="1"/>
+        <!-- Bar 4 bullish cx=195 -->
+        <line x1="195" y1="152" x2="195" y2="184" stroke="#059669" stroke-width="1.5"/>
+        <rect x="186" y="158" width="18" height="20" fill="#059669" rx="1"/>
+        <!-- Bar 5 bullish cx=240 -->
+        <line x1="240" y1="134" x2="240" y2="168" stroke="#059669" stroke-width="1.5"/>
+        <rect x="231" y="140" width="18" height="22" fill="#059669" rx="1"/>
+        <!-- Bar 6 bearish (pullback to SMA50) cx=285 -->
+        <line x1="285" y1="130" x2="285" y2="162" stroke="#dc2626" stroke-width="1.5"/>
+        <rect x="276" y="136" width="18" height="19" fill="#dc2626" rx="1"/>
+        <!-- Bar 7 doji cx=330 -->
+        <line x1="330" y1="146" x2="330" y2="162" stroke="#94a3b8" stroke-width="1.5"/>
+        <rect x="321" y="152" width="18" height="5" fill="#94a3b8" rx="1"/>
+        <!-- Bar 8 bullish (bounces off SMA50) cx=375 -->
+        <line x1="375" y1="124" x2="375" y2="160" stroke="#059669" stroke-width="1.5"/>
+        <rect x="366" y="130" width="18" height="24" fill="#059669" rx="1"/>
+        <!-- Bar 9 bullish cx=420 -->
+        <line x1="420" y1="106" x2="420" y2="140" stroke="#059669" stroke-width="1.5"/>
+        <rect x="411" y="112" width="18" height="22" fill="#059669" rx="1"/>
+        <!-- Bar 10 bearish small cx=465 -->
+        <line x1="465" y1="102" x2="465" y2="124" stroke="#dc2626" stroke-width="1.5"/>
+        <rect x="456" y="108" width="18" height="10" fill="#dc2626" rx="1"/>
+        <!-- Bar 11 bullish cx=510 -->
+        <line x1="510" y1="84" x2="510" y2="118" stroke="#059669" stroke-width="1.5"/>
+        <rect x="501" y="90" width="18" height="22" fill="#059669" rx="1"/>
+        <!-- Bar 12 current, bullish cx=555 — close at y=72 -->
+        <line x1="555" y1="66" x2="555" y2="98" stroke="#059669" stroke-width="1.5"/>
+        <rect x="546" y="72" width="18" height="20" fill="#059669" rx="1"/>
+
+        <!-- Current price line (horizontal) -->
+        <line x1="30" y1="72" x2="564" y2="72" stroke="#1a1f2e" stroke-width="1" stroke-dasharray="3,3" opacity="0.4"/>
+
+        <!-- Distance bracket: price to SMA20 -->
+        <line x1="585" y1="72" x2="585" y2="88" stroke="#2563eb" stroke-width="1.5"/>
+        <line x1="578" y1="72" x2="585" y2="72" stroke="#2563eb" stroke-width="1.5"/>
+        <line x1="578" y1="88" x2="585" y2="88" stroke="#2563eb" stroke-width="1.5"/>
+        <text x="588" y="82" font-size="9" fill="#2563eb" font-weight="600">+sma20</text>
+
+        <!-- Distance bracket: price to SMA50 -->
+        <line x1="605" y1="72" x2="605" y2="140" stroke="#d97706" stroke-width="1.5"/>
+        <line x1="598" y1="72" x2="605" y2="72" stroke="#d97706" stroke-width="1.5"/>
+        <line x1="598" y1="140" x2="605" y2="140" stroke="#d97706" stroke-width="1.5"/>
+        <text x="608" y="108" font-size="9" fill="#d97706" font-weight="600">+sma50</text>
+
+        <!-- Distance bracket: price to SMA200 (the big one) -->
+        <line x1="625" y1="72" x2="625" y2="183" stroke="#7c3aed" stroke-width="2"/>
+        <line x1="618" y1="72" x2="625" y2="72" stroke="#7c3aed" stroke-width="2"/>
+        <line x1="618" y1="183" x2="625" y2="183" stroke="#7c3aed" stroke-width="2"/>
+        <text x="627" y="122" font-size="9" fill="#7c3aed" font-weight="600">+sma200</text>
+        <text x="627" y="133" font-size="9" fill="#7c3aed">Stage 2!</text>
+
+        <!-- Pullback to SMA50 annotation -->
+        <rect x="240" y="175" width="100" height="22" rx="3" fill="#fffbeb" stroke="#fde68a"/>
+        <text x="290" y="190" text-anchor="middle" font-size="9" fill="#a16207">Pullback to SMA50</text>
+        <line x1="285" y1="155" x2="285" y2="174" stroke="#d97706" stroke-width="1" stroke-dasharray="3,2"/>
+
+        <!-- Legend -->
+        <line x1="40" y1="268" x2="70" y2="268" stroke="#7c3aed" stroke-width="2"/>
+        <text x="74" y="272" font-size="10" fill="#4a5468">SMA200 (slope = sma200_slope_10)</text>
+        <line x1="260" y1="268" x2="290" y2="268" stroke="#d97706" stroke-width="2" stroke-dasharray="8,4"/>
+        <text x="294" y="272" font-size="10" fill="#4a5468">SMA50</text>
+        <line x1="355" y1="268" x2="385" y2="268" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="4,3"/>
+        <text x="389" y="272" font-size="10" fill="#4a5468">SMA20</text>
+
+        <!-- Slope arrow on SMA200 -->
+        <line x1="440" y1="188" x2="490" y2="184" stroke="#7c3aed" stroke-width="1" marker-end="url(#sm-arr)"/>
+        <text x="448" y="200" font-size="9" fill="#7c3aed">sma200_slope_10 &gt; 0</text>
+      </svg>
+    </div>
+
+    <div class="split">
+      <div class="split-card" style="border-left:3px solid var(--purple)">
+        <div class="stitle" style="color:var(--purple)">price_vs_sma200 &gt; 0</div>
+        <p>Stock above 200-day SMA = Mark Minervini Stage 2 bull market. The LGBM model treats this as the strongest long-term bullish gate. Combined with sma200_slope_10 &gt; 0 (rising), this is maximum institutional alignment.</p>
+      </div>
+      <div class="split-card" style="border-left:3px solid var(--amber)">
+        <div class="stitle" style="color:var(--amber)">Buy-the-dip pattern</div>
+        <p>Stock far above SMA200 + recently pulling back to SMA50 = textbook momentum continuation. The model recognizes the SMA50 as the "institutional defence level" — where funds add to positions.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 52-Week Range -->
+  <div class="subsection">
+    <h3>52-Week Range Position — Universe Filter</h3>
+    <p class="desc"><code>high_52w_dist</code> is the single most important feature for mode selection. It determines <em>which model</em> ranks a stock.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 620 130" width="620" height="130" font-family="Inter,sans-serif" font-size="11">
+        <!-- Full range bar -->
+        <rect x="40" y="42" width="540" height="30" rx="4" fill="#f1f5f9" stroke="#e2e6ef"/>
+
+        <!-- Reversal zone (left 20%) -->
+        <rect x="40" y="42" width="108" height="30" rx="4 0 0 4" fill="#fee2e2"/>
+        <text x="94" y="53" text-anchor="middle" font-size="9" font-weight="600" fill="#b91c1c">REVERSAL</text>
+        <text x="94" y="64" text-anchor="middle" font-size="9" fill="#dc2626">dist ≤ −20%</text>
+
+        <!-- Neutral zone (middle 65%) -->
+        <rect x="148" y="42" width="310" height="30" fill="#f8f9fc"/>
+        <text x="303" y="60" text-anchor="middle" font-size="10" fill="#8492a6">Neutral — neither mode</text>
+
+        <!-- Momentum zone (right 15%) -->
+        <rect x="458" y="42" width="122" height="30" rx="0 4 4 0" fill="#dcfce7"/>
+        <text x="519" y="53" text-anchor="middle" font-size="9" font-weight="600" fill="#15803d">MOMENTUM</text>
+        <text x="519" y="64" text-anchor="middle" font-size="9" fill="#059669">dist &gt; −15%</text>
+
+        <!-- Labels below bar -->
+        <text x="40"  y="90" text-anchor="middle" font-size="9" fill="#8492a6">52w Low</text>
+        <text x="580" y="90" text-anchor="middle" font-size="9" fill="#8492a6">52w High</text>
+
+        <!-- Tick marks -->
+        <line x1="40"  y1="72" x2="40"  y2="80" stroke="#94a3b8"/>
+        <line x1="148" y1="72" x2="148" y2="80" stroke="#94a3b8"/>
+        <line x1="458" y1="72" x2="458" y2="80" stroke="#94a3b8"/>
+        <line x1="580" y1="72" x2="580" y2="80" stroke="#94a3b8"/>
+
+        <text x="148" y="90" text-anchor="middle" font-size="9" fill="#dc2626">−20%</text>
+        <text x="458" y="90" text-anchor="middle" font-size="9" fill="#059669">−15%</text>
+        <text x="580" y="90" text-anchor="middle" font-size="9" fill="#059669">0%</text>
+
+        <!-- Example: momentum stock marker -->
+        <polygon points="500,40 507,30 493,30" fill="#059669"/>
+        <text x="500" y="26" text-anchor="middle" font-size="9" fill="#059669" font-weight="600">Example A</text>
+        <text x="500" y="108" text-anchor="middle" font-size="9" fill="#059669">→ Momentum model</text>
+
+        <!-- Example: reversal stock marker -->
+        <polygon points="80,40 87,30 73,30" fill="#dc2626"/>
+        <text x="80" y="26" text-anchor="middle" font-size="9" fill="#dc2626" font-weight="600">Example B</text>
+        <text x="80" y="108" text-anchor="middle" font-size="9" fill="#dc2626">→ Reversal model</text>
+      </svg>
+    </div>
+
+    <div class="formula">high_52w_dist_t  =  (Close_t − rolling_252_High_t) / rolling_252_High_t   ≤ 0
+low_52w_dist_t   =  (Close_t − rolling_252_Low_t)  / rolling_252_Low_t    ≥ 0
+
+Momentum universe : high_52w_dist &gt; −0.15   (within 15% of 52w high)
+Reversal universe : high_52w_dist ≤ −0.20   (more than 20% below 52w high)</div>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════ 3c. VOLUME & REGIME ══ -->
+<section id="volume">
+<div class="container">
+  <div class="eyebrow"><span class="dot" style="background:var(--green)"></span><span style="color:var(--green)">Section 03c</span></div>
+  <h2>Volume Features &amp; Market Regime</h2>
+  <p class="sub">Volume confirms price action — high volume breakouts are real; low volume moves fade.
+     The market regime (Bull/Choppy/Bear) gates how much weight all other features carry.</p>
+
+  <!-- Volume chart -->
+  <div class="subsection">
+    <h3>Volume Ratio Features</h3>
+    <p class="desc">Two volume features capture different time horizons: <code>vol_ratio_5d</code> (today vs 20d avg) catches breakout spikes; <code>vol_ratio_20d</code> (5d avg vs 60d avg) catches sustained accumulation/distribution shifts.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 620 280" width="620" height="280" font-family="Inter,sans-serif" font-size="11">
+
+        <!-- ── PRICE PANEL (top) ── -->
+        <text x="36" y="18" font-size="10" fill="#8492a6" font-weight="600">PRICE</text>
+        <line x1="30" y1="25" x2="590" y2="25" stroke="#e2e6ef"/>
+        <line x1="30" y1="130" x2="590" y2="130" stroke="#e2e6ef"/>
+
+        <!-- 9 candles, x positions: 65,120,175,230,285,340,395,450,505,560 -->
+        <!-- Bar 1 bullish -->
+        <line x1="65"  y1="58" x2="65"  y2="100" stroke="#059669" stroke-width="2"/>
+        <rect x="55"  y="63"  width="20" height="30" fill="#059669" rx="1"/>
+        <!-- Bar 2 bullish -->
+        <line x1="120" y1="52" x2="120" y2="95" stroke="#059669" stroke-width="2"/>
+        <rect x="110" y="57"  width="20" height="28" fill="#059669" rx="1"/>
+        <!-- Bar 3 bearish -->
+        <line x1="175" y1="50" x2="175" y2="90" stroke="#dc2626" stroke-width="2"/>
+        <rect x="165" y="54"  width="20" height="22" fill="#dc2626" rx="1"/>
+        <!-- Bar 4 bullish -->
+        <line x1="230" y1="46" x2="230" y2="86" stroke="#059669" stroke-width="2"/>
+        <rect x="220" y="51"  width="20" height="24" fill="#059669" rx="1"/>
+        <!-- Bar 5 BREAKOUT bullish (big) -->
+        <line x1="285" y1="32" x2="285" y2="85" stroke="#059669" stroke-width="2"/>
+        <rect x="275" y="36"  width="20" height="42" fill="#059669" rx="1"/>
+        <!-- Bar 6 bullish continuation -->
+        <line x1="340" y1="30" x2="340" y2="60" stroke="#059669" stroke-width="2"/>
+        <rect x="330" y="34"  width="20" height="20" fill="#059669" rx="1"/>
+        <!-- Bar 7 bearish pullback -->
+        <line x1="395" y1="36" x2="395" y2="72" stroke="#dc2626" stroke-width="2"/>
+        <rect x="385" y="40"  width="20" height="24" fill="#dc2626" rx="1"/>
+        <!-- Bar 8 bullish -->
+        <line x1="450" y1="34" x2="450" y2="60" stroke="#059669" stroke-width="2"/>
+        <rect x="440" y="38"  width="20" height="16" fill="#059669" rx="1"/>
+        <!-- Bar 9 bullish -->
+        <line x1="505" y1="30" x2="505" y2="56" stroke="#059669" stroke-width="2"/>
+        <rect x="495" y="34"  width="20" height="16" fill="#059669" rx="1"/>
+        <!-- Bar 10 (current) bullish -->
+        <line x1="560" y1="26" x2="560" y2="52" stroke="#059669" stroke-width="2"/>
+        <rect x="550" y="30"  width="20" height="16" fill="#059669" rx="1"/>
+
+        <!-- ── VOLUME PANEL (bottom) ── -->
+        <text x="36" y="148" font-size="10" fill="#8492a6" font-weight="600">VOLUME</text>
+        <line x1="30" y1="152" x2="590" y2="152" stroke="#e2e6ef"/>
+        <line x1="30" y1="262" x2="590" y2="262" stroke="#e2e6ef"/>
+
+        <!-- Volume bars (bottom panel, bars grow upward from y=262) -->
+        <!-- Normal bars: height ≈ 40-55px -->
+        <rect x="55"  y="215" width="20" height="47" fill="#94a3b8" rx="1"/>
+        <rect x="110" y="210" width="20" height="52" fill="#94a3b8" rx="1"/>
+        <rect x="165" y="218" width="20" height="44" fill="#94a3b8" rx="1"/>
+        <rect x="220" y="220" width="20" height="42" fill="#94a3b8" rx="1"/>
+
+        <!-- BREAKOUT bar — spike! height ≈ 100px, colored green -->
+        <rect x="275" y="162" width="20" height="100" fill="#059669" rx="1"/>
+        <rect x="275" y="162" width="20" height="100" fill="none" stroke="#16a34a" stroke-width="1.5" rx="1"/>
+
+        <rect x="330" y="220" width="20" height="42" fill="#94a3b8" rx="1"/>
+        <rect x="385" y="216" width="20" height="46" fill="#94a3b8" rx="1"/>
+        <rect x="440" y="222" width="20" height="40" fill="#94a3b8" rx="1"/>
+        <rect x="495" y="214" width="20" height="48" fill="#94a3b8" rx="1"/>
+        <rect x="550" y="218" width="20" height="44" fill="#94a3b8" rx="1"/>
+
+        <!-- 20-day average line -->
+        <line x1="30" y1="218" x2="590" y2="218" stroke="#d97706" stroke-width="1.5" stroke-dasharray="6,4"/>
+        <text x="594" y="222" font-size="9" fill="#d97706" font-weight="600">avg</text>
+
+        <!-- vol_ratio annotation on spike bar -->
+        <rect x="296" y="158" width="120" height="22" rx="3" fill="#ecfdf5" stroke="#86efac"/>
+        <text x="356" y="173" text-anchor="middle" font-size="10" fill="#15803d" font-weight="600">vol_ratio_5d ≈ 2.4×</text>
+        <line x1="295" y1="162" x2="295" y2="170" stroke="#059669" stroke-width="1"/>
+
+        <!-- Breakout label above price bar 5 -->
+        <rect x="248" y="22" width="78" height="18" rx="3" fill="#ecfdf5" stroke="#86efac"/>
+        <text x="287" y="35" text-anchor="middle" font-size="9" fill="#15803d" font-weight="600">BREAKOUT</text>
+      </svg>
+    </div>
+
+    <div class="split">
+      <div class="split-card" style="border-left:3px solid var(--green)">
+        <div class="stitle" style="color:var(--green)">vol_ratio_5d &gt; 2.0</div>
+        <p>Today's volume is 2× the 20-day average. Distinguishes real breakouts from low-volume drifts. Combines with ICT signals for highest-confidence entries.</p>
+      </div>
+      <div class="split-card" style="border-left:3px solid var(--amber)">
+        <div class="stitle" style="color:var(--amber)">vol_ratio_20d — Sustained Shift</div>
+        <p>5-day avg vs 60-day avg. Smooths one-day spikes — catches sustained institutional accumulation over a week, not just an intraday surge.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Market Regime -->
+  <div class="subsection">
+    <h3>Market Regime — Bull / Choppy / Bear</h3>
+    <p class="desc">Three mutually-exclusive dummy variables derived from the NIFTY benchmark.
+       The regime is a <em>context gate</em> — the same stock setup is far more reliable in a bull regime than a choppy or bear one.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 620 230" width="620" height="230" font-family="Inter,sans-serif" font-size="11">
+
+        <!-- Three regime boxes -->
+        <!-- BULL -->
+        <rect x="20" y="20" width="180" height="160" rx="8" fill="#ecfdf5" stroke="#86efac" stroke-width="1.5"/>
+        <rect x="20" y="20" width="180" height="32" rx="8 8 0 0" fill="#059669"/>
+        <text x="110" y="42" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">BULL REGIME</text>
+        <text x="110" y="70" text-anchor="middle" font-size="10" fill="#065f46" font-weight="600">regime_bull = 1</text>
+        <text x="110" y="88" text-anchor="middle" font-size="10" fill="#059669">NIFTY &gt; SMA200</text>
+        <text x="110" y="103" text-anchor="middle" font-size="10" fill="#8492a6">AND</text>
+        <text x="110" y="118" text-anchor="middle" font-size="10" fill="#059669">SMA20 &gt; SMA50</text>
+        <rect x="36" y="134" width="148" height="34" rx="4" fill="#dcfce7" stroke="#a7f3d0"/>
+        <text x="110" y="148" text-anchor="middle" font-size="9" fill="#15803d">Momentum works best</text>
+        <text x="110" y="161" text-anchor="middle" font-size="9" fill="#15803d">Trends persist longer</text>
+
+        <!-- CHOPPY -->
+        <rect x="220" y="20" width="180" height="160" rx="8" fill="#f8f9fc" stroke="#e2e6ef" stroke-width="1.5"/>
+        <rect x="220" y="20" width="180" height="32" rx="8 8 0 0" fill="#8492a6"/>
+        <text x="310" y="42" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">CHOPPY</text>
+        <text x="310" y="70" text-anchor="middle" font-size="10" fill="#4a5468" font-weight="600">regime_choppy = 1</text>
+        <text x="310" y="88" text-anchor="middle" font-size="10" fill="#4a5468">Neither Bull nor Bear</text>
+        <text x="310" y="103" text-anchor="middle" font-size="10" fill="#8492a6">mixed SMA alignment</text>
+        <text x="310" y="118" text-anchor="middle" font-size="10" fill="#8492a6">or conflicting signals</text>
+        <rect x="236" y="134" width="148" height="34" rx="4" fill="#f1f5f9" stroke="#e2e6ef"/>
+        <text x="310" y="148" text-anchor="middle" font-size="9" fill="#4a5468">Zone confluence essential</text>
+        <text x="310" y="161" text-anchor="middle" font-size="9" fill="#4a5468">Tight stops, smaller size</text>
+
+        <!-- BEAR -->
+        <rect x="420" y="20" width="180" height="160" rx="8" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.5"/>
+        <rect x="420" y="20" width="180" height="32" rx="8 8 0 0" fill="#dc2626"/>
+        <text x="510" y="42" text-anchor="middle" font-size="13" font-weight="700" fill="#ffffff">BEAR REGIME</text>
+        <text x="510" y="70" text-anchor="middle" font-size="10" fill="#7f1d1d" font-weight="600">regime_bear = 1</text>
+        <text x="510" y="88" text-anchor="middle" font-size="10" fill="#dc2626">NIFTY &lt; SMA200</text>
+        <text x="510" y="103" text-anchor="middle" font-size="10" fill="#8492a6">AND</text>
+        <text x="510" y="118" text-anchor="middle" font-size="10" fill="#dc2626">SMA20 &lt; SMA50</text>
+        <rect x="436" y="134" width="148" height="34" rx="4" fill="#fee2e2" stroke="#fca5a5"/>
+        <text x="510" y="148" text-anchor="middle" font-size="9" fill="#b91c1c">Reversal setups dominate</text>
+        <text x="510" y="161" text-anchor="middle" font-size="9" fill="#b91c1c">Avoid new longs</text>
+
+        <!-- Formula below -->
+        <rect x="20" y="192" width="580" height="28" rx="4" fill="#f8f9fc" stroke="#e2e6ef"/>
+        <text x="310" y="210" text-anchor="middle" font-size="10" font-family="JetBrains Mono,monospace" fill="#1a1f2e">
+          bm_sma20 = SMA(NIFTY, 20)  ·  bm_sma50 = SMA(NIFTY, 50)  ·  bm_sma200 = SMA(NIFTY, 200)
+        </text>
+      </svg>
+    </div>
+
+    <div class="callout info">
+      <span>&#9432;</span>
+      <span>The regime features act as a <strong>macro context gate</strong> inside the LightGBM tree — the model can branch differently based on regime before evaluating stock-specific signals.
+      A strong demand zone in a bear regime is far less reliable than the same zone in a bull regime.</span>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ════════════════════════════════════════════════ 4. ICT FEATURES ══ -->
+<section id="ict">
+<div class="container">
+  <div class="eyebrow"><span class="dot" style="background:var(--amber)"></span><span style="color:var(--amber)">Section 04</span></div>
+  <h2>ICT Features — Order Blocks, Breaker Blocks, FVGs</h2>
+  <p class="sub">Inner Circle Trader (ICT) signals identify <em>institutional accumulation/distribution</em> footprints. The pipeline runs detection on 5 timeframes (daily → yearly) and
+     produces a weighted HTF composite score.</p>
+
+  <!-- Order Block -->
+  <div class="subsection">
+    <h3>Order Block (OB) — Bullish &amp; Bearish</h3>
+    <p class="desc">The <strong>last opposite-color candle</strong> before a strong breakout. Institutions "load" their orders here, then drive price away.
+       When price returns to the zone, those resting orders re-activate.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 500 360" width="500" height="360" font-family="Inter,sans-serif" font-size="11">
+        <defs>
+          <marker id="arrg" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#059669"/></marker>
+          <marker id="arrr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#dc2626"/></marker>
+        </defs>
+
+        <!-- Title labels -->
+        <text x="120" y="15" text-anchor="middle" font-size="11" fill="#8492a6">Bearish OB candle (t−1)</text>
+        <text x="290" y="15" text-anchor="middle" font-size="11" fill="#8492a6">Bullish breakout (t)</text>
+
+        <!-- Zone band (green = demand area) -->
+        <rect x="50" y="81" width="380" height="116" fill="#dcfce7" stroke="#86efac" stroke-width="1" rx="4" opacity="0.7"/>
+        <text x="440" y="105" font-size="10" fill="#15803d" font-weight="600">BOB</text>
+        <text x="440" y="118" font-size="10" fill="#15803d">Zone</text>
+        <text x="440" y="131" font-size="10" fill="#15803d">High</text>
+        <text x="440" y="162" font-size="10" fill="#15803d">Zone</text>
+        <text x="440" y="175" font-size="10" fill="#15803d">Low</text>
+
+        <!-- Zone boundary lines -->
+        <line x1="50" y1="81" x2="430" y2="81" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+        <line x1="50" y1="197" x2="430" y2="197" stroke="#16a34a" stroke-width="1.5" stroke-dasharray="6,3"/>
+
+        <!-- OB candle (bearish, cx=120, w=36) -->
+        <!-- wick -->
+        <line x1="120" y1="49" x2="120" y2="221" stroke="#dc2626" stroke-width="2"/>
+        <!-- body (open y=81, close y=197 = bearish, red filled) -->
+        <rect x="102" y="81" width="36" height="116" fill="#dc2626" rx="2"/>
+        <!-- Price labels -->
+        <text x="80" y="77" font-size="9" fill="#dc2626" text-anchor="end">Open↑</text>
+        <text x="80" y="200" font-size="9" fill="#dc2626" text-anchor="end">Close↓</text>
+
+        <!-- Breakout candle (bullish, cx=290, w=36) -->
+        <!-- wick -->
+        <line x1="290" y1="31" x2="290" y2="225" stroke="#059669" stroke-width="2"/>
+        <!-- body (close y=47, open y=210 = bullish, green filled) -->
+        <rect x="272" y="47" width="36" height="163" fill="#059669" rx="2"/>
+        <!-- body size annotation -->
+        <line x1="334" y1="47" x2="344" y2="47" stroke="#059669" stroke-width="1"/>
+        <line x1="334" y1="210" x2="344" y2="210" stroke="#059669" stroke-width="1"/>
+        <line x1="339" y1="47" x2="339" y2="210" stroke="#059669" stroke-width="1.5"/>
+        <text x="345" y="100" font-size="9" fill="#059669">body ≥ 1.2×</text>
+        <text x="345" y="112" font-size="9" fill="#059669">OB body ✓</text>
+        <text x="345" y="148" font-size="9" fill="#059669">Close above</text>
+        <text x="345" y="160" font-size="9" fill="#059669">OB open ✓</text>
+
+        <!-- Return arrow -->
+        <path d="M 200 260 Q 200 310 120 310 Q 80 310 80 270 Q 80 250 100 240" fill="none" stroke="#2563eb" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arrg)"/>
+        <text x="155" y="325" text-anchor="middle" font-size="10" fill="#2563eb">Price returns to zone → bounce ↑</text>
+        <text x="155" y="338" text-anchor="middle" font-size="10" fill="#8492a6">Zone invalidated if Close &lt; Zone Low</text>
+      </svg>
+    </div>
+
+    <div class="formula">ict_bob_dist_t  =  (Close_t − zone_midpoint) / ATR_14_t  ×  session_weight
+<span style="color:#8492a6">positive when price is above zone midpoint (approaching from below)</span></div>
+  </div>
+
+  <!-- Breaker Block -->
+  <div class="subsection">
+    <h3>Breaker Block (BB) — Highest Priority ICT Signal</h3>
+    <p class="desc">A <strong>failed OB that flips polarity</strong> after a liquidity sweep. The reclaim above an OB body — after stop-hunting retail traders — is the highest-conviction ICT signal (priority 3, vs OB=2, FVG=1).</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 640 320" width="640" height="320" font-family="Inter,sans-serif" font-size="11">
+        <defs>
+          <marker id="arrg2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#059669"/></marker>
+          <marker id="arrd" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#6b7280"/></marker>
+        </defs>
+
+        <!-- Step labels -->
+        <text x="60"  y="14" text-anchor="middle" font-size="10" fill="#8492a6">① OB candle</text>
+        <text x="165" y="14" text-anchor="middle" font-size="10" fill="#8492a6">② Swing low</text>
+        <text x="280" y="14" text-anchor="middle" font-size="10" fill="#8492a6">③ SSL Sweep</text>
+        <text x="410" y="14" text-anchor="middle" font-size="10" fill="#8492a6">④ Reclaim</text>
+        <text x="540" y="14" text-anchor="middle" font-size="10" fill="#059669" font-weight="600">⑤ BB Active</text>
+
+        <!-- Equal lows dashed line at y=215 -->
+        <line x1="30" y1="215" x2="610" y2="215" stroke="#dc2626" stroke-width="1" stroke-dasharray="4,3" opacity="0.5"/>
+        <text x="615" y="218" font-size="9" fill="#dc2626">equal lows</text>
+        <text x="615" y="228" font-size="9" fill="#dc2626">(retail stops)</text>
+
+        <!-- OB zone band: y=80 to y=150 -->
+        <rect x="30" y="80" width="580" height="70" fill="#fef9c3" stroke="#fde68a" stroke-width="1" rx="3" opacity="0.6"/>
+        <text x="620" y="120" font-size="9" fill="#a16207">OB</text>
+        <text x="620" y="132" font-size="9" fill="#a16207">Zone</text>
+
+        <!-- Candle 1: OB bearish (cx=60) -->
+        <line x1="60" y1="50" x2="60" y2="240" stroke="#dc2626" stroke-width="2"/>
+        <rect x="44" y="80" width="32" height="70" fill="#dc2626" rx="2"/>
+
+        <!-- Candle 2: small neutral (cx=165) -->
+        <line x1="165" y1="130" x2="165" y2="250" stroke="#94a3b8" stroke-width="2"/>
+        <rect x="149" y="140" width="32" height="30" fill="#94a3b8" rx="2"/>
+        <text x="165" y="268" text-anchor="middle" font-size="9" fill="#6b7280">swing</text>
+        <text x="165" y="280" text-anchor="middle" font-size="9" fill="#6b7280">low forms</text>
+
+        <!-- Candle 3: SSL Sweep (cx=280) — long wick below equal lows -->
+        <line x1="280" y1="160" x2="280" y2="270" stroke="#dc2626" stroke-width="2"/>
+        <rect x="264" y="175" width="32" height="30" fill="#dc2626" rx="2"/>
+        <!-- Long wick below equal lows (y=215) -->
+        <line x1="280" y1="205" x2="280" y2="270" stroke="#dc2626" stroke-width="2"/>
+        <!-- Annotation for sweep -->
+        <text x="280" y="285" text-anchor="middle" font-size="9" fill="#dc2626">wick sweeps</text>
+        <text x="280" y="297" text-anchor="middle" font-size="9" fill="#dc2626">below lows</text>
+        <path d="M 300 260 L 320 230" stroke="#dc2626" stroke-width="1" fill="none"/>
+        <rect x="318" y="218" width="80" height="18" rx="3" fill="#fef2f2" stroke="#fecaca"/>
+        <text x="358" y="231" text-anchor="middle" font-size="9" fill="#dc2626" font-weight="600">SSL swept!</text>
+
+        <!-- Candle 4: Reclaim bullish (cx=410) -->
+        <line x1="410" y1="40" x2="410" y2="215" stroke="#059669" stroke-width="2"/>
+        <rect x="394" y="50" width="32" height="135" fill="#059669" rx="2"/>
+        <text x="410" y="235" text-anchor="middle" font-size="9" fill="#059669">Close above</text>
+        <text x="410" y="247" text-anchor="middle" font-size="9" fill="#059669">OB body ✓</text>
+
+        <!-- Candle 5: BB zone active (cx=540) -->
+        <rect x="480" y="80" width="120" height="70" fill="#dcfce7" stroke="#86efac" stroke-width="1.5" rx="4"/>
+        <text x="540" y="110" text-anchor="middle" font-size="11" fill="#15803d" font-weight="700">BB ZONE</text>
+        <text x="540" y="128" text-anchor="middle" font-size="10" fill="#16a34a">Active — price returns</text>
+        <text x="540" y="141" text-anchor="middle" font-size="10" fill="#16a34a">→ strong bounce ↑</text>
+
+        <!-- Arrow from candle 4 to BB zone -->
+        <line x1="442" y1="100" x2="478" y2="100" stroke="#059669" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrg2)"/>
+
+        <!-- Priority badge -->
+        <rect x="490" y="155" width="100" height="22" rx="11" fill="#059669"/>
+        <text x="540" y="170" text-anchor="middle" font-size="10" fill="#ffffff" font-weight="600">Priority 3 (highest)</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Fair Value Gap -->
+  <div class="subsection">
+    <h3>Fair Value Gap (FVG) — 3-Candle Imbalance</h3>
+    <p class="desc">When the middle candle moves so fast that there is a gap between candle 1's high and candle 3's low. Price "wants to fill" this inefficiency.
+       Invalidated when price crosses the gap <em>midpoint</em> (tighter than OB/BB).</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 500 310" width="500" height="310" font-family="Inter,sans-serif" font-size="11">
+        <!-- Gap zone (blue highlight) -->
+        <rect x="40" y="72" width="360" height="85" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5" rx="4"/>
+        <!-- Midpoint line -->
+        <line x1="40" y1="114" x2="400" y2="114" stroke="#2563eb" stroke-width="1" stroke-dasharray="5,3"/>
+        <text x="408" y="118" font-size="9" fill="#2563eb">mid — invalidation</text>
+
+        <!-- Gap zone labels -->
+        <text x="408" y="76" font-size="9" fill="#1d4ed8" font-weight="600">Zone High</text>
+        <text x="408" y="88" font-size="9" fill="#8492a6">= Low_t</text>
+        <text x="408" y="148" font-size="9" fill="#1d4ed8" font-weight="600">Zone Low</text>
+        <text x="408" y="160" font-size="9" fill="#8492a6">= High_(t-2)</text>
+
+        <!-- Zone boundary lines -->
+        <line x1="40" y1="72" x2="400" y2="72" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="6,3"/>
+        <line x1="40" y1="157" x2="400" y2="157" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="6,3"/>
+
+        <!-- Candle t-2 (cx=90, bullish) -->
+        <text x="90" y="15" text-anchor="middle" font-size="10" fill="#8492a6">t − 2</text>
+        <line x1="90" y1="156" x2="90" y2="200" stroke="#059669" stroke-width="2"/>
+        <rect x="73" y="168" width="34" height="28" fill="#059669" rx="2"/>
+        <!-- High line for t-2 -->
+        <line x1="60" y1="157" x2="120" y2="157" stroke="#059669" stroke-width="1" stroke-dasharray="3,2" opacity="0.6"/>
+        <text x="50" y="161" font-size="9" fill="#059669" text-anchor="end">High_(t-2)</text>
+
+        <!-- Candle t-1 (cx=230, big bullish = the explosive engine) -->
+        <text x="230" y="15" text-anchor="middle" font-size="10" fill="#8492a6">t − 1 (engine)</text>
+        <line x1="230" y1="95" x2="230" y2="210" stroke="#059669" stroke-width="2"/>
+        <rect x="213" y="102" width="34" height="100" fill="#059669" rx="2"/>
+
+        <!-- Candle t (cx=370, bullish) -->
+        <text x="370" y="15" text-anchor="middle" font-size="10" fill="#8492a6">t (current)</text>
+        <line x1="370" y1="32" x2="370" y2="80" stroke="#059669" stroke-width="2"/>
+        <rect x="353" y="38" width="34" height="34" fill="#059669" rx="2"/>
+        <!-- Low line for t -->
+        <line x1="340" y1="72" x2="400" y2="72" stroke="#059669" stroke-width="1" stroke-dasharray="3,2" opacity="0.6"/>
+        <text x="50" y="77" font-size="9" fill="#059669" text-anchor="end">Low_t</text>
+
+        <!-- GAP label -->
+        <text x="220" y="108" font-size="12" font-weight="700" fill="#1d4ed8">GAP</text>
+        <text x="220" y="122" font-size="10" fill="#2563eb">Low_t &gt; High_(t-2)</text>
+        <text x="220" y="136" font-size="10" fill="#3b82f6">price imbalance here</text>
+
+        <!-- "fill" annotation -->
+        <path d="M 300 220 Q 340 250 350 180" fill="none" stroke="#7c3aed" stroke-width="1.5" stroke-dasharray="4,3" marker-end="url(#arrg2)"/>
+        <text x="200" y="240" text-anchor="middle" font-size="10" fill="#7c3aed">Price revisits gap to "fill" the imbalance</text>
+        <text x="200" y="255" text-anchor="middle" font-size="9" fill="#8492a6">Invalidated when price crosses midpoint</text>
+
+        <!-- Condition -->
+        <rect x="40" y="268" width="420" height="20" rx="3" fill="#f8f9fc" stroke="#e2e6ef"/>
+        <text x="250" y="282" text-anchor="middle" font-size="10" font-family="JetBrains Mono,monospace" fill="#1a1f2e">Bull FVG condition:  Low_t &gt; High_(t-2)</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Liquidity Sweep -->
+  <div class="subsection">
+    <h3>Liquidity Sweep — BSL &amp; SSL Stop Hunts</h3>
+    <p class="desc">Retail stop-losses cluster just beyond equal highs/lows. Institutional orders engineer a wick to <em>grab those stops</em> before reversing — the
+       hallmark of smart money distribution/accumulation.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 600 330" width="600" height="330" font-family="Inter,sans-serif" font-size="11">
+        <defs>
+          <marker id="arru" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#dc2626"/></marker>
+          <marker id="arrd2" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#7c3aed"/></marker>
+        </defs>
+
+        <!-- Equal highs dashed line at y=70 -->
+        <line x1="30" y1="70" x2="520" y2="70" stroke="#d97706" stroke-width="1.5" stroke-dasharray="5,3"/>
+        <rect x="525" y="58" width="68" height="24" rx="3" fill="#fffbeb" stroke="#fde68a"/>
+        <text x="559" y="74" text-anchor="middle" font-size="9" fill="#d97706" font-weight="600">BSL zone</text>
+        <text x="32" y="64" font-size="9" fill="#d97706">(equal highs)</text>
+        <text x="32" y="76" font-size="9" fill="#8492a6">retail stops above →</text>
+
+        <!-- Candle 1: swing high A (cx=80, bullish) -->
+        <text x="80" y="14" text-anchor="middle" font-size="10" fill="#8492a6">Swing High A</text>
+        <line x1="80" y1="70" x2="80" y2="155" stroke="#059669" stroke-width="2"/>
+        <rect x="63" y="82" width="34" height="64" fill="#059669" rx="2"/>
+
+        <!-- Candle 2: pullback (cx=195, bearish) -->
+        <text x="195" y="14" text-anchor="middle" font-size="10" fill="#8492a6">Pullback</text>
+        <line x1="195" y1="120" x2="195" y2="196" stroke="#dc2626" stroke-width="2"/>
+        <rect x="178" y="126" width="34" height="62" fill="#dc2626" rx="2"/>
+
+        <!-- Candle 3: swing high B ≈ A (cx=315, bullish) -->
+        <text x="315" y="14" text-anchor="middle" font-size="10" fill="#8492a6">Swing High B ≈ A</text>
+        <line x1="315" y1="73" x2="315" y2="164" stroke="#059669" stroke-width="2"/>
+        <rect x="298" y="84" width="34" height="72" fill="#059669" rx="2"/>
+
+        <!-- Candle 4: BSL Sweep (cx=435, bearish body + long upper wick above equal highs) -->
+        <text x="435" y="14" text-anchor="middle" font-size="10" fill="#dc2626" font-weight="600">BSL SWEEP !</text>
+        <!-- Long upper wick ABOVE equal highs (y=70) going up to y=46 -->
+        <line x1="435" y1="46" x2="435" y2="106" stroke="#dc2626" stroke-width="2.5"/>
+        <!-- Body (bearish, open y=74, close y=97) -->
+        <rect x="418" y="74" width="34" height="24" fill="#dc2626" rx="2"/>
+
+        <!-- Sweep annotation -->
+        <line x1="435" y1="46" x2="435" y2="68" stroke="#dc2626" stroke-width="1" opacity="0"/>
+        <path d="M 472 46 L 510 46" stroke="#dc2626" stroke-width="1.5" marker-end="url(#arru)"/>
+        <rect x="514" y="36" width="78" height="24" rx="3" fill="#fef2f2" stroke="#fecaca"/>
+        <text x="553" y="52" text-anchor="middle" font-size="9" fill="#b91c1c" font-weight="600">wick above BSL</text>
+        <text x="553" y="64" text-anchor="middle" font-size="9" fill="#b91c1c">stops triggered!</text>
+
+        <!-- Close below annotation -->
+        <rect x="454" y="84" width="90" height="18" rx="3" fill="#fef2f2" stroke="#fecaca"/>
+        <text x="499" y="97" text-anchor="middle" font-size="9" fill="#b91c1c">Close &lt; equal high ✓</text>
+
+        <!-- Result -->
+        <rect x="30" y="220" width="540" height="46" rx="6" fill="#fef2f2" stroke="#fecaca" stroke-width="1.5"/>
+        <text x="300" y="240" text-anchor="middle" font-size="12" fill="#b91c1c" font-weight="600">bsl_swept = 1 → institutional reversal DOWN likely</text>
+        <text x="300" y="257" text-anchor="middle" font-size="10" fill="#dc2626">Mirror logic: SSL = wick below equal lows + close above → reversal UP</text>
+
+        <!-- priority note -->
+        <text x="300" y="290" text-anchor="middle" font-size="10" fill="#8492a6">Sweep signals are used to confirm Breaker Block formations (Step ③)</text>
+      </svg>
+    </div>
+  </div>
+</div>
+</section>
+
+<!-- ═══════════════════════════════════════════ 5. SUPPLY/DEMAND ZONES ══ -->
+<section id="zones">
+<div class="container">
+  <div class="eyebrow"><span class="dot" style="background:var(--red)"></span><span style="color:var(--red)">Section 05</span></div>
+  <h2>Supply / Demand Zones — DZ, SZ, SDZ, SSZ</h2>
+  <p class="sub">The most important features for the bull/bear composite (30–45% of final ranking score).
+     Zones are drawn from <em>base candle</em> patterns and represent where institutional resting orders are waiting.</p>
+
+  <!-- Zone patterns -->
+  <div class="subsection">
+    <h3>The 4 Base Candle Patterns</h3>
+    <p class="desc">A zone requires a small <em>base</em> candle sandwiched between two larger candles. The surrounding candle direction determines whether it is supply or demand.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 840 300" width="840" height="300" font-family="Inter,sans-serif" font-size="11">
+
+        <!-- ── RBR (Demand Zone) ── x_offset=10 -->
+        <rect x="10" y="0" width="190" height="300" fill="none"/>
+        <text x="105" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#059669">RBR → Demand Zone</text>
+        <text x="105" y="30" text-anchor="middle" font-size="10" fill="#16a34a">Rally · Base · Rally</text>
+
+        <!-- Zone DZ band -->
+        <rect x="15" y="107" width="185" height="38" fill="#dcfce7" stroke="#86efac" stroke-width="1" rx="3"/>
+        <text x="200" y="123" font-size="9" fill="#15803d" font-weight="600">DZ</text>
+        <text x="200" y="135" font-size="9" fill="#15803d">zone</text>
+
+        <!-- C1 Rally bullish (cx=55) -->
+        <line x1="55" y1="96" x2="55" y2="232" stroke="#059669" stroke-width="2"/>
+        <rect x="38" y="102" width="34" height="122" fill="#059669" rx="2"/>
+        <text x="55" y="248" text-anchor="middle" font-size="9" fill="#16a34a">Rally</text>
+
+        <!-- C2 Base (cx=100) -->
+        <line x1="100" y1="96" x2="100" y2="128" stroke="#059669" stroke-width="2"/>
+        <rect x="83" y="100" width="34" height="24" fill="#059669" rx="2" opacity="0.7"/>
+        <text x="100" y="248" text-anchor="middle" font-size="9" fill="#059669">Base</text>
+
+        <!-- C3 Rally higher (cx=150) -->
+        <line x1="150" y1="44" x2="150" y2="120" stroke="#059669" stroke-width="2"/>
+        <rect x="133" y="50" width="34" height="60" fill="#059669" rx="2"/>
+        <text x="150" y="248" text-anchor="middle" font-size="9" fill="#16a34a">Rally</text>
+
+        <!-- Upward arrow -->
+        <line x1="105" y1="270" x2="105" y2="255" stroke="#059669" stroke-width="2" marker-end="url(#arrg2)"/>
+        <text x="105" y="285" text-anchor="middle" font-size="9" fill="#059669" font-weight="600">Bounce expected ↑</text>
+
+        <!-- ── DBD (Supply Zone) ── x_offset=220 -->
+        <rect x="220" y="0" width="190" height="300" fill="none"/>
+        <text x="315" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#dc2626">DBD → Supply Zone</text>
+        <text x="315" y="30" text-anchor="middle" font-size="10" fill="#dc2626">Drop · Base · Drop</text>
+
+        <!-- Zone SZ band -->
+        <rect x="225" y="148" width="185" height="38" fill="#fee2e2" stroke="#fca5a5" stroke-width="1" rx="3"/>
+        <text x="412" y="164" font-size="9" fill="#b91c1c" font-weight="600">SZ</text>
+        <text x="412" y="176" font-size="9" fill="#b91c1c">zone</text>
+
+        <!-- C1 Drop bearish (cx=265) -->
+        <line x1="265" y1="44" x2="265" y2="165" stroke="#dc2626" stroke-width="2"/>
+        <rect x="248" y="48" width="34" height="110" fill="#dc2626" rx="2"/>
+        <text x="265" y="248" text-anchor="middle" font-size="9" fill="#dc2626">Drop</text>
+
+        <!-- C2 Base (cx=310) -->
+        <line x1="310" y1="148" x2="310" y2="192" stroke="#dc2626" stroke-width="2"/>
+        <rect x="293" y="152" width="34" height="24" fill="#dc2626" rx="2" opacity="0.7"/>
+        <text x="310" y="248" text-anchor="middle" font-size="9" fill="#dc2626">Base</text>
+
+        <!-- C3 Drop lower (cx=360) -->
+        <line x1="360" y1="168" x2="360" y2="246" stroke="#dc2626" stroke-width="2"/>
+        <rect x="343" y="172" width="34" height="68" fill="#dc2626" rx="2"/>
+        <text x="360" y="248" text-anchor="middle" font-size="9" fill="#dc2626">Drop</text>
+
+        <!-- Downward arrow -->
+        <line x1="315" y1="260" x2="315" y2="272" stroke="#dc2626" stroke-width="2" marker-end="url(#arrr)"/>
+        <text x="315" y="287" text-anchor="middle" font-size="9" fill="#dc2626" font-weight="600">Reject expected ↓</text>
+
+        <!-- ── DBR (Demand Zone) ── x_offset=430 -->
+        <rect x="430" y="0" width="190" height="300" fill="none"/>
+        <text x="525" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#059669">DBR → Demand Zone</text>
+        <text x="525" y="30" text-anchor="middle" font-size="10" fill="#16a34a">Drop · Base · Rally</text>
+
+        <!-- Zone DZ at BOTTOM -->
+        <rect x="435" y="204" width="185" height="40" fill="#dcfce7" stroke="#86efac" stroke-width="1" rx="3"/>
+        <text x="622" y="224" font-size="9" fill="#15803d" font-weight="600">DZ</text>
+
+        <!-- C1 Drop (cx=475, bearish) -->
+        <line x1="475" y1="44" x2="475" y2="240" stroke="#dc2626" stroke-width="2"/>
+        <rect x="458" y="48" width="34" height="184" fill="#dc2626" rx="2"/>
+        <text x="475" y="258" text-anchor="middle" font-size="9" fill="#dc2626">Drop</text>
+
+        <!-- C2 Base at bottom (cx=520) -->
+        <line x1="520" y1="200" x2="520" y2="248" stroke="#059669" stroke-width="2"/>
+        <rect x="503" y="205" width="34" height="38" fill="#059669" rx="2" opacity="0.7"/>
+        <text x="520" y="258" text-anchor="middle" font-size="9" fill="#059669">Base</text>
+
+        <!-- C3 Rally from bottom (cx=570, bullish) -->
+        <line x1="570" y1="44" x2="570" y2="242" stroke="#059669" stroke-width="2"/>
+        <rect x="553" y="50" width="34" height="184" fill="#059669" rx="2"/>
+        <text x="570" y="258" text-anchor="middle" font-size="9" fill="#16a34a">Rally</text>
+
+        <line x1="525" y1="270" x2="525" y2="255" stroke="#059669" stroke-width="2" marker-end="url(#arrg2)"/>
+        <text x="525" y="285" text-anchor="middle" font-size="9" fill="#059669" font-weight="600">Bounce expected ↑</text>
+
+        <!-- ── RBD (Supply Zone) ── x_offset=640 -->
+        <rect x="640" y="0" width="190" height="300" fill="none"/>
+        <text x="735" y="16" text-anchor="middle" font-size="12" font-weight="700" fill="#dc2626">RBD → Supply Zone</text>
+        <text x="735" y="30" text-anchor="middle" font-size="10" fill="#dc2626">Rally · Base · Drop</text>
+
+        <!-- Zone SZ at TOP -->
+        <rect x="645" y="38" width="185" height="36" fill="#fee2e2" stroke="#fca5a5" stroke-width="1" rx="3"/>
+        <text x="832" y="58" font-size="9" fill="#b91c1c" font-weight="600">SZ</text>
+
+        <!-- C1 Rally (cx=685, bullish) -->
+        <line x1="685" y1="50" x2="685" y2="235" stroke="#059669" stroke-width="2"/>
+        <rect x="668" y="55" width="34" height="172" fill="#059669" rx="2"/>
+        <text x="685" y="258" text-anchor="middle" font-size="9" fill="#16a34a">Rally</text>
+
+        <!-- C2 Base at TOP (cx=730) -->
+        <line x1="730" y1="36" x2="730" y2="76" stroke="#dc2626" stroke-width="2"/>
+        <rect x="713" y="40" width="34" height="32" fill="#dc2626" rx="2" opacity="0.7"/>
+        <text x="730" y="258" text-anchor="middle" font-size="9" fill="#dc2626">Base</text>
+
+        <!-- C3 Drop from top (cx=780, bearish) -->
+        <line x1="780" y1="44" x2="780" y2="240" stroke="#dc2626" stroke-width="2"/>
+        <rect x="763" y="48" width="34" height="184" fill="#dc2626" rx="2"/>
+        <text x="780" y="258" text-anchor="middle" font-size="9" fill="#dc2626">Drop</text>
+
+        <line x1="735" y1="268" x2="735" y2="278" stroke="#dc2626" stroke-width="2" marker-end="url(#arrr)"/>
+        <text x="735" y="293" text-anchor="middle" font-size="9" fill="#dc2626" font-weight="600">Reject expected ↓</text>
+
+        <!-- Separator lines -->
+        <line x1="213" y1="0" x2="213" y2="300" stroke="#e2e6ef" stroke-width="1" stroke-dasharray="4,3"/>
+        <line x1="423" y1="0" x2="423" y2="300" stroke="#e2e6ef" stroke-width="1" stroke-dasharray="4,3"/>
+        <line x1="633" y1="0" x2="633" y2="300" stroke="#e2e6ef" stroke-width="1" stroke-dasharray="4,3"/>
+      </svg>
+    </div>
+
+    <table>
+      <tr><th>Pattern</th><th>Before Base</th><th>After Base</th><th>Zone Type</th><th>Priority</th></tr>
+      <tr><td>RBR</td><td>Rally (bullish + close > prev High)</td><td>Rally</td><td><span class="tag tag-green">DZ — Demand</span></td><td>Standard</td></tr>
+      <tr><td>DBD</td><td>Drop (bearish + close &lt; prev Low)</td><td>Drop</td><td><span class="tag tag-red">SZ — Supply</span></td><td>Standard</td></tr>
+      <tr><td>DBR</td><td>Drop</td><td>Rally</td><td><span class="tag tag-green">DZ — Demand</span></td><td>Stronger (reversal)</td></tr>
+      <tr><td>RBD</td><td>Rally</td><td>Drop</td><td><span class="tag tag-red">SZ — Supply</span></td><td>Stronger (reversal)</td></tr>
+    </table>
+  </div>
+
+  <!-- SDZ Flip -->
+  <div class="subsection">
+    <h3>SDZ — Swap Demand Zone (Strongest Bullish Signal)</h3>
+    <p class="desc">A former Supply Zone that price <strong>cleanly broke above</strong>. Old institutional resistance flips to support.
+       The model weights SDZ on the yearly timeframe at 3.5× — the single heaviest feature in the bull composite.</p>
+
+    <div class="phase-grid">
+      <div class="phase-card">
+        <div class="phase-head" style="background:#fef2f2; color:#b91c1c;">Phase 1 — Supply Zone Forms</div>
+        <div class="phase-body">
+          <svg viewBox="0 0 200 160" width="100%" font-family="Inter,sans-serif" font-size="10">
+            <!-- SZ band -->
+            <rect x="10" y="55" width="180" height="50" fill="#fee2e2" stroke="#fca5a5" stroke-width="1" rx="3"/>
+            <text x="100" y="78" text-anchor="middle" font-weight="600" fill="#b91c1c">Supply Zone (SZ)</text>
+            <text x="100" y="93" text-anchor="middle" fill="#dc2626">resistance — price rejects</text>
+            <!-- Drop candle approaching SZ from below and rejecting -->
+            <line x1="60" y1="100" x2="60" y2="160" stroke="#dc2626" stroke-width="2"/>
+            <rect x="44" y="106" width="32" height="45" fill="#dc2626" rx="2"/>
+            <!-- Rejected at SZ -->
+            <line x1="130" y1="55" x2="130" y2="145" stroke="#dc2626" stroke-width="2"/>
+            <rect x="114" y="58" width="32" height="80" fill="#dc2626" rx="2"/>
+            <text x="100" y="152" text-anchor="middle" fill="#8492a6">drops away from zone ↓</text>
+          </svg>
+        </div>
+      </div>
+      <div class="phase-card">
+        <div class="phase-head" style="background:#fffbeb; color:#78350f;">Phase 2 — Clean Break Above</div>
+        <div class="phase-body">
+          <svg viewBox="0 0 200 160" width="100%" font-family="Inter,sans-serif" font-size="10">
+            <!-- SZ band (fading) -->
+            <rect x="10" y="80" width="180" height="50" fill="#fef9c3" stroke="#fde68a" stroke-width="1" stroke-dasharray="4,3" rx="3"/>
+            <text x="100" y="103" text-anchor="middle" fill="#a16207">SZ (old resistance)</text>
+            <text x="100" y="118" text-anchor="middle" fill="#a16207">top of zone at y=80</text>
+            <!-- Big bullish rally candle breaking above SZ -->
+            <line x1="110" y1="20" x2="110" y2="140" stroke="#059669" stroke-width="2"/>
+            <rect x="94" y="25" width="32" height="110" fill="#059669" rx="2"/>
+            <text x="150" y="16" font-size="9" fill="#059669" font-weight="600">Rally candle</text>
+            <text x="150" y="28" font-size="9" fill="#059669">closes ABOVE</text>
+            <text x="150" y="40" font-size="9" fill="#059669">SZ distal ✓</text>
+            <!-- Arrow -->
+            <line x1="110" y1="22" x2="110" y2="8" stroke="#059669" stroke-width="2" marker-end="url(#arrg2)"/>
+            <text x="100" y="155" text-anchor="middle" fill="#8492a6">no Base/Drop between</text>
+          </svg>
+        </div>
+      </div>
+      <div class="phase-card">
+        <div class="phase-head" style="background:#ecfdf5; color:#065f46;">Phase 3 — SDZ Active</div>
+        <div class="phase-body">
+          <svg viewBox="0 0 200 160" width="100%" font-family="Inter,sans-serif" font-size="10">
+            <!-- SDZ band (green = flipped) -->
+            <rect x="10" y="80" width="180" height="50" fill="#dcfce7" stroke="#86efac" stroke-width="1.5" rx="3"/>
+            <text x="100" y="103" text-anchor="middle" font-weight="700" fill="#15803d">SDZ — Swap Demand</text>
+            <text x="100" y="118" text-anchor="middle" fill="#059669">old resistance = new support</text>
+            <!-- Price comes back down to SDZ and bounces -->
+            <line x1="60" y1="30" x2="60" y2="90" stroke="#059669" stroke-width="2"/>
+            <rect x="44" y="34" width="32" height="48" fill="#059669" rx="2"/>
+            <!-- At SDZ level -->
+            <line x1="120" y1="78" x2="120" y2="120" stroke="#059669" stroke-width="2"/>
+            <rect x="104" y="82" width="32" height="30" fill="#059669" rx="2" opacity="0.8"/>
+            <!-- Bounce arrow -->
+            <line x1="130" y1="90" x2="150" y2="50" stroke="#059669" stroke-width="2" marker-end="url(#arrg2)"/>
+            <text x="100" y="155" text-anchor="middle" fill="#059669" font-weight="600">retest → bounce ↑</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout bull">
+      <span>&#9650;</span>
+      <span><strong>Why SDZ is the strongest bullish signal:</strong> A break of supply means sellers are exhausted.
+      Retesting the broken level — now as support — is a high-conviction institutional entry.
+      The clean-break requirement (no obstructing Base/Drop candles) filters out fakeouts.</span>
+    </div>
+
+    <div class="formula">SDZ Zone:
+  Distal  (bottom) = original SZ candle Low
+  Proximal (top)   = original SZ candle High
+  Invalidated if  Close or Open &lt; Distal after SDZ confirmed</div>
+  </div>
+
+  <!-- SSZ -->
+  <div class="subsection">
+    <h3>SSZ — Swap Supply Zone (Strongest Bearish Signal)</h3>
+    <p class="desc">The exact bear-side mirror of SDZ. A former Demand Zone (DZ) that price <strong>cleanly broke below</strong> — old institutional support has been overwhelmed and flips to overhead resistance on any retest.
+       <code>ssz_htf_score</code> drives the bear composite the same way <code>sdz_htf_score</code> drives the bull composite.</p>
+
+    <div class="phase-grid">
+      <div class="phase-card">
+        <div class="phase-head" style="background:var(--green-l); color:var(--green);">Phase 1 — Demand Zone Forms</div>
+        <div class="phase-body">
+          <svg viewBox="0 0 200 160" width="100%" font-family="Inter,sans-serif" font-size="10">
+            <!-- DZ band at bottom -->
+            <rect x="10" y="100" width="180" height="46" fill="#dcfce7" stroke="#86efac" stroke-width="1" rx="3"/>
+            <text x="100" y="122" text-anchor="middle" font-weight="600" fill="#15803d">Demand Zone (DZ)</text>
+            <text x="100" y="136" text-anchor="middle" fill="#059669">support — price bounces</text>
+            <!-- Bullish candles at DZ -->
+            <line x1="55" y1="60" x2="55" y2="108" stroke="#059669" stroke-width="2"/>
+            <rect x="40" y="65" width="28" height="36" fill="#059669" rx="2"/>
+            <line x1="130" y1="50" x2="130" y2="108" stroke="#059669" stroke-width="2"/>
+            <rect x="115" y="54" width="28" height="46" fill="#059669" rx="2"/>
+            <text x="100" y="155" text-anchor="middle" fill="#8492a6">rallies away from zone ↑</text>
+          </svg>
+        </div>
+      </div>
+      <div class="phase-card">
+        <div class="phase-head" style="background:var(--amber-l); color:var(--amber);">Phase 2 — Clean Break Below</div>
+        <div class="phase-body">
+          <svg viewBox="0 0 200 160" width="100%" font-family="Inter,sans-serif" font-size="10">
+            <!-- DZ band (fading) -->
+            <rect x="10" y="52" width="180" height="46" fill="#fef9c3" stroke="#fde68a" stroke-width="1" stroke-dasharray="4,3" rx="3"/>
+            <text x="100" y="73" text-anchor="middle" fill="#a16207">DZ (old support)</text>
+            <text x="100" y="86" text-anchor="middle" fill="#a16207">bottom of zone at y=98</text>
+            <!-- Big bearish drop candle breaking below DZ -->
+            <line x1="110" y1="20" x2="110" y2="140" stroke="#dc2626" stroke-width="2"/>
+            <rect x="95" y="24" width="28" height="112" fill="#dc2626" rx="2"/>
+            <text x="148" y="16" font-size="9" fill="#dc2626" font-weight="600">Drop candle</text>
+            <text x="148" y="28" font-size="9" fill="#dc2626">closes BELOW</text>
+            <text x="148" y="40" font-size="9" fill="#dc2626">DZ distal ✓</text>
+            <!-- Arrow down -->
+            <defs><marker id="ssz-arr" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#dc2626"/></marker></defs>
+            <line x1="110" y1="138" x2="110" y2="152" stroke="#dc2626" stroke-width="2" marker-end="url(#ssz-arr)"/>
+            <text x="100" y="162" text-anchor="middle" fill="#8492a6">no Rally/Base between</text>
+          </svg>
+        </div>
+      </div>
+      <div class="phase-card">
+        <div class="phase-head" style="background:var(--red-l); color:var(--red);">Phase 3 — SSZ Active</div>
+        <div class="phase-body">
+          <svg viewBox="0 0 200 160" width="100%" font-family="Inter,sans-serif" font-size="10">
+            <!-- SSZ band (red = flipped) -->
+            <rect x="10" y="52" width="180" height="46" fill="#fee2e2" stroke="#fca5a5" stroke-width="1.5" rx="3"/>
+            <text x="100" y="73" text-anchor="middle" font-weight="700" fill="#b91c1c">SSZ — Swap Supply</text>
+            <text x="100" y="86" text-anchor="middle" fill="#dc2626">old support = new resistance</text>
+            <!-- Price rallies back up to SSZ and rejects -->
+            <line x1="60" y1="130" x2="60" y2="60" stroke="#dc2626" stroke-width="2"/>
+            <rect x="45" y="64" width="28" height="58" fill="#dc2626" rx="2"/>
+            <!-- At SSZ top -->
+            <line x1="120" y1="80" x2="120" y2="130" stroke="#dc2626" stroke-width="2"/>
+            <rect x="105" y="84" width="28" height="38" fill="#dc2626" rx="2"/>
+            <!-- Reject arrow -->
+            <line x1="130" y1="90" x2="150" y2="130" stroke="#dc2626" stroke-width="2" marker-end="url(#ssz-arr)"/>
+            <text x="100" y="155" text-anchor="middle" fill="#dc2626" font-weight="600">retest → reject ↓</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout bear">
+      <span>&#9660;</span>
+      <span><strong>SSZ drives the bear composite.</strong> <code>ssz_htf_score = ssz_raw_score × dn_mult</code> where
+      <code>dn_mult</code> is amplified by how many timeframes are in downtrend (1 − trend flags).
+      A yearly SSZ with all 4 TFs in downtrend = the model's strongest short signal.</span>
+    </div>
+
+    <table>
+      <tr><th>Zone Type</th><th>Formed from</th><th>Signal</th><th>Composite weight (yearly TF)</th></tr>
+      <tr><td><span class="tag tag-green">SDZ</span></td><td>Supply Zone that price broke above (Rally)</td><td>Bull — expect bounce up at retest</td><td>3.5 × sdz_1y</td></tr>
+      <tr><td><span class="tag tag-red">SSZ</span></td><td>Demand Zone that price broke below (Drop)</td><td>Bear — expect reject down at retest</td><td>3.5 × ssz_1y</td></tr>
+      <tr><td><span class="tag tag-blue">DZ</span></td><td>RBR or DBR pattern (base candle)</td><td>Bull — standard demand support</td><td>included in model</td></tr>
+      <tr><td><span class="tag tag-amber">SZ</span></td><td>DBD or RBD pattern (base candle)</td><td>Bear — standard supply resistance</td><td>included in model</td></tr>
+    </table>
+  </div>
+</div>
+</section>
+
+<!-- ══════════════════════════════════════════ 6. COMPOSITE SCORING ══ -->
+<section id="scoring">
+<div class="container">
+  <div class="eyebrow"><span class="dot" style="background:var(--blue)"></span><span style="color:var(--blue)">Section 06</span></div>
+  <h2>Composite Scoring &amp; Final Pipeline</h2>
+  <p class="sub">The final rank blends 90% LGBM + 10% inverse-vol, then mixes the model score with the zone composite at
+     70/30 (momentum) or 55/45 (reversal).</p>
+
+  <!-- Zone Weighting -->
+  <div class="subsection">
+    <h3>Zone Timeframe Weights</h3>
+    <p class="desc">Higher timeframes carry exponentially more weight — a yearly SDZ is worth 5× a daily SDZ. The SDZ/SSZ multiplier (×2) makes swap zones worth twice as much as standard DZ/SZ.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 620 240" width="620" height="240" font-family="Inter,sans-serif" font-size="12">
+        <defs>
+          <linearGradient id="bargrad" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0%" stop-color="#2563eb" stop-opacity="0.3"/>
+            <stop offset="100%" stop-color="#2563eb"/>
+          </linearGradient>
+        </defs>
+
+        <!-- Y-axis labels -->
+        <text x="148" y="54"  text-anchor="end" fill="#4a5468">Daily (1d)</text>
+        <text x="148" y="92"  text-anchor="end" fill="#4a5468">Weekly (1wk)</text>
+        <text x="148" y="130" text-anchor="end" fill="#4a5468">Monthly (1mo)</text>
+        <text x="148" y="168" text-anchor="end" fill="#4a5468">Quarterly (3mo)</text>
+        <text x="148" y="206" text-anchor="end" fill="#1a1f2e" font-weight="700">Yearly (1y)</text>
+
+        <!-- Bar track -->
+        <rect x="155" y="32" width="380" height="28" rx="4" fill="#f1f5f9"/>
+        <rect x="155" y="70" width="380" height="28" rx="4" fill="#f1f5f9"/>
+        <rect x="155" y="108" width="380" height="28" rx="4" fill="#f1f5f9"/>
+        <rect x="155" y="146" width="380" height="28" rx="4" fill="#f1f5f9"/>
+        <rect x="155" y="184" width="380" height="28" rx="4" fill="#f1f5f9"/>
+
+        <!-- Bars (max weight=5 → width=380) -->
+        <!-- w1=76, w2=152, w3=228, w4=304, w5=380 -->
+        <rect x="155" y="32"  width="76"  height="28" rx="4" fill="#bfdbfe"/>
+        <rect x="155" y="70"  width="152" height="28" rx="4" fill="#93c5fd"/>
+        <rect x="155" y="108" width="228" height="28" rx="4" fill="#60a5fa"/>
+        <rect x="155" y="146" width="304" height="28" rx="4" fill="#3b82f6"/>
+        <rect x="155" y="184" width="380" height="28" rx="4" fill="#2563eb"/>
+
+        <!-- Weight labels -->
+        <text x="237" y="51"  text-anchor="middle" font-size="11" fill="#1d4ed8" font-weight="600">Weight: 1  (6.7%)</text>
+        <text x="313" y="89"  text-anchor="middle" font-size="11" fill="#1d4ed8" font-weight="600">Weight: 2  (13.3%)</text>
+        <text x="389" y="127" text-anchor="middle" font-size="11" fill="#1e40af" font-weight="600">Weight: 3  (20.0%)</text>
+        <text x="427" y="165" text-anchor="middle" font-size="11" fill="#1e3a8a" font-weight="600">Weight: 4  (26.7%)</text>
+        <text x="345" y="203" text-anchor="middle" font-size="11" fill="#ffffff" font-weight="600">Weight: 5  (33.3%)</text>
+
+        <!-- Legend -->
+        <rect x="155" y="220" width="14" height="12" rx="2" fill="#93c5fd"/>
+        <text x="174" y="230" font-size="10" fill="#4a5468">DZ / SZ  (×1 multiplier)</text>
+        <rect x="320" y="220" width="14" height="12" rx="2" fill="#2563eb"/>
+        <text x="339" y="230" font-size="10" fill="#4a5468">SDZ / SSZ  (×2 multiplier — swap zones)</text>
+      </svg>
+    </div>
+    <div class="formula">sdz_raw_score  =  Σ(weight_tf × 2 × is_SDZ_tf)  /  30     → range [0, 1]
+dz_raw_score   =  Σ(weight_tf × 1 × is_DZ_tf)   /  30     → range [0, 1]
+
+sdz_htf_score  =  sdz_raw_score  ×  up_mult
+  where  up_mult  =  0.5 + 0.375×(wkly + mnthly + qtly + yrly)
+                     range [0.5 no trends] → [2.0 all trends up]</div>
+  </div>
+
+  <!-- SDZ HTF Score examples -->
+  <div class="subsection">
+    <h3><code>sdz_htf_score</code> — Zone × Trend Confluence</h3>
+    <p class="desc">Multiplying the zone score by trend alignment means a yearly SDZ in a confirmed uptrend scores dramatically higher than the same zone in a downtrend.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 620 200" width="620" height="200" font-family="Inter,sans-serif" font-size="12">
+        <!-- Scenario header -->
+        <text x="30" y="22" font-size="11" font-weight="600" fill="#8492a6">SCENARIO</text>
+        <text x="290" y="22" font-size="11" font-weight="600" fill="#8492a6">ZONE SCORE × TREND MULT = RESULT</text>
+        <text x="560" y="22" font-size="11" font-weight="600" fill="#8492a6">SIGNAL</text>
+
+        <!-- Row A -->
+        <rect x="10" y="32" width="600" height="44" rx="4" fill="#ecfdf5" stroke="#a7f3d0"/>
+        <text x="30" y="50" font-size="11" fill="#065f46" font-weight="600">A: Yearly SDZ + all 4 trends up</text>
+        <text x="30" y="66" font-size="10" fill="#059669" font-family="JetBrains Mono,monospace">0.33  ×  2.0  =  0.67</text>
+        <rect x="430" y="37" width="120" height="32" rx="4" fill="#dcfce7" stroke="#86efac"/>
+        <text x="490" y="58" text-anchor="middle" font-size="11" fill="#15803d" font-weight="700">HIGH conviction</text>
+
+        <!-- Row B -->
+        <rect x="10" y="82" width="600" height="44" rx="4" fill="#fffbeb" stroke="#fde68a"/>
+        <text x="30" y="100" font-size="11" fill="#78350f" font-weight="600">B: Daily + Weekly SDZ, 2 of 4 trends up</text>
+        <text x="30" y="116" font-size="10" fill="#d97706" font-family="JetBrains Mono,monospace">0.20  ×  1.25 =  0.25</text>
+        <rect x="430" y="87" width="120" height="32" rx="4" fill="#fffbeb" stroke="#fde68a"/>
+        <text x="490" y="108" text-anchor="middle" font-size="11" fill="#a16207" font-weight="700">Moderate setup</text>
+
+        <!-- Row C -->
+        <rect x="10" y="132" width="600" height="44" rx="4" fill="#fef2f2" stroke="#fecaca"/>
+        <text x="30" y="150" font-size="11" fill="#7f1d1d" font-weight="600">C: Yearly SDZ but no trends up (downtrend)</text>
+        <text x="30" y="166" font-size="10" fill="#dc2626" font-family="JetBrains Mono,monospace">0.33  ×  0.5  =  0.17</text>
+        <rect x="430" y="137" width="120" height="32" rx="4" fill="#fee2e2" stroke="#fca5a5"/>
+        <text x="490" y="158" text-anchor="middle" font-size="11" fill="#b91c1c" font-weight="700">Trap — avoid</text>
+      </svg>
+    </div>
+  </div>
+
+  <!-- Final Pipeline -->
+  <div class="subsection">
+    <h3>Final Scoring Pipeline</h3>
+    <p class="desc">Two parallel streams — ML model and zone composite — are weighted and blended. Reversal mode shifts weight toward zones because price action alone is insufficient for catching falling knives.</p>
+
+    <div class="diagram-wrap">
+      <svg viewBox="0 0 640 520" width="640" height="520" font-family="Inter,sans-serif" font-size="11">
+        <defs>
+          <marker id="fa" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0,9 3.5,0 7" fill="#94a3b8"/>
+          </marker>
+          <marker id="fg" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0,9 3.5,0 7" fill="#059669"/>
+          </marker>
+          <marker id="fr" markerWidth="9" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0,9 3.5,0 7" fill="#dc2626"/>
+          </marker>
+        </defs>
+
+        <!-- LEFT: LGBM stream -->
+        <rect x="20" y="10" width="200" height="52" rx="8" fill="#eff6ff" stroke="#bfdbfe" stroke-width="1.5"/>
+        <text x="120" y="32" text-anchor="middle" font-size="11" font-weight="600" fill="#1e40af">71 Features</text>
+        <text x="120" y="48" text-anchor="middle" font-size="10" fill="#3b82f6">(momentum model)</text>
+
+        <line x1="120" y1="62" x2="120" y2="92" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fa)"/>
+
+        <rect x="20" y="94" width="200" height="64" rx="8" fill="#f5f3ff" stroke="#ddd6fe" stroke-width="1.5"/>
+        <text x="120" y="116" text-anchor="middle" font-size="11" font-weight="600" fill="#6d28d9">LightGBM LambdaRank</text>
+        <text x="120" y="130" text-anchor="middle" font-size="10" fill="#7c3aed">objective: lambdarank</text>
+        <text x="120" y="144" text-anchor="middle" font-size="10" fill="#7c3aed">eval: ndcg@10</text>
+
+        <line x1="120" y1="158" x2="120" y2="188" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fa)"/>
+
+        <rect x="20" y="190" width="200" height="52" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+        <text x="120" y="212" text-anchor="middle" font-size="11" font-weight="600" fill="#166534">+ 10% inv-vol tilt</text>
+        <text x="120" y="228" text-anchor="middle" font-size="10" fill="#15803d">model_score [0, 1]</text>
+
+        <!-- RIGHT: Zone composite stream -->
+        <rect x="420" y="10" width="200" height="52" rx="8" fill="#fffbeb" stroke="#fde68a" stroke-width="1.5"/>
+        <text x="520" y="32" text-anchor="middle" font-size="11" font-weight="600" fill="#78350f">SDZ / SSZ Zone Flags</text>
+        <text x="520" y="48" text-anchor="middle" font-size="10" fill="#d97706">(5 timeframes each)</text>
+
+        <line x1="520" y1="62" x2="520" y2="92" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fa)"/>
+
+        <rect x="420" y="94" width="200" height="64" rx="8" fill="#fef9c3" stroke="#fde047" stroke-width="1.5"/>
+        <text x="520" y="116" text-anchor="middle" font-size="11" font-weight="600" fill="#713f12">Zone Composite</text>
+        <text x="520" y="130" text-anchor="middle" font-size="10" fill="#a16207">bull: Σ(weight × SDZ_tf)</text>
+        <text x="520" y="144" text-anchor="middle" font-size="10" fill="#a16207">bear: Σ(weight × SSZ_tf)</text>
+
+        <line x1="520" y1="158" x2="520" y2="188" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fa)"/>
+
+        <rect x="420" y="190" width="200" height="52" rx="8" fill="#f0fdf4" stroke="#bbf7d0" stroke-width="1.5"/>
+        <text x="520" y="212" text-anchor="middle" font-size="11" font-weight="600" fill="#166534">composite [0, 1]</text>
+        <text x="520" y="228" text-anchor="middle" font-size="10" fill="#15803d">sdz_htf_score included</text>
+
+        <!-- Converging arrows -->
+        <line x1="220" y1="216" x2="280" y2="300" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fa)"/>
+        <line x1="420" y1="216" x2="360" y2="300" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fa)"/>
+
+        <!-- BLEND box -->
+        <rect x="155" y="302" width="330" height="78" rx="8" fill="#f8f9fc" stroke="#e2e6ef" stroke-width="1.5"/>
+        <text x="320" y="324" text-anchor="middle" font-size="12" font-weight="700" fill="#1a1f2e">Weighted Blend</text>
+        <text x="320" y="342" text-anchor="middle" font-size="10" fill="#4a5468">Momentum:  70% model  +  30% composite</text>
+        <text x="320" y="356" text-anchor="middle" font-size="10" fill="#4a5468">Reversal:  55% model  +  45% composite</text>
+        <text x="320" y="370" text-anchor="middle" font-size="9" fill="#8492a6">(weights from signal_weights.yaml)</text>
+
+        <line x1="280" y1="380" x2="220" y2="420" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fa)"/>
+        <line x1="360" y1="380" x2="420" y2="420" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fa)"/>
+
+        <!-- Bull/Bear output -->
+        <rect x="80"  y="422" width="160" height="46" rx="8" fill="#ecfdf5" stroke="#86efac" stroke-width="1.5"/>
+        <text x="160" y="442" text-anchor="middle" font-size="11" font-weight="600" fill="#15803d">bull_final [0,1]</text>
+        <text x="160" y="458" text-anchor="middle" font-size="10" fill="#059669">long candidates</text>
+
+        <rect x="400" y="422" width="160" height="46" rx="8" fill="#fef2f2" stroke="#fca5a5" stroke-width="1.5"/>
+        <text x="480" y="442" text-anchor="middle" font-size="11" font-weight="600" fill="#991b1b">bear_final [0,1]</text>
+        <text x="480" y="458" text-anchor="middle" font-size="10" fill="#dc2626">short candidates</text>
+
+        <!-- Tier box -->
+        <line x1="160" y1="468" x2="240" y2="498" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fa)"/>
+        <line x1="480" y1="468" x2="400" y2="498" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#fa)"/>
+
+        <rect x="220" y="498" width="200" height="18" rx="4" fill="#1a1f2e"/>
+        <text x="320" y="511" text-anchor="middle" font-size="10" fill="#ffffff" font-weight="600">Tier 1 / 2 / 3 Watchlist</text>
+      </svg>
+    </div>
+
+    <table>
+      <tr><th>Mode</th><th>Universe filter</th><th>Model weight</th><th>Composite weight</th><th>Rationale</th></tr>
+      <tr>
+        <td><span class="tag tag-green">Momentum</span></td>
+        <td>high_52w_dist &gt; −0.15</td>
+        <td><strong>70%</strong></td>
+        <td>30%</td>
+        <td>Price action already strong — zones add confirmation</td>
+      </tr>
+      <tr>
+        <td><span class="tag tag-amber">Reversal</span></td>
+        <td>high_52w_dist ≤ −0.20</td>
+        <td><strong>55%</strong></td>
+        <td>45%</td>
+        <td>Need strong demand zone to justify catching a falling knife</td>
+      </tr>
+    </table>
+
+    <div class="callout warn">
+      <span>&#9888;</span>
+      <span>The zone composite is <strong>intentionally narrow</strong> — only SDZ/SSZ signals. Everything else
+      (ICT, trend, momentum, volume, regime, SMA) is owned entirely by the ML model, which learns those
+      weights from data. Zone signals are rare, rule-based, and hard-coded — exactly why they belong in the composite.</span>
+    </div>
+  </div>
+</div>
+</section>
+
+<footer class="legal-footer no-select">
+  <div class="lf-inner">
+    <div class="lf-top">
+      <div class="lf-brand">
+        <div class="lf-badge">&#128274; PROPRIETARY RESEARCH</div>
+        <h3>Victrix &nbsp;·&nbsp; Victor Prabhu</h3>
+        <p>NSE ML Stock Predictor — Feature Visual Guide<br>
+           LightGBM LambdaRank · ICT Signals · Supply/Demand Zone Engine</p>
+      </div>
+      <div class="lf-links">
+        <a href="FEATURE_REFERENCE.md">Feature Reference (MD)</a>
+        <a href="PIPELINE_FLOW.html">Pipeline Flow</a>
+        <a href="ML_STOCK_PREDICTOR_EXPLAINED.html">Code Architecture</a>
+      </div>
+    </div>
+    <div class="lf-bottom">
+      <strong>© 2026 Victor Prabhu · Victrix. All intellectual property rights reserved.</strong><br><br>
+      This document and its contents — including but not limited to all feature engineering methodologies,
+      signal weighting schemas, ICT pattern detection algorithms, Supply/Demand zone mechanics, multi-timeframe
+      confluence scoring, and composite ranking logic — constitute proprietary and confidential intellectual property
+      of Victor Prabhu (trading as Victrix).<br><br>
+      Unauthorised copying, reproduction, distribution, disclosure, adaptation, reverse-engineering, or use of this
+      material in whole or in part, in any form or by any means, without the prior written permission of Victor Prabhu
+      is strictly prohibited and may constitute an infringement of intellectual property rights.<br><br>
+      This document is intended solely for the personal use of Victor Prabhu. Any dissemination or sharing with
+      third parties without explicit written consent is a violation of applicable intellectual property and
+      confidentiality obligations.
+    </div>
+  </div>
+</footer>
+
+<script>
+  // ── IP PROTECTION ──────────────────────────────────────────────────
+  // Disable right-click context menu
+  document.addEventListener('contextmenu', e => e.preventDefault());
+
+  // Block Ctrl/Cmd + S (save), U (view source), P (print), A (select all)
+  document.addEventListener('keydown', e => {
+    const k = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && ['s','u','p','a'].includes(k)) {
+      e.preventDefault();
+    }
+    // Block F12 devtools
+    if (e.key === 'F12') e.preventDefault();
+  });
+
+  // Disable drag-to-copy on images/SVGs
+  document.querySelectorAll('svg, img').forEach(el => {
+    el.addEventListener('dragstart', e => e.preventDefault());
+  });
+
+  // Console fingerprint — logs owner info if devtools is opened
+  const _warn = [
+    '%c⚠  VICTRIX — PROPRIETARY DOCUMENT',
+    'color:#dc2626;font-size:20px;font-weight:800;letter-spacing:2px'
+  ];
+  const _info = [
+    '%cThis document is the exclusive intellectual property of\nVictor Prabhu · Victrix  (© 2026).\n\nUnauthorised access, reproduction, or distribution is strictly\nprohibited and may result in legal action.',
+    'color:#1e3a8a;font-size:13px;line-height:1.8'
+  ];
+  const _stamp = [
+    '%c Document ID: VP-VICTRIX-NSE-ML-2026  |  Classification: CONFIDENTIAL',
+    'color:#64748b;font-size:11px;font-family:monospace'
+  ];
+  console.log(..._warn);
+  console.log(..._info);
+  console.log(..._stamp);
+
+  // Scrollspy
+  const sections = document.querySelectorAll('section[id]');
+  const links = document.querySelectorAll('nav a');
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const a = document.querySelector(`nav a[href="#${e.target.id}"]`);
+        if (a) a.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-30% 0px -60% 0px' });
+  sections.forEach(s => obs.observe(s));
+</script>
+</body>
+</html>

@@ -38,20 +38,6 @@ class ZonePriority(IntEnum):
     OB  = 2
     BB  = 3
 
-# ── Session Masks (UTC hours) ──────────────────────────────────────────────────
-SESSION_WINDOWS = {
-    "asia":   (0,  8),
-    "london": (7,  16),
-    "ny":     (13, 22),
-}
-
-SESSION_WEIGHTS = {
-    "asia":   0.5,
-    "london": 1.0,
-    "ny":     1.0,
-    "overlap": 1.5,   # London/NY overlap 13:00–16:00 UTC
-}
-
 
 class ICTFeatureEngine:
     """
@@ -63,7 +49,7 @@ class ICTFeatureEngine:
       3. Bear distance sign-flipped to match bull convention (+ve = in zone, -ve = away).
       4. Liquidity / Stop-Hunt detection (equal highs/lows sweep).
       5. Zone deduplication with priority (BB > OB > FVG per candle).
-      6. Session filtering with session weights baked into dist features.
+      6. Session filter removed — pure spatial distance features, no temporal contamination.
       7. MTF bias input parameter (htf_bias: +1 bull, -1 bear, 0 neutral).
       8. Symbol isolation guard (asserts single symbol per call).
     """
@@ -75,20 +61,17 @@ class ICTFeatureEngine:
         pct_more: float = 20.0,
         htf_bias: int = 0,
         eq_thresh_atr: float = 0.1,
-        session_filter: bool = True,
     ) -> pd.DataFrame:
         """
         Parameters
         ----------
-        grp            : OHLCV DataFrame for a SINGLE symbol, sorted by time ascending.
-                         Must contain: open, high, low, close, atr_14.
-                         Optional: timestamp (datetime-like) for session filtering.
-        pct_more       : OB body size multiplier threshold (default 20%).
-        htf_bias       : Higher-timeframe directional bias (+1=bull, -1=bear, 0=neutral).
-                         Signals against bias are suppressed.
-        eq_thresh_atr  : ATR multiples within which two swing points are "equal" for
-                         liquidity detection.
-        session_filter : If True and 'timestamp' column exists, weight signals by session.
+        grp           : OHLCV DataFrame for a SINGLE symbol, sorted by time ascending.
+                        Must contain: open, high, low, close, atr_14.
+        pct_more      : OB body size multiplier threshold (default 20%).
+        htf_bias      : Higher-timeframe directional bias (+1=bull, -1=bear, 0=neutral).
+                        Signals against bias are suppressed.
+        eq_thresh_atr : ATR multiples within which two swing points are "equal" for
+                        liquidity detection.
         """
         self._assert_single_symbol(grp)
         original_index = grp.index
@@ -117,43 +100,39 @@ class ICTFeatureEngine:
         h2, l2          = shift(h,2), shift(l,2)
         h3, l3          = shift(h,3), shift(l,3)
 
-        # ── 2. Session Weights ─────────────────────────────────────────────────
-        sess_weight = np.ones(n, dtype=float)
-        if session_filter and "timestamp" in grp.columns:
-            ts   = pd.to_datetime(grp["timestamp"])
-            hour = ts.dt.hour.values
-            is_london  = (hour >= 7)  & (hour < 16)
-            is_ny      = (hour >= 13) & (hour < 22)
-            is_asia    = (hour >= 0)  & (hour < 8)
-            is_overlap = is_london & is_ny
-
-            sess_weight = np.where(is_overlap, SESSION_WEIGHTS["overlap"],
-                         np.where(is_ny,       SESSION_WEIGHTS["ny"],
-                         np.where(is_london,   SESSION_WEIGHTS["london"],
-                         np.where(is_asia,     SESSION_WEIGHTS["asia"], 1.0))))
-
-        # ── 3. Liquidity / Stop-Hunt Detection ────────────────────────────────
+        # ── 2. Liquidity / Stop-Hunt Detection ────────────────────────────────
         # Equal highs/lows: two swing points within eq_thresh_atr of each other,
         # followed by a wick that sweeps beyond and closes back inside.
         def _liquidity_sweep(swing_vals: np.ndarray, direction: str) -> np.ndarray:
             """
             Returns boolean array; True where a stop-hunt sweep is confirmed.
             direction: 'high' (BSL sweep) or 'low' (SSL sweep).
+
+            Fully vectorised with NumPy shifts — O(n) array ops instead of an
+            O(n) Python for-loop (typically 50–200× faster on real panels).
             """
-            swept = np.zeros(n, dtype=bool)
-            for i in range(2, n):
-                prev  = swing_vals[i - 1]
-                prev2 = swing_vals[i - 2]
-                if np.isnan(prev) or np.isnan(prev2) or np.isnan(safe_atr[i]):
-                    continue
-                eq = abs(prev - prev2) <= eq_thresh_atr * safe_atr[i]
-                if not eq:
-                    continue
-                if direction == "high":
-                    # Wick above equal highs, close back below
-                    swept[i] = (h[i] > max(prev, prev2)) and (c[i] < max(prev, prev2))
-                else:
-                    swept[i] = (l[i] < min(prev, prev2)) and (c[i] > min(prev, prev2))
+            # Shift by 1 and 2 bars; mask the look-back boundary with NaN
+            prev  = np.empty(n, dtype=float); prev[:]  = np.nan
+            prev2 = np.empty(n, dtype=float); prev2[:] = np.nan
+            prev[1:]  = swing_vals[:-1]
+            prev2[2:] = swing_vals[:-2]
+
+            # All three values must be non-NaN for the test to be valid
+            valid = ~np.isnan(prev) & ~np.isnan(prev2) & ~np.isnan(safe_atr)
+
+            # Equal-highs / equal-lows condition
+            eq = valid & (np.abs(prev - prev2) <= eq_thresh_atr * safe_atr)
+
+            if direction == "high":
+                # Wick above equal highs, close back below the level
+                level = np.maximum(prev, prev2)
+                swept = eq & (h > level) & (c < level)
+            else:
+                # Wick below equal lows, close back above the level
+                level = np.minimum(prev, prev2)
+                swept = eq & (l < level) & (c > level)
+
+            swept[:2] = False   # first two bars can never have two prior bars
             return swept
 
         bsl_swept = _liquidity_sweep(h1, "high")   # Buy-side liquidity taken
@@ -165,11 +144,21 @@ class ICTFeatureEngine:
         r_blen     = np.abs(c  - o)
         d_blen     = np.abs(c1 - o1)
 
-        # Order Blocks
+        # ── ATR Displacement Gates ─────────────────────────────────────────────
+        # Require the signal candle (current bar) to show genuine institutional
+        # momentum — body > 1.5× ATR. Filters weak/drifting candles that
+        # technically meet OB/FVG geometry but lack displacement conviction.
+        _DISP_MULT = 1.5
+        has_displacement  = r_blen > (_DISP_MULT * safe_atr)          # current bar
+        has_displacement1 = d_blen > (_DISP_MULT * shift(safe_atr, 1))# previous bar (FVG)
+
+        # Order Blocks — now gated by displacement on the signal candle
         is_bob = ((c1 < o1) & (c > o) & (o > c1) &
-                  (c > d_body_max) & (r_blen >= mult * d_blen))
+                  (c > d_body_max) & (r_blen >= mult * d_blen) &
+                  has_displacement)
         is_sob = ((c1 > o1) & (c < o) & (o < c1) &
-                  (c < d_body_min) & (r_blen >= mult * d_blen))
+                  (c < d_body_min) & (r_blen >= mult * d_blen) &
+                  has_displacement)
 
         # Breaker Blocks (require confirmed swing + stop-hunt)
         is_swing_low  = (l1 < l2) & (l1 < l3) & (l1 < l)
@@ -178,9 +167,10 @@ class ICTFeatureEngine:
         is_bull_bb = (c1 < o1) & is_swing_low  & ssl_swept & (c > d_body_max)
         is_bear_bb = (c1 > o1) & is_swing_high & bsl_swept & (c < d_body_min)
 
-        # Fair Value Gaps — corrected boundary ordering (zh > zl guaranteed)
-        is_bull_fvg = l > h2          # gap: h2 (bottom) to l (top)  → zh=l,  zl=h2  ✓
-        is_bear_fvg = h < l2          # gap: h (top)    to l2 (bottom)→ zh=l2, zl=h   ✓
+        # Fair Value Gaps — gated by displacement on the candle that created the gap
+        # (candle i-1 must be a strong displacement candle for the gap to be institutional)
+        is_bull_fvg = (l > h2) & has_displacement1   # gap: h2→l, displacement on bar i-1
+        is_bear_fvg = (h < l2) & has_displacement1   # gap: h→l2, displacement on bar i-1
 
         # ── 5. HTF Bias Filter ────────────────────────────────────────────────
         if htf_bias == 1:             # Bull bias → suppress bear signals
@@ -195,36 +185,47 @@ class ICTFeatureEngine:
         # ── 6. Zone Priority Deduplication ────────────────────────────────────
         # When multiple signal types fire on the same candle, keep highest priority only.
         # Bull side: BB(3) > OB(2) > FVG(1)
-        bull_priority = (is_bull_bb.astype(int) * ZonePriority.BB  +
-                         is_bob.astype(int)      * ZonePriority.OB  +
-                         is_bull_fvg.astype(int) * ZonePriority.FVG)
+        #
+        # FIX: use np.maximum (element-wise peak) instead of addition (+).
+        # Summation caused OB(2)+FVG(1)=3 to exceed both thresholds, wiping
+        # out both signals instead of keeping the higher-priority one.
+        bull_priority = np.maximum(
+            np.maximum(is_bull_bb.astype(int) * ZonePriority.BB,
+                       is_bob.astype(int)     * ZonePriority.OB),
+            is_bull_fvg.astype(int) * ZonePriority.FVG,
+        )
 
-        bear_priority = (is_bear_bb.astype(int)  * ZonePriority.BB  +
-                         is_sob.astype(int)       * ZonePriority.OB  +
-                         is_bear_fvg.astype(int)  * ZonePriority.FVG)
+        bear_priority = np.maximum(
+            np.maximum(is_bear_bb.astype(int) * ZonePriority.BB,
+                       is_sob.astype(int)     * ZonePriority.OB),
+            is_bear_fvg.astype(int) * ZonePriority.FVG,
+        )
 
-        # Suppress lower-priority signals on conflicting candles
-        is_bob      = is_bob      & (bull_priority <= ZonePriority.OB  * is_bob)
-        is_bull_fvg = is_bull_fvg & (bull_priority <= ZonePriority.FVG * is_bull_fvg)
-        is_sob      = is_sob      & (bear_priority <= ZonePriority.OB  * is_sob)
-        is_bear_fvg = is_bear_fvg & (bear_priority <= ZonePriority.FVG * is_bear_fvg)
+        # Suppress lower-priority signals on conflicting candles.
+        # A zone is kept only when it IS the peak priority for that candle:
+        #   OB kept  → only when no BB fired on the same candle (peak == OB)
+        #   FVG kept → only when neither BB nor OB fired (peak == FVG)
+        #   BB is always kept (highest priority — no suppression needed).
+        is_bob      = is_bob      & (bull_priority == ZonePriority.OB)
+        is_bull_fvg = is_bull_fvg & (bull_priority == ZonePriority.FVG)
+        is_sob      = is_sob      & (bear_priority == ZonePriority.OB)
+        is_bear_fvg = is_bear_fvg & (bear_priority == ZonePriority.FVG)
 
         # ── 7. Unified Zone Forward-Fill ──────────────────────────────────────
         def _ffill_zone(
-            trigger:    np.ndarray,
-            zh:         np.ndarray,    # zone top (zh > zl always)
-            zl:         np.ndarray,    # zone bottom
-            price:      np.ndarray,
-            is_bull:    bool,
-            mid_cancel: bool = False,
-            flip_sign:  bool = False,  # flip dist sign for bear zones → +ve = inside
-            weight:     np.ndarray = None,
+                trigger: np.ndarray,
+                zh: np.ndarray,
+                zl: np.ndarray,
+                price: np.ndarray,
+                is_bull: bool,
+                mid_cancel: bool = False,
+                flip_sign: bool = False,
         ):
             ah = np.where(trigger, zh, np.nan)
             al = np.where(trigger, zl, np.nan)
             ff_h = pd.Series(ah).ffill().values
             ff_l = pd.Series(al).ffill().values
-            mid  = (ff_h + ff_l) / 2.0
+            mid = (ff_h + ff_l) / 2.0
 
             if mid_cancel:
                 still = (price >= mid) if is_bull else (price <= mid)
@@ -233,29 +234,47 @@ class ICTFeatureEngine:
 
             active = (~np.isnan(ff_h) & still).astype(float)
 
-            raw_dist = (price - mid) / safe_atr
+            # ── Raw % distance from zone mid (SMC-faithful) ──────────────────────────
+            pct_dist = np.where(mid != 0, (price - mid) / mid * 100, 0.0)
             if flip_sign:
-                raw_dist = -raw_dist          # bear: +ve when price is below mid (inside zone)
+                pct_dist = -pct_dist
 
-            dist = np.where(active == 1, raw_dist, 0.0)
+            # ── ATR-normalized distance (ML cross-asset comparability) ───────────────
+            atr_dist = (price - mid) / safe_atr
+            if flip_sign:
+                atr_dist = -atr_dist
 
-            # Bake in session weight
-            if weight is not None:
-                dist = dist * weight
+            # Zero out when zone inactive
+            pct_dist = np.where(active == 1, pct_dist, 0.0)
+            atr_dist = np.where(active == 1, atr_dist, 0.0)
 
-            return active, dist
-
-        w = sess_weight   # shorthand
+            return active, pct_dist, atr_dist
 
         # Bull zones
-        grp["ict_bob_active"],     grp["ict_bob_dist"]     = _ffill_zone(is_bob,      d_body_max, d_body_min, c, True,  weight=w)
-        grp["ict_bullbb_active"],  grp["ict_bullbb_dist"]  = _ffill_zone(is_bull_bb,  d_body_max, d_body_min, c, True,  weight=w)
-        grp["ict_bullfvg_active"], grp["ict_bullfvg_dist"] = _ffill_zone(is_bull_fvg, l,          h2,         c, True,  mid_cancel=True, weight=w)
+        (grp["ict_bob_active"],
+         grp["ict_bob_pct_dist"],
+         grp["ict_bob_atr_dist"]) = _ffill_zone(is_bob, d_body_max, d_body_min, c, True)
 
-        # Bear zones (flip_sign=True → dist is +ve when price is inside zone)
-        grp["ict_sob_active"],     grp["ict_sob_dist"]     = _ffill_zone(is_sob,      d_body_max, d_body_min, c, False, flip_sign=True, weight=w)
-        grp["ict_bearbb_active"],  grp["ict_bearbb_dist"]  = _ffill_zone(is_bear_bb,  d_body_max, d_body_min, c, False, flip_sign=True, weight=w)
-        grp["ict_bearfvg_active"], grp["ict_bearfvg_dist"] = _ffill_zone(is_bear_fvg, l2,         h,          c, False, mid_cancel=True, flip_sign=True, weight=w)
+        (grp["ict_bullbb_active"],
+         grp["ict_bullbb_pct_dist"],
+         grp["ict_bullbb_atr_dist"]) = _ffill_zone(is_bull_bb, d_body_max, d_body_min, c, True)
+
+        (grp["ict_bullfvg_active"],
+         grp["ict_bullfvg_pct_dist"],
+         grp["ict_bullfvg_atr_dist"]) = _ffill_zone(is_bull_fvg, l, h2, c, True, mid_cancel=True)
+
+        # Bear zones
+        (grp["ict_sob_active"],
+         grp["ict_sob_pct_dist"],
+         grp["ict_sob_atr_dist"]) = _ffill_zone(is_sob, d_body_max, d_body_min, c, False, flip_sign=True)
+
+        (grp["ict_bearbb_active"],
+         grp["ict_bearbb_pct_dist"],
+         grp["ict_bearbb_atr_dist"]) = _ffill_zone(is_bear_bb, d_body_max, d_body_min, c, False, flip_sign=True)
+
+        (grp["ict_bearfvg_active"],
+         grp["ict_bearfvg_pct_dist"],
+         grp["ict_bearfvg_atr_dist"]) = _ffill_zone(is_bear_fvg, l2, h, c, False, mid_cancel=True, flip_sign=True)
 
         # ── 8. Liquidity Sweep Flags ──────────────────────────────────────────
         grp["ict_bsl_swept"] = bsl_swept.astype(float)
@@ -264,9 +283,6 @@ class ICTFeatureEngine:
         # ── 9. Zone Priority Metadata ─────────────────────────────────────────
         grp["ict_bull_zone_priority"] = bull_priority.astype(float)
         grp["ict_bear_zone_priority"] = bear_priority.astype(float)
-
-        # ── 10. Session Weight ─────────────────────────────────────────────────
-        grp["ict_session_weight"] = sess_weight
 
         # Restore original index (reset_index(drop=True) at the start replaced it
         # with integers; we must put the date index back so engineer.py can re-attach

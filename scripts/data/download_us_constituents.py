@@ -33,7 +33,10 @@ import pandas as pd
 import requests
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-LISTS_DIR = Path(r"C:\Victor\Learning_charts\stock_lists")
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+LISTS_DIR = PATHS.stock_lists.lists_dir
 HEADERS   = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

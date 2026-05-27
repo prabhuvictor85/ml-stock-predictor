@@ -27,19 +27,22 @@ import pandas as pd
 import yfinance as yf
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-PROJECT_DIR = Path(r"C:\Victor\Project\ml-stock-predictor")
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+PROJECT_DIR = PATHS.project_root
 
 MARKET_CONFIG = {
     "sp500": {
-        "data_dir":    Path(r"C:\Victor\Learning_charts\stock_data\us_stocks"),
+        "data_dir":    PATHS.stock_data.us,
         "output_dir":  PROJECT_DIR / "output" / "us_local",
-        "list_file":   Path(r"C:\Victor\Learning_charts\stock_lists\constituents_us_combined.csv"),
+        "list_file":   PATHS.stock_lists.us_combined,
         "label":       "SP500 + NASDAQ",
     },
     "nse": {
-        "data_dir":    Path(r"C:\Victor\Learning_charts\stock_data"),
+        "data_dir":    PATHS.stock_data.nse_local,
         "output_dir":  PROJECT_DIR / "output" / "nse_local",
-        "list_file":   Path(r"C:\Victor\Learning_charts\stock_lists\constituentsi.csv"),
+        "list_file":   PATHS.stock_lists.nse_local,
         "label":       "NSE",
     },
 }

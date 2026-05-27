@@ -2,7 +2,10 @@
 import pandas as pd
 from pathlib import Path
 
-sample = Path(r"C:\Victor\Learning_charts\stock_data")
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from pipeline.config.paths import PATHS
+sample = PATHS.stock_data.nse_local
 ticker = "RELIANCE.NS"   # replace with any ticker you know has an OB
 
 for tf in ["1d", "1wk"]:

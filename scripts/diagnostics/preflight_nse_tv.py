@@ -5,6 +5,9 @@ import sys, os
 from pathlib import Path
 import pandas as pd
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+
 OK   = "  [OK]  "
 WARN = "  [WARN]"
 FAIL = "  [FAIL]"
@@ -56,22 +59,22 @@ for mod in ["pipeline.config.nse",
 # ── 3. Key files ───────────────────────────────────────────────────────────────
 print("\n[3] Key input files")
 files = {
-    "Constituent CSV" : Path(r"C:\Victor\Learning_charts\stock_lists\constituents_nse_tradingv.csv"),
-    "Cap tiers CSV"   : Path(r"C:\Victor\Learning_charts\stock_lists\nse_cap_tiers.csv"),
-    "TV data dir"     : Path(r"C:\Victor\Learning_charts\stock_data\tradingview"),
+    "Constituent CSV" : PATHS.stock_lists.nse_tv,
+    "Cap tiers CSV"   : PATHS.stock_lists.nse_cap_tiers,
+    "TV data dir"     : PATHS.stock_data.nse_tv,
 }
 for label, p in files.items():
     chk(label, p.exists(), str(p))
 
 # Constituent CSV columns
-csv = Path(r"C:\Victor\Learning_charts\stock_lists\constituents_nse_tradingv.csv")
+csv = PATHS.stock_lists.nse_tv
 if csv.exists():
     df = pd.read_csv(csv)
     chk("Constituent cols (Symbol, TV_ticker)", "Symbol" in df.columns and "TV_ticker" in df.columns,
         f"{len(df)} rows, cols={list(df.columns)}")
 
 # Cap tiers
-ct = Path(r"C:\Victor\Learning_charts\stock_lists\nse_cap_tiers.csv")
+ct = PATHS.stock_lists.nse_cap_tiers
 if ct.exists():
     df_ct = pd.read_csv(ct)
     dist = df_ct["cap_tier"].value_counts().to_dict()
@@ -80,7 +83,7 @@ if ct.exists():
 
 # ── 4. TV data files ───────────────────────────────────────────────────────────
 print("\n[4] TradingView data files")
-tv_dir = Path(r"C:\Victor\Learning_charts\stock_data\tradingview")
+tv_dir = PATHS.stock_data.nse_tv
 if tv_dir.exists():
     files_tv = list(tv_dir.glob("NSE_*_1D_TV_div_adj.csv"))
     chk(f"TV files found", len(files_tv) >= 2000, f"{len(files_tv)} files")

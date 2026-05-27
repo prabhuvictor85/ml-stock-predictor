@@ -168,6 +168,34 @@ class FeatureEngineer:
                 np.nan,
             ).astype(np.float32)
 
+            # ── Breakout flags (N-day range breakout) ─────────────────────
+            # Captures structural breakouts at any price level — not just near
+            # 52w high. Combined with vol_ratio_5d and atr_expansion, gives the
+            # model vocabulary for early institutional breakout detection.
+            hs = pd.Series(h)
+            rolling_20d_high = hs.rolling(20, min_periods=10).max().shift(1).values
+            rolling_50d_high = hs.rolling(50, min_periods=25).max().shift(1).values
+            grp[f"{FEATURE_PREFIX}20d_breakout"] = np.where(
+                ~np.isnan(rolling_20d_high),
+                (c > rolling_20d_high).astype(np.float32),
+                np.nan,
+            )
+            grp[f"{FEATURE_PREFIX}50d_breakout"] = np.where(
+                ~np.isnan(rolling_50d_high),
+                (c > rolling_50d_high).astype(np.float32),
+                np.nan,
+            )
+
+            # ── ATR expansion — momentum ignition signal ───────────────────
+            # atr_expansion > 1 = volatility expanding vs recent baseline.
+            # Filters weak/drifting breakouts from genuine momentum moves.
+            atr_ma20 = pd.Series(atr14).rolling(20, min_periods=10).mean().values
+            grp[f"{FEATURE_PREFIX}atr_expansion"] = np.where(
+                atr_ma20 > 0,
+                (atr14 / atr_ma20).astype(np.float32),
+                np.nan,
+            )
+
             # ── SMAs ──────────────────────────────────────────────────────
             cs = pd.Series(c)
             sma20 = cs.rolling(20, min_periods=10).mean().values
@@ -243,7 +271,6 @@ class FeatureEngineer:
                 "ict_bsl_swept",       "ict_ssl_swept",
                 # Zone priority metadata
                 "ict_bull_zone_priority", "ict_bear_zone_priority",
-                "ict_session_weight",
             ]:
                 if ict_col in grp.columns and not ict_col.startswith(FEATURE_PREFIX):
                     grp[f"{FEATURE_PREFIX}{ict_col}"] = grp.pop(ict_col)
@@ -287,8 +314,8 @@ class FeatureEngineer:
                             htf["close"].values.astype(float), 14,
                         )
 
-                        # Run ICT engine — no session filter on HTF (no intraday ts)
-                        htf_ict = self._ict.compute(htf, session_filter=False)
+                        # Run ICT engine on HTF bars
+                        htf_ict = self._ict.compute(htf)
 
                         # Carry active cols back to daily via merge_asof (backward fill)
                         htf_reset = htf_ict.reset_index()

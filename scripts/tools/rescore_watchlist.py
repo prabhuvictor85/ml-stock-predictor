@@ -19,18 +19,22 @@ import argparse, json
 from pathlib import Path
 import pandas as pd
 
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+
 MARKET_CONFIG = {
     "sp500": {
-        "output_dir": Path(r"C:\Victor\Project\ml-stock-predictor\output\us_local"),
+        "output_dir": PATHS.project_root / "output" / "us_local",
         "label":      "SP500 + NASDAQ",
     },
     "nse": {
-        "output_dir": Path(r"C:\Victor\Project\ml-stock-predictor\output\nse_local"),
+        "output_dir": PATHS.project_root / "output" / "nse_local",
         "label":      "NSE",
     },
 }
 
-EVAL_DIR = Path(r"C:\Victor\Project\ml-stock-predictor\output\evaluation")
+EVAL_DIR = PATHS.project_root / "output" / "evaluation"
 
 SCHEMES = {
     "Pure ML (model only)":        (1.00, 0.00),

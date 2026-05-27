@@ -53,8 +53,9 @@ import pandas as pd
 warnings.filterwarnings("ignore")
 
 # ── Paths ──────────────────────────────────────────────────────────────────
-STOCK_LIST_CSV  = Path(r"C:\Victor\Learning_charts\stock_lists\constituents_us_combined.csv")
-STOCK_DATA_DIR  = Path(r"C:\Victor\Learning_charts\stock_data\us_stocks")
+from pipeline.config.paths import PATHS
+STOCK_LIST_CSV  = PATHS.stock_lists.us_combined
+STOCK_DATA_DIR  = PATHS.stock_data.us
 ARTEFACTS_DIR   = Path("artefacts/us_local")
 OUTPUT_DIR      = Path("output/us_local")
 REPORTS_DIR     = Path("reports")
@@ -234,6 +235,11 @@ def parse_args() -> argparse.Namespace:
                    help="Minimum trading days required per ticker")
     p.add_argument("--gpu", action="store_true",
                    help="Enable GPU acceleration for LightGBM (no effect — LightGBM GPU requires a custom CUDA build)")
+    p.add_argument("--strict_data_check", action="store_true",
+                   help="Treat data-staleness warnings as errors (block run on stale data). "
+                        "Default: log warnings and continue.")
+    p.add_argument("--max_data_lag_days", type=int, default=7,
+                   help="Max calendar days since the latest bar before flagging staleness (default 7)")
     p.add_argument("--explain", type=str, default=None, metavar="TICKER",
                    help="Explain why TICKER was/wasn't selected. Uses the last run's scores. "
                         "E.g.: --explain AAPL")
@@ -244,7 +250,7 @@ def parse_args() -> argparse.Namespace:
                        "Ranker mode(s) to run. "
                        "'all' trains and scores both momentum and reversal (default). "
                        "'momentum' = continuation plays, stocks within 15%% of 52w high. "
-                       "'reversal' = demand zone bounce plays, stocks 20%%+ below 52w high. "
+                       "'reversal' = demand zone bounce plays, stocks 15%%+ below 52w high. "
                        "'legacy' = original single-ranker (backward compat)."
                    ))
     return p.parse_args()
@@ -551,7 +557,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     mode: "legacy" | "momentum" | "reversal"
       legacy   — original single-ranker, no universe filter
       momentum — trains only on stocks within 15% of their 52w high
-      reversal — trains only on stocks 20%+ below their 52w high
+      reversal — trains only on stocks 15%+ below their 52w high
     mode_artefacts_dir: where to save mode-specific artefacts (ensemble, ranker, etc.)
       Defaults to ARTEFACTS_DIR for legacy mode.
     """
@@ -972,7 +978,7 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
     mode controls which stocks are eligible for the watchlist:
       legacy   — all stocks (original behaviour)
       momentum — only stocks within 15% of their 52w high
-      reversal — only stocks 20%+ below their 52w high
+      reversal — only stocks 15%+ below their 52w high
     All stocks are scored regardless — the filter only affects watchlist selection.
     """
     from pipeline.portfolio.constructor import PortfolioConstructor
@@ -1151,6 +1157,15 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
     pc_bear = PortfolioConstructor(cfg, top_n=top_n, weighting=weighting)
     bear_ticker_scores, bear_weights = pc_bear.construct(cross_wl_bear, bear_score_wl)
 
+    # Store original bull composite score for display
+    bull_scores_orig = {}
+    for t in bull_weights:
+        try:
+            val = bull_score_series.xs(t, level="ticker")
+            bull_scores_orig[t] = round(float(val.iloc[0] if hasattr(val, "iloc") else val), 4)
+        except Exception:
+            bull_scores_orig[t] = 0.0
+
     # Store original bear composite score for display
     bear_scores_orig = {}
     for t in bear_weights:
@@ -1259,6 +1274,7 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
         # Bear
         "bear_weights":         bear_weights,
         "bear_ticker_scores":   bear_ticker_scores,
+        "bull_scores_orig":     bull_scores_orig,
         "bear_scores_orig":     bear_scores_orig,
         "explanations_bear":    explanations_bear,
         # Shared
@@ -1694,10 +1710,10 @@ def explain_ticker(ticker: str, date_str: Optional[str] = None) -> None:
             print(f"    {s:<35} {w:>6.1f}  {v*100:>6.1f}%  {contrib:>12.2f}{flag}")
 
     # ── Bear breakdown ─────────────────────────────────────────────────────
-    m_score_b = bear_d["model_score"]
+    m_score_b = bear_d["model_score"]   # already (1 - raw) — inverted in _scoring_detail
     c_score_b = bear_d["composite_score"]
     print(f"\n  BEAR SIDE   rank #{bear_rank} / {u_size}")
-    print(f"    Model (bearish) : {(1-m_score_b)*100:.1f}%  (inverted model)")
+    print(f"    Model (bearish) : {m_score_b*100:.1f}%  (inverted model)")
     print(f"    Composite score : {c_score_b*100:.1f}%  (weight {c_w:.0%})")
     sig_weights_b = bear_d.get("signal_weights", {})
     sig_values_b  = bear_d.get("signal_values", {})
@@ -1737,6 +1753,7 @@ def save_outputs(result: dict, panel: pd.DataFrame,
 
     bull_weights        = result["weights"]
     bear_weights        = result["bear_weights"]
+    bull_scores_orig    = result["bull_scores_orig"]
     bear_scores         = result["bear_scores_orig"]
     latest_date         = result["latest_date"]
     cross               = result["cross"]
@@ -1774,7 +1791,8 @@ def save_outputs(result: dict, panel: pd.DataFrame,
         sig_cfg  = bull_signals_cfg if side == "bull" else bear_signals_cfg
         sig_vals = sig_details_bull.get(ticker, {}) if side == "bull" else sig_details_bear.get(ticker, {})
         rank_map = _bull_rank if side == "bull" else _bear_rank
-        m_score  = _safe_scalar(all_model_scores, ticker)
+        _raw_m   = _safe_scalar(all_model_scores, ticker)
+        m_score  = (1.0 - _raw_m) if side == "bear" else _raw_m
         c_score  = _safe_scalar(all_bull_composites if side == "bull"
                                 else all_bear_composites, ticker)
         return {
@@ -1867,7 +1885,7 @@ def save_outputs(result: dict, panel: pd.DataFrame,
             rows.append(row)
         return rows
 
-    bull_rows = _build_rows(bull_weights, "BULL")
+    bull_rows = _build_rows(bull_weights, "BULL", score_override=bull_scores_orig)
     bear_rows = _build_rows(bear_weights, "BEAR", score_override=bear_scores)
 
     bull_df = pd.DataFrame(bull_rows)
@@ -1954,7 +1972,7 @@ def save_outputs(result: dict, panel: pd.DataFrame,
             print(card)
         print(f"\n{'═'*66}")
 
-    _render_side(bull_weights, "bull")
+    _render_side(bull_weights, "bull", score_override=bull_scores_orig)
     _render_side(bear_weights, "bear", score_override=bear_scores)
 
     print(f"\n  Projection legend:")
@@ -2153,6 +2171,28 @@ def main() -> None:
                                            sector_map=sector_map)
             if benchmark_close.empty:
                 benchmark_close = panel.groupby(level="date")["close"].mean().rename("benchmark_close")
+
+        # ── Data freshness checks (StaleDataGuard) ─────────────────────────
+        from pipeline.monitoring.stale_data_guard import StaleDataGuard, StaleDataError
+        guard = StaleDataGuard(
+            max_lag_days=args.max_data_lag_days,
+            min_coverage_pct=0.80,
+        )
+        try:
+            if args.strict_data_check:
+                guard.assert_fresh(panel, benchmark_close)
+            else:
+                issues = guard.check(panel, benchmark_close)
+                if any(i.severity == "error" for i in issues):
+                    print("  ⚠ Data freshness issues detected (use --strict_data_check to block):")
+                    for i in issues:
+                        if i.severity == "error":
+                            print(f"    {i}")
+        except StaleDataError as _e:
+            print(f"\n✗ Stale data check failed:\n{_e}\n")
+            print("  Rerun without --strict_data_check to proceed anyway, "
+                  "or refresh source data.")
+            raise
 
         results_by_mode: Dict[str, dict] = {}
 

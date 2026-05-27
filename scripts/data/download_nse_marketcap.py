@@ -30,9 +30,12 @@ import pandas as pd
 import requests
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-TV_CSV   = Path(r"C:\Victor\Learning_charts\stock_lists\constituents_nse_tradingv.csv")
-OUT_CSV  = Path(r"C:\Victor\Learning_charts\stock_lists\nse_cap_tiers.csv")
-CACHE    = Path(r"C:\Victor\Learning_charts\stock_lists\nse_mcap_cache.csv")
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+TV_CSV   = PATHS.stock_lists.nse_tv
+OUT_CSV  = PATHS.stock_lists.nse_cap_tiers
+CACHE    = PATHS.stock_lists.lists_dir / "nse_mcap_cache.csv"
 
 # SEBI thresholds (in crore INR)
 LARGE_THRESHOLD = 105000   # >= 1,05,000 crore

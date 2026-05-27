@@ -14,7 +14,8 @@ import psutil
 import streamlit as st
 
 # ── Market config ─────────────────────────────────────────────────────────────
-PROJECT_DIR = Path(r"C:\Victor\Project\ml-stock-predictor")
+from pipeline.config.paths import PATHS
+PROJECT_DIR = PATHS.project_root
 PYTHON      = PROJECT_DIR / ".venv" / "Scripts" / "python.exe"
 
 MARKET_CONFIG = {
@@ -44,7 +45,7 @@ MARKET_CONFIG = {
         "log_dir":   PROJECT_DIR / "artefacts" / "nse_tradingv" / "logs",
         "shap_img":  PROJECT_DIR / "reports"   / "shap_global_nse_tradingv.png",
         "pid_file":  PROJECT_DIR / ".dashboard_run_nse_tv.pid",
-        "watchlist_prefix": "watchlist_momentum_bull_",
+        "watchlist_prefix": "watchlist_reversal_bull_",
         "benchmark": "NIFTY (TradingView)",
         "icon": "📺",
     },
@@ -124,7 +125,7 @@ def latest_watchlists(cfg: dict) -> tuple[str, dict[str, pd.DataFrame]]:
         return "", {}
     # Exclude per-tier files (e.g. watchlist_momentum_bull_large_*.csv) when
     # detecting the scoring date — only main files have a plain YYYY-MM-DD stem.
-    _TIER_KEYS = ("large_", "mid_", "small_")
+    _TIER_KEYS = ("large_", "mid_", "small_", "micro_")
     main_files = [f for f in files
                   if not any(f.stem.replace(prefix, "").startswith(t)
                              for t in _TIER_KEYS)]
@@ -137,19 +138,23 @@ def latest_watchlists(cfg: dict) -> tuple[str, dict[str, pd.DataFrame]]:
         ("Momentum Bear",       f"watchlist_momentum_bear_{date_str}.csv"),
         ("Reversal Bull",       f"watchlist_reversal_bull_{date_str}.csv"),
         ("Reversal Bear",       f"watchlist_reversal_bear_{date_str}.csv"),
-        # Per-cap-tier top-10 (generated when Indices column present)
+        # Per-cap-tier top-10 (generated when cap_tier_map provided)
         ("Momentum Bull large", f"watchlist_momentum_bull_large_{date_str}.csv"),
         ("Momentum Bull mid",   f"watchlist_momentum_bull_mid_{date_str}.csv"),
         ("Momentum Bull small", f"watchlist_momentum_bull_small_{date_str}.csv"),
+        ("Momentum Bull micro", f"watchlist_momentum_bull_micro_{date_str}.csv"),
         ("Momentum Bear large", f"watchlist_momentum_bear_large_{date_str}.csv"),
         ("Momentum Bear mid",   f"watchlist_momentum_bear_mid_{date_str}.csv"),
         ("Momentum Bear small", f"watchlist_momentum_bear_small_{date_str}.csv"),
+        ("Momentum Bear micro", f"watchlist_momentum_bear_micro_{date_str}.csv"),
         ("Reversal Bull large", f"watchlist_reversal_bull_large_{date_str}.csv"),
         ("Reversal Bull mid",   f"watchlist_reversal_bull_mid_{date_str}.csv"),
         ("Reversal Bull small", f"watchlist_reversal_bull_small_{date_str}.csv"),
+        ("Reversal Bull micro", f"watchlist_reversal_bull_micro_{date_str}.csv"),
         ("Reversal Bear large", f"watchlist_reversal_bear_large_{date_str}.csv"),
         ("Reversal Bear mid",   f"watchlist_reversal_bear_mid_{date_str}.csv"),
         ("Reversal Bear small", f"watchlist_reversal_bear_small_{date_str}.csv"),
+        ("Reversal Bear micro", f"watchlist_reversal_bear_micro_{date_str}.csv"),
     ]:
         p = output_dir / pattern
         if p.exists():
@@ -229,6 +234,34 @@ RESCORE_SCHEMES = {
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(show_spinner=False)
+def load_cap_tier_map(market_label: str) -> dict:
+    """
+    Return {ticker: tier} for the selected market. Tiers are computed from
+    SEBI thresholds at lookup time so we never trust a stale `cap_tier` column.
+    Returns {} for markets without a cap-tier source.
+    """
+    if market_label == "NSE TradingView":
+        p = PATHS.stock_lists.nse_cap_tiers
+        if not p.exists():
+            return {}
+        df = pd.read_csv(p)
+        if "market_cap_crore" not in df.columns:
+            return {}
+        key_col = "TV_ticker" if "TV_ticker" in df.columns else "Symbol"
+        def _sebi(m):
+            if m >= 105_000: return "large"
+            if m >= 34_700:  return "mid"
+            if m >= 5_000:   return "small"
+            return "micro"
+        return {
+            str(sym).strip(): _sebi(float(mcap))
+            for sym, mcap in zip(df[key_col], df["market_cap_crore"])
+            if pd.notna(sym) and pd.notna(mcap)
+        }
+    return {}
+
+
 def rescore_tickers(output_dir_str: str, date_str: str, model_name: str,
                     side: str, model_wt: float, comp_wt: float, top_n: int) -> pd.DataFrame:
     """Re-rank a model+side using given weights from scores_detail JSON."""
@@ -594,25 +627,58 @@ with tab_watch:
                     unsafe_allow_html=True,
                 )
 
-                # ── Cap-tier breakdown (shown when tier files exist) ───────────
+                # ── Cap-tier breakdown ─────────────────────────────────────────
+                # Original (70/30 momentum, 55/45 reversal) → read pre-computed
+                # tier CSVs from disk.
+                # Pure ML or Blend 85/15 → rescore the full universe with the
+                # user's chosen blend, then filter by cap_tier_map.
+                _TIER_DEFS = [("large", "🔵 Large Cap"),
+                              ("mid",   "🟡 Mid Cap"),
+                              ("small", "🟢 Small Cap"),
+                              ("micro", "🟣 Micro Cap")]
                 _tier_data = {}
-                for _tk, _tl in [("large", "🔵 Large Cap"),
-                                  ("mid",   "🟡 Mid Cap"),
-                                  ("small", "🟢 Small Cap")]:
-                    _key = f"{label} {_tk}"
-                    if _key in watchlists and not watchlists[_key].empty:
-                        _tier_data[_tl] = watchlists[_key]
+
+                if rank_method == "Original (70/30)":
+                    # Pre-computed tier CSVs (saved by run_*.py with config blend)
+                    for _tk, _tl in _TIER_DEFS:
+                        _key = f"{label} {_tk}"
+                        if _key in watchlists and not watchlists[_key].empty:
+                            _tier_data[_tl] = watchlists[_key]
+                    _tier_show_cols = ["rank", "ticker", "score",
+                                       "return_20d", "adx_14", "sector_rs_20d"]
+                else:
+                    # Re-compute tiers using the user's blend
+                    _tier_map = load_cap_tier_map(market_label)
+                    if _tier_map:
+                        _df_full = rescore_tickers(
+                            str(cfg["output"]), date_str,
+                            model_name, side, mw, cw, top_n=20_000,
+                        )
+                        if not _df_full.empty:
+                            _df_full["cap_tier"] = _df_full["ticker"].map(_tier_map)
+                            for _tk, _tl in _TIER_DEFS:
+                                _tdf = (_df_full[_df_full["cap_tier"] == _tk]
+                                        .head(10).reset_index(drop=True))
+                                if not _tdf.empty:
+                                    _tdf["rank"] = _tdf.index + 1
+                                    _tier_data[_tl] = _tdf
+                    _tier_show_cols = ["rank", "ticker", "final_score",
+                                       "model_score", "composite_score", "orig_rank"]
+
                 if _tier_data:
-                    with st.expander("📊 By Market Cap Tier — Top 10 each", expanded=False):
+                    _expander_label = (
+                        f"📊 By Market Cap Tier — Top 10 each ({rank_method})"
+                    )
+                    with st.expander(_expander_label, expanded=False):
                         _tier_cols = st.columns(len(_tier_data))
-                        _tier_show_cols = ["rank", "ticker", "score",
-                                           "return_20d", "adx_14", "sector_rs_20d"]
                         for (_tlabel, _tdf), _tcol in zip(_tier_data.items(), _tier_cols):
                             with _tcol:
                                 st.markdown(f"**{_tlabel}**")
                                 _show = _tdf[[c for c in _tier_show_cols
                                               if c in _tdf.columns]].copy()
-                                for _fc in ["score", "return_20d", "adx_14", "sector_rs_20d"]:
+                                for _fc in ["score", "final_score", "model_score",
+                                             "composite_score", "return_20d",
+                                             "adx_14", "sector_rs_20d"]:
                                     if _fc in _show.columns:
                                         _show[_fc] = _show[_fc].apply(
                                             lambda x: f"{x:.2f}" if pd.notna(x) else ""

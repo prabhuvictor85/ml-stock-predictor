@@ -31,8 +31,11 @@ import pandas as pd
 import yfinance as yf
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-DATA_DIR       = Path(r"C:\Victor\Learning_charts\us_data")
-LISTS_DIR      = Path(r"C:\Victor\Learning_charts\stock_lists")
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+DATA_DIR       = PATHS.stock_data.us_alt
+LISTS_DIR      = PATHS.stock_lists.lists_dir
 CONSTITUENT_CSV = LISTS_DIR / "constituents_us.csv"
 
 BENCHMARK_TICKERS = ["^GSPC", "^NDX"]   # S&P 500 + NASDAQ 100 indices

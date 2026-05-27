@@ -27,8 +27,11 @@ import pandas as pd
 import yfinance as yf
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-STOCK_DATA_DIR  = Path(r"C:\Victor\Learning_charts\stock_data")
-STOCK_LIST_CSV  = Path(r"C:\Victor\Learning_charts\stock_lists\constituentsi.csv")
+import sys as _sys
+_sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from pipeline.config.paths import PATHS
+STOCK_DATA_DIR  = PATHS.stock_data.nse_local
+STOCK_LIST_CSV  = PATHS.stock_lists.nse_local
 BENCHMARK_TICKER = "^NSEI"
 START_DATE      = "2010-01-01"
 MAX_WORKERS     = 8

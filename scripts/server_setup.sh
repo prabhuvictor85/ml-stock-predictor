@@ -21,7 +21,7 @@
 set -euo pipefail
 
 # ── Config — edit these if they change ──────────────────────────────────────
-GITHUB_REPO="https://github.com/YOUR_USERNAME/ml-stock-predictor.git"   # ← update
+GITHUB_REPO="https://github.com/prabhuvictor85/ml-stock-predictor.git"
 GIT_BRANCH="master"
 PROJECT_DIR="/root/ml-stock-predictor"
 VOLUME_DEVICE="/dev/sdb"

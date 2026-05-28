@@ -258,6 +258,14 @@ def parse_args() -> argparse.Namespace:
                        "'reversal' = demand zone bounce plays, stocks 15%%+ below 52w high. "
                        "'legacy' = original single-ranker (backward compat)."
                    ))
+    p.add_argument("--train_start", type=str, default="2010-01-01",
+                   help="Earliest date included in the training panel (default: 2010-01-01). "
+                        "Rows before this date are dropped before walk-forward CV and HPO. "
+                        "Scoring always uses the full panel. Example: --train_start 2010-01-01")
+    p.add_argument("--n_jobs",     type=int,   default=1,
+                   help="Parallel Optuna trials (default 1 = sequential). "
+                        "Set to 4 on Hetzner CCX33 for ~3x HPO speedup. "
+                        "Example: --n_jobs 4")
     return p.parse_args()
 
 
@@ -556,7 +564,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
           cfg, n_folds: int, n_trials: int, top_n: int,
           use_gpu: bool = False,
           mode: str = "legacy",
-          mode_artefacts_dir: Optional[Path] = None) -> dict:
+          mode_artefacts_dir: Optional[Path] = None,
+          n_jobs: int = 1) -> dict:
     """Full train: features → targets → CV → Optuna → models → calibration.
 
     mode: "legacy" | "momentum" | "reversal"
@@ -860,7 +869,10 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         remaining = max(0, n_trials - completed)
         if completed > 0:
             print(f"      Resuming HPO: {completed} trials already done, {remaining} remaining")
-        study.optimize(objective, n_trials=remaining, show_progress_bar=True)
+        if n_jobs > 1:
+            print(f"      Running {n_jobs} parallel trials (n_jobs={n_jobs})")
+        study.optimize(objective, n_trials=remaining, n_jobs=n_jobs,
+                       show_progress_bar=True)
         best_params = study.best_params.copy()
         best_k = best_params.pop("feature_top_K", 30)
         best_params["learning_rate"] = best_params.pop("lr", best_params.get("learning_rate", 0.05))
@@ -2243,13 +2255,29 @@ def main() -> None:
             # Train each mode sequentially.
             # Checkpoints 1+2 (feature engineering + targets) are shared and built once —
             # the second mode call loads them instantly from disk.
+
+            # ── Apply train_start cutoff ──────────────────────────────────────
+            full_panel = panel
+            train_start_ts = pd.Timestamp(args.train_start)
+            panel_dates = panel.index.get_level_values("date")
+            if panel_dates.min() < train_start_ts:
+                panel_for_train = panel[panel_dates >= train_start_ts].copy()
+                n_dropped = len(panel) - len(panel_for_train)
+                print(f"\n  [train_start={args.train_start}] Trimmed training panel: "
+                      f"{len(panel_for_train):,} rows kept "
+                      f"({n_dropped:,} pre-{args.train_start} rows excluded from CV/HPO)")
+            else:
+                panel_for_train = panel
+                print(f"\n  [train_start={args.train_start}] Panel already starts at "
+                      f"{panel_dates.min().date()} — no rows dropped")
+
             for m in MODES_TO_RUN:
                 print(f"\n{'='*62}")
                 print(f"  TRAINING  MODE: {m.upper()}")
                 print(f"{'='*62}")
                 with perf.stage(f"Full training — {m}"):
                     artefacts = train(
-                        panel=panel,
+                        panel=panel_for_train,
                         benchmark_close=benchmark_close,
                         cfg=cfg,
                         n_folds=args.n_folds,
@@ -2258,8 +2286,9 @@ def main() -> None:
                         use_gpu=use_gpu,
                         mode=m,
                         mode_artefacts_dir=MODE_DIRS[m],
+                        n_jobs=args.n_jobs,
                     )
-                panel = artefacts["panel"]   # full unfiltered panel from shared checkpoint
+                panel = full_panel   # restore full panel for scoring / next mode
                 results_by_mode[m] = {
                     "ensemble":      artefacts["ensemble"],
                     "final_features": artefacts["final_features"],

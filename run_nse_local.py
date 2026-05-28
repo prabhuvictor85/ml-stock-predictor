@@ -218,6 +218,11 @@ def parse_args() -> argparse.Namespace:
                    help="Walk-forward CV folds (8 = ~2yr test windows, faster; use 14 for exhaustive CV)")
     p.add_argument("--n_trials",   type=int,   default=25,
                    help="Optuna trials (set to 0 to skip HPO and use defaults; 25 = good balance of speed vs quality)")
+    p.add_argument("--n_jobs",     type=int,   default=1,
+                   help="Parallel Optuna trials (default 1 = sequential). "
+                        "Set to 4 on Hetzner CCX33 for ~3x HPO speedup. "
+                        "Requires enough RAM: n_jobs × n_folds × largest_fold_rows. "
+                        "Example: --n_jobs 4")
     p.add_argument("--skip_train", action="store_true",
                    help="Skip training; load existing artefacts and re-score only")
     p.add_argument("--min_history_days", type=int, default=252,
@@ -507,7 +512,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
           cfg, n_folds: int, n_trials: int, top_n: int,
           use_gpu: bool = False,
           mode: str = "legacy",
-          mode_artefacts_dir: Optional[Path] = None) -> dict:
+          mode_artefacts_dir: Optional[Path] = None,
+          n_jobs: int = 1) -> dict:
     """Full train: features → targets → CV → Optuna → models → calibration.
 
     mode: "legacy" | "momentum" | "reversal"
@@ -812,7 +818,10 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         remaining = max(0, n_trials - completed)
         if completed > 0:
             print(f"      Resuming HPO: {completed} trials already done, {remaining} remaining")
-        study.optimize(objective, n_trials=remaining, show_progress_bar=True)
+        if n_jobs > 1:
+            print(f"      Running {n_jobs} parallel trials (n_jobs={n_jobs})")
+        study.optimize(objective, n_trials=remaining, n_jobs=n_jobs,
+                       show_progress_bar=True)
         completed_after = len([t for t in study.trials if t.state.name == "COMPLETE"])
         if completed_after == 0:
             print("      WARNING: All HPO trials were pruned — using default params")
@@ -2261,6 +2270,7 @@ def main() -> None:
                         use_gpu=use_gpu,
                         mode=m,
                         mode_artefacts_dir=MODE_DIRS[m],
+                        n_jobs=args.n_jobs,
                     )
                 panel = full_panel   # restore full panel for scoring / next mode
                 results_by_mode[m] = {

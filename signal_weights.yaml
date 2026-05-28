@@ -23,18 +23,18 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 scoring:
-  model_weight:     0.6   # ML model contribution  (60%)
-  composite_weight: 0.4   # SDZ/SSZ zone composite (40%)
+  model_weight:     0.85   # ML model contribution  (85%)
+  composite_weight: 0.15   # SDZ/SSZ zone composite (15%)
 
 # Momentum mode: stocks within 15% of 52w high — continuation/breakout plays
 momentum_scoring:
-  model_weight:     0.70
-  composite_weight: 0.30
+  model_weight:     0.85
+  composite_weight: 0.15
 
 # Reversal mode: stocks 20%+ below 52w high — demand zone bounce plays
 reversal_scoring:
-  model_weight:     0.55
-  composite_weight: 0.45
+  model_weight:     0.85
+  composite_weight: 0.15
 
 # ── BULL signals ──────────────────────────────────────────────────────────────
 # SDZ (Swap Demand Zone) signals only.

@@ -5,6 +5,7 @@ scipy>=1.10.0
 yfinance>=0.2.30
 pandas-market-calendars>=4.3.0
 requests>=2.31.0
+lxml>=4.9.0
 lightgbm>=4.0.0
 catboost>=1.2.0
 xgboost>=2.0.0

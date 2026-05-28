@@ -2307,6 +2307,21 @@ def main() -> None:
                 print(f"\n  [train_start={args.train_start}] Panel already starts at "
                       f"{panel_dates.min().date()} — no rows dropped")
 
+            # ── Auto-compute n_folds from date range if not explicitly set ────
+            # With 1-year test windows, n_folds = data_years - warmup_years.
+            # Warmup: ~2 years needed for sufficient history before first fold.
+            # This ensures the most recent years are always covered in CV.
+            if args.n_folds == 8:   # default — user didn't explicitly set it
+                _as_of_year      = pd.Timestamp(args.as_of).year if args.as_of else pd.Timestamp.now().year
+                _start_year      = pd.Timestamp(args.train_start).year
+                _warmup_years    = 2
+                _auto_folds      = max(6, _as_of_year - _start_year - _warmup_years)
+                if _auto_folds != args.n_folds:
+                    print(f"\n  [n_folds] Auto-computed {_auto_folds} folds "
+                          f"({_as_of_year} - {_start_year} - {_warmup_years} warmup) "
+                          f"— overrides default of {args.n_folds}")
+                    args.n_folds = _auto_folds
+
             for m in MODES_TO_RUN:
                 print(f"\n{'='*62}")
                 print(f"  TRAINING  MODE: {m.upper()}")

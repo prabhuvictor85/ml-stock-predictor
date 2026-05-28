@@ -142,8 +142,10 @@ def make_optuna_objective(
             if len(test_univ) < 5:
                 continue
 
-            avail_test = [f for f in avail_feats if f in test_univ.columns]
-            X_te = test_univ[avail_test].fillna(0)
+            # Use reindex to guarantee the same column set as training — fills
+            # any genuinely missing columns with 0 rather than silently dropping
+            # them (which causes a 0-feature matrix and LightGBM crash).
+            X_te = test_univ.reindex(columns=avail_feats).fillna(0)
 
             # NOTE: classifier trained on binary top_quintile labels.
             # NDCG computed from classifier probs is an approximation — ranker scores preferred.
@@ -487,18 +489,17 @@ def main() -> None:
         test_panel = panel.iloc[np.where(test_mask)[0]]
         test_univ  = test_panel[test_panel["in_universe"] == True]
         if len(test_univ) > 0:
-            avail_test = [f for f in final_features if f in test_univ.columns]
-            X_te       = test_univ[avail_test].fillna(0)
-            bm_rets    = benchmark_close.pct_change().fillna(0)
-            slippage   = cfg.get_slippage_bps(cfg.min_adv_usd)
+            X_te    = test_univ.reindex(columns=final_features).fillna(0)
+            bm_rets = benchmark_close.pct_change().fillna(0)
+            slippage = cfg.get_slippage_bps(cfg.min_adv_usd)
 
             lgbm_scores      = pd.Series(final_ranker.predict(X_te), index=test_univ.index)
             # FIX 12: positional call — no top_n kwarg, matches compute_fold_metrics signature
-            lgbm_metrics     = compute_fold_metrics(test_univ, lgbm_scores, avail_test, bm_rets, cfg.commission_bps, slippage)
+            lgbm_metrics     = compute_fold_metrics(test_univ, lgbm_scores, final_features, bm_rets, cfg.commission_bps, slippage)
 
             xgb_scores_raw   = xgb_baseline.predict_scores(X_te)
             xgb_score_series = pd.Series(xgb_scores_raw, index=test_univ.index)
-            xgb_metrics      = compute_fold_metrics(test_univ, xgb_score_series, avail_test, bm_rets, cfg.commission_bps, slippage)
+            xgb_metrics      = compute_fold_metrics(test_univ, xgb_score_series, final_features, bm_rets, cfg.commission_bps, slippage)
 
             log.info(f"LGBM net_sharpe={lgbm_metrics['net_sharpe']:.3f}, "
                      f"XGB net_sharpe={xgb_metrics['net_sharpe']:.3f}")

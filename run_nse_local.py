@@ -980,7 +980,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
                    benchmark_close: pd.Series, cfg, top_n: int, weighting: str,
                    as_of_date: Optional[pd.Timestamp] = None,
-                   mode: str = "legacy") -> dict:
+                   mode: str = "legacy",
+                   variant: str = "composite") -> dict:
     """Score the latest cross-section and build bull + bear portfolios.
 
     mode controls which stocks are eligible for the watchlist:
@@ -1063,8 +1064,10 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
     composite_w  = float(_scoring.get("composite_weight", 0.4))
     bull_signals = {k: float(v) for k, v in _wcfg.get("bull", {}).items()}
     bear_signals = {k: float(v) for k, v in _wcfg.get("bear", {}).items()}
+    if variant == "pureml":
+        model_w, composite_w = 1.0, 0.0
     print(f"  Signal weights loaded from: {_weights_path.name}  "
-          f"(model={model_w:.0%}, composite={composite_w:.0%}, "
+          f"(variant={variant}, model={model_w:.0%}, composite={composite_w:.0%}, "
           f"bull_signals={len(bull_signals)}, bear_signals={len(bear_signals)})")
 
     # ── Signal resolution map — how each key maps to actual feature data ──
@@ -1752,7 +1755,8 @@ def explain_ticker(ticker: str, date_str: Optional[str] = None) -> None:
 def save_outputs(result: dict, panel: pd.DataFrame,
                  benchmark_close: pd.Series, cfg,
                  mode: str = "legacy",
-                 cap_tier_map: dict | None = None) -> None:
+                 cap_tier_map: dict | None = None,
+                 variant: str = "composite") -> None:
     from pipeline.features.engineer import FEATURE_PREFIX
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1899,14 +1903,15 @@ def save_outputs(result: dict, panel: pd.DataFrame,
 
     # ── Save separate CSVs ────────────────────────────────────────────────
     _sfx = f"_{mode}" if mode != "legacy" else ""
-    bull_path = OUTPUT_DIR / f"watchlist{_sfx}_bull_{date_str}.csv"
-    bear_path = OUTPUT_DIR / f"watchlist{_sfx}_bear_{date_str}.csv"
+    _vsuffix = "_pureml" if variant == "pureml" else "_composite"
+    bull_path = OUTPUT_DIR / f"watchlist{_sfx}{_vsuffix}_bull_{date_str}.csv"
+    bear_path = OUTPUT_DIR / f"watchlist{_sfx}{_vsuffix}_bear_{date_str}.csv"
     bull_df.to_csv(bull_path, index=False)
     bear_df.to_csv(bear_path, index=False)
 
     # ── Save combined CSV ─────────────────────────────────────────────────
     combined_df = pd.concat([bull_df, bear_df], ignore_index=True)
-    combined_path = OUTPUT_DIR / f"watchlist{_sfx}_combined_{date_str}.csv"
+    combined_path = OUTPUT_DIR / f"watchlist{_sfx}{_vsuffix}_combined_{date_str}.csv"
     combined_df.to_csv(combined_path, index=False)
 
     # ── Per-cap-tier top-10 watchlists (Large / Mid / Small / Micro) ─────
@@ -1937,7 +1942,7 @@ def save_outputs(result: dict, panel: pd.DataFrame,
                     row["rank"] = i
                     row["cap_tier"] = tier_label
                 tier_df_out = pd.DataFrame(tier_rows)
-                tier_path = OUTPUT_DIR / f"watchlist{_sfx}_{side_key}_{tier_key}_{date_str}.csv"
+                tier_path = OUTPUT_DIR / f"watchlist{_sfx}{_vsuffix}_{side_key}_{tier_key}_{date_str}.csv"
                 tier_df_out.to_csv(tier_path, index=False)
                 print(f"    {tier_label} {side_label} top-10: {tier_path}")
 
@@ -2336,24 +2341,27 @@ def main() -> None:
 
         # ── Score & rank each mode, save outputs ───────────────────────────
         for m, art in results_by_mode.items():
-            print(f"\n{'='*62}")
-            print(f"  SCORING   MODE: {m.upper()}")
-            print(f"{'='*62}")
-            with perf.stage(f"Score & rank — {m}"):
-                result = score_and_rank(
-                    panel=panel,
-                    ensemble=art["ensemble"],
-                    final_features=art["final_features"],
-                    benchmark_close=benchmark_close,
-                    cfg=cfg,
-                    top_n=args.top_n,
-                    weighting=args.weighting,
-                    as_of_date=csv_max_date,
-                    mode=m,
-                )
-            with perf.stage(f"Save outputs — {m}"):
-                save_outputs(result, panel, benchmark_close, cfg, mode=m,
-                             cap_tier_map=cap_tier_map if cap_tier_map else None)
+            for variant in ["pureml", "composite"]:
+                print(f"\n{'='*62}")
+                print(f"  SCORING   MODE: {m.upper()}  VARIANT: {variant.upper()}")
+                print(f"{'='*62}")
+                with perf.stage(f"Score & rank — {m} ({variant})"):
+                    result = score_and_rank(
+                        panel=panel,
+                        ensemble=art["ensemble"],
+                        final_features=art["final_features"],
+                        benchmark_close=benchmark_close,
+                        cfg=cfg,
+                        top_n=args.top_n,
+                        weighting=args.weighting,
+                        as_of_date=csv_max_date,
+                        mode=m,
+                        variant=variant,
+                    )
+                with perf.stage(f"Save outputs — {m} ({variant})"):
+                    save_outputs(result, panel, benchmark_close, cfg, mode=m,
+                                 cap_tier_map=cap_tier_map if cap_tier_map else None,
+                                 variant=variant)
 
         # ── --explain (post-run, if requested) ───────────────────────────
         if args.explain:

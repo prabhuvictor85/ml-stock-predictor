@@ -110,6 +110,12 @@ section "4/5  Installing Python dependencies"
 
 cd "${PROJECT_DIR}"
 
+# Ensure pip is available (Hetzner Ubuntu images may not include it)
+if ! python3 -m pip --version &>/dev/null; then
+    info "pip not found — installing via apt ..."
+    apt-get update -qq && apt-get install -y python3-pip python3-venv
+fi
+
 # Ensure pip is up to date
 python3 -m pip install --upgrade pip --quiet
 

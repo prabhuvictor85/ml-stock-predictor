@@ -26,6 +26,16 @@ from typing import List
 import pandas as pd
 import yfinance as yf
 
+# Disable yfinance SQLite cache to prevent OperationalError on concurrent writes
+try:
+    from yfinance.utils import auto_adjust
+except Exception:
+    pass
+try:
+    yf.set_tz_cache_location(None)
+except Exception:
+    pass
+
 # ── Config ─────────────────────────────────────────────────────────────────────
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -34,8 +44,8 @@ STOCK_DATA_DIR  = PATHS.stock_data.nse_local
 STOCK_LIST_CSV  = PATHS.stock_lists.nse_local
 BENCHMARK_TICKER = "^NSEI"
 START_DATE      = "2010-01-01"
-MAX_WORKERS     = 8
-RATE_LIMIT_SLEEP = 0.25
+MAX_WORKERS     = 3   # yfinance rate-limits above 3-4 parallel requests
+RATE_LIMIT_SLEEP = 0.5  # 500ms between batches to avoid Yahoo throttling
 
 
 def parse_args() -> argparse.Namespace:

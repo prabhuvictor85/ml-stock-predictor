@@ -103,6 +103,17 @@ fi
 
 info "Repo ready at ${PROJECT_DIR}"
 
+# Re-exec from the repo's copy of this script so we always run the latest version.
+# Guard against infinite loop with SETUP_REEXECED env var.
+REPO_SCRIPT="${PROJECT_DIR}/scripts/server_setup.sh"
+if [ -z "${SETUP_REEXECED:-}" ] && [ -f "${REPO_SCRIPT}" ]; then
+    if ! diff -q "$0" "${REPO_SCRIPT}" &>/dev/null; then
+        info "Newer version of setup script found — re-executing from repo ..."
+        export SETUP_REEXECED=1
+        exec bash "${REPO_SCRIPT}" "$@"
+    fi
+fi
+
 # =============================================================================
 # 4. INSTALL PYTHON DEPENDENCIES
 # =============================================================================

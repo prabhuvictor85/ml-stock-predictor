@@ -127,13 +127,11 @@ if ! python3 -m pip --version &>/dev/null; then
     apt-get update -qq && apt-get install -y python3-pip python3-venv
 fi
 
-# Ensure pip is up to date
-# --break-system-packages is safe here: Hetzner servers are ephemeral/throwaway
-python3 -m pip install --upgrade pip --quiet --break-system-packages
-
+# --break-system-packages is safe: Hetzner servers are ephemeral/throwaway
+# Skip pip self-upgrade to avoid Debian RECORD file conflict
 if [ -f "requirements.txt" ]; then
     info "Installing from requirements.txt ..."
-    python3 -m pip install -r requirements.txt --quiet --break-system-packages
+    python3 -m pip install -r requirements.txt --break-system-packages
 else
     warn "requirements.txt not found — skipping pip install"
 fi

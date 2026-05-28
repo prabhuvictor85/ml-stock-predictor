@@ -49,7 +49,7 @@ Thumbs.db
 *.txt
 *.log
 bkp_artifacts/
-monitoring/
+/monitoring/
 .claude/
 audit_*.py
 debug_*.py

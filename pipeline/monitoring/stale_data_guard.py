@@ -217,8 +217,14 @@ class StaleDataGuard:
         latest_date = panel.index.get_level_values("date").max()
 
         # Compute daily returns across entire panel
+        # Deduplicate index before unstacking — duplicate (date, ticker) pairs
+        # can appear when multiple CSV rows share the same date (split-adjusted
+        # restated files, calendar mismatches, etc.).
+        close_ser = panel["close"]
+        if close_ser.index.duplicated().any():
+            close_ser = close_ser[~close_ser.index.duplicated(keep="last")]
         close_wide = (
-            panel["close"]
+            close_ser
             .unstack("ticker")
             .sort_index()
         )

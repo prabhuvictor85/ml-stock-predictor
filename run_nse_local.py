@@ -734,7 +734,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             params = {
                 "num_leaves":        trial.suggest_int("num_leaves", 20, 200),
                 "learning_rate":     trial.suggest_float("lr", 0.005, 0.2, log=True),
-                "n_estimators":      trial.suggest_int("n_estimators", 100, 600),
+                "n_estimators":      trial.suggest_int("n_estimators", 100, 250),
                 "min_child_samples": trial.suggest_int("min_child_samples", 10, 100),
                 "subsample":         trial.suggest_float("subsample", 0.5, 1.0),
                 "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.4, 1.0),
@@ -769,8 +769,29 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 y_tr_r = 1.0 - _rank if mode == "reversal" else _rank
 
                 t_fold = _time.time()
+
+                # ── Early-stopping val split (last 20% of training dates) ─────
+                # Keeps early stopping honest — never touches the held-out test fold.
+                _tr_date_lvl  = tr_grp.index.get_level_values("date")
+                _tr_uniq      = sorted(_tr_date_lvl.unique())
+                _n_val_d      = max(5, len(_tr_uniq) // 5)
+                _val_date_set = set(_tr_uniq[-_n_val_d:])
+                _es_tr_mask   = ~_tr_date_lvl.isin(_val_date_set)
+                _es_vl_mask   = _tr_date_lvl.isin(_val_date_set)
+                _use_es       = (_es_vl_mask.sum() >= 20) and (_es_tr_mask.sum() >= 20)
+
                 ranker = LGBMRanker(params, seed=cfg.random_seed, num_threads=_lgbm_threads)
-                ranker.fit(tr_grp[sf_te].fillna(0), y_tr_r, tr_groups)
+                if _use_es:
+                    X_es_tr  = tr_grp.loc[_es_tr_mask, sf_te].fillna(0)
+                    X_es_val = tr_grp.loc[_es_vl_mask, sf_te].fillna(0)
+                    y_es_tr  = y_tr_r[_es_tr_mask]
+                    y_es_val = y_tr_r[_es_vl_mask]
+                    g_es_tr  = X_es_tr.groupby(level="date").size().values
+                    g_es_val = X_es_val.groupby(level="date").size().values
+                    ranker.fit(X_es_tr, y_es_tr, g_es_tr,
+                               X_val=X_es_val, y_val=y_es_val, group_val=g_es_val)
+                else:
+                    ranker.fit(tr_grp[sf_te].fillna(0), y_tr_r, tr_groups)
 
                 n_trees = ranker.model_.num_trees()
                 if n_trees == 0:

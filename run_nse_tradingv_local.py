@@ -256,6 +256,10 @@ def parse_args() -> argparse.Namespace:
                        "'reversal' = demand zone bounce plays, stocks 15%%+ below 52w high. "
                        "'legacy' = original single-ranker (backward compat)."
                    ))
+    p.add_argument("--n_jobs", type=int, default=1,
+                   help="Parallel Optuna trials (default 1 = sequential). "
+                        "Set to 4 on Hetzner CCX33 for ~3x HPO speedup. "
+                        "Example: --n_jobs 4")
     return p.parse_args()
 
 
@@ -545,7 +549,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
           cfg, n_folds: int, n_trials: int, top_n: int,
           use_gpu: bool = False,
           mode: str = "legacy",
-          mode_artefacts_dir: Optional[Path] = None) -> dict:
+          mode_artefacts_dir: Optional[Path] = None,
+          n_jobs: int = 1) -> dict:
     """Full train: features → targets → CV → Optuna → models → calibration.
 
     mode: "legacy" | "momentum" | "reversal"
@@ -655,6 +660,14 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         fold_specs = cv.get_fold_specs(train_panel)
         print(f"      {len(fold_specs)} folds generated")
 
+    # ── Thread allocation for parallel Optuna trials ───────────────────────
+    import os as _os
+    _cpu_count = _os.cpu_count() or 8
+    _lgbm_threads = max(1, _cpu_count // n_jobs)
+    if n_jobs > 1:
+        print(f"      Thread allocation: {n_jobs} parallel trials × "
+              f"{_lgbm_threads} threads each = {n_jobs * _lgbm_threads}/{_cpu_count} cores")
+
     # ── Optuna HPO ──────────────────────────────────────────────────────────
     best_params = {
         "num_leaves": 63, "learning_rate": 0.05,
@@ -756,7 +769,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             params = {
                 "num_leaves":        trial.suggest_int("num_leaves", 20, 200),
                 "learning_rate":     trial.suggest_float("lr", 0.005, 0.2, log=True),
-                "n_estimators":      trial.suggest_int("n_estimators", 100, 600),
+                "n_estimators":      trial.suggest_int("n_estimators", 100, 250),
                 "min_child_samples": trial.suggest_int("min_child_samples", 10, 100),
                 "subsample":         trial.suggest_float("subsample", 0.5, 1.0),
                 "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.4, 1.0),
@@ -791,8 +804,29 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 y_tr_r = 1.0 - _rank if mode == "reversal" else _rank
 
                 t_fold = _time.time()
-                ranker = LGBMRanker(params, seed=cfg.random_seed)
-                ranker.fit(tr_grp[sf_te].fillna(0), y_tr_r, tr_groups)
+
+                # ── Early-stopping val split (last 20% of training dates) ─────
+                # Keeps early stopping honest — never touches the held-out test fold.
+                _tr_date_lvl  = tr_grp.index.get_level_values("date")
+                _tr_uniq      = sorted(_tr_date_lvl.unique())
+                _n_val_d      = max(5, len(_tr_uniq) // 5)
+                _val_date_set = set(_tr_uniq[-_n_val_d:])
+                _es_tr_mask   = ~_tr_date_lvl.isin(_val_date_set)
+                _es_vl_mask   = _tr_date_lvl.isin(_val_date_set)
+                _use_es       = (_es_vl_mask.sum() >= 20) and (_es_tr_mask.sum() >= 20)
+
+                ranker = LGBMRanker(params, seed=cfg.random_seed, num_threads=_lgbm_threads)
+                if _use_es:
+                    X_es_tr  = tr_grp.loc[_es_tr_mask, sf_te].fillna(0)
+                    X_es_val = tr_grp.loc[_es_vl_mask, sf_te].fillna(0)
+                    y_es_tr  = y_tr_r[_es_tr_mask]
+                    y_es_val = y_tr_r[_es_vl_mask]
+                    g_es_tr  = X_es_tr.groupby(level="date").size().values
+                    g_es_val = X_es_val.groupby(level="date").size().values
+                    ranker.fit(X_es_tr, y_es_tr, g_es_tr,
+                               X_val=X_es_val, y_val=y_es_val, group_val=g_es_val)
+                else:
+                    ranker.fit(tr_grp[sf_te].fillna(0), y_tr_r, tr_groups)
 
                 n_trees = ranker.model_.num_trees()
                 if n_trees == 0:
@@ -850,7 +884,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         remaining = max(0, n_trials - completed)
         if completed > 0:
             print(f"      Resuming HPO: {completed} trials already done, {remaining} remaining")
-        study.optimize(objective, n_trials=remaining, show_progress_bar=True)
+        study.optimize(objective, n_trials=remaining, n_jobs=n_jobs, show_progress_bar=True)
         best_params = study.best_params.copy()
         best_k = best_params.pop("feature_top_K", 30)
         best_params["learning_rate"] = best_params.pop("lr", best_params.get("learning_rate", 0.05))
@@ -894,7 +928,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     print(f"      Selected {len(final_features)} features")
 
     X_fin = X_full[final_features].fillna(0)
-    final_ranker = LGBMRanker(best_params, seed=cfg.random_seed)
+    final_ranker = LGBMRanker(best_params, seed=cfg.random_seed, num_threads=-1)
     final_ranker.fit(X_fin, y_full_r, full_groups)
 
     ensemble = EnsembleRanker(final_ranker)
@@ -2293,6 +2327,7 @@ def main() -> None:
                         use_gpu=use_gpu,
                         mode=m,
                         mode_artefacts_dir=MODE_DIRS[m],
+                        n_jobs=args.n_jobs,
                     )
                 panel = artefacts["panel"]   # full unfiltered panel from shared checkpoint
                 results_by_mode[m] = {

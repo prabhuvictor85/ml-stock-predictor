@@ -26,13 +26,13 @@ from typing import List
 import pandas as pd
 import yfinance as yf
 
-# Disable yfinance SQLite cache to prevent OperationalError on concurrent writes
+# Point yfinance tz-cache to a real temp dir.
+# set_tz_cache_location(None) sets the internal path to None, which causes
+# a TypeError('stat: ... NoneType') when yfinance tries to check the cache file.
+import tempfile as _tempfile
+_YF_CACHE_DIR = _tempfile.gettempdir()
 try:
-    from yfinance.utils import auto_adjust
-except Exception:
-    pass
-try:
-    yf.set_tz_cache_location(None)
+    yf.set_tz_cache_location(_YF_CACHE_DIR)
 except Exception:
     pass
 

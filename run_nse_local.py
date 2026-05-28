@@ -2303,7 +2303,7 @@ def main() -> None:
                         mode_artefacts_dir=MODE_DIRS[m],
                         n_jobs=args.n_jobs,
                     )
-                panel = full_panel   # restore full panel for scoring / next mode
+                panel = artefacts["panel"]   # feature-engineered panel — required for score_and_rank
                 results_by_mode[m] = {
                     "ensemble":      artefacts["ensemble"],
                     "final_features": artefacts["final_features"],

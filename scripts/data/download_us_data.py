@@ -34,14 +34,14 @@ import yfinance as yf
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from pipeline.config.paths import PATHS
-DATA_DIR       = PATHS.stock_data.us_alt
+DATA_DIR       = PATHS.stock_data.us          # stock_data/us_stocks — same path run_sp500_local.py reads
 LISTS_DIR      = PATHS.stock_lists.lists_dir
 CONSTITUENT_CSV = LISTS_DIR / "constituents_us.csv"
 
 BENCHMARK_TICKERS = ["^GSPC", "^NDX"]   # S&P 500 + NASDAQ 100 indices
 START_DATE        = "2010-01-01"         # history start
-MAX_WORKERS       = 8                    # parallel download threads
-RATE_LIMIT_SLEEP  = 0.25                 # seconds between batches (be nice to yfinance)
+MAX_WORKERS       = 1                    # sequential — avoids rate-limit errors
+RATE_LIMIT_SLEEP  = 0.3                  # 300ms between tickers
 
 
 def parse_args() -> argparse.Namespace:

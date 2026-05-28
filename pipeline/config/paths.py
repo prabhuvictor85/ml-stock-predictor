@@ -135,10 +135,10 @@ def _load() -> _Paths:
             lists_dir     = _resolve(sl.get("lists_dir",     "{data_root}/stock_lists")),
         ),
         stock_data = _StockData(
-            nse_local = _resolve(sd.get("nse_local", "{data_root}/stock_data")),
+            nse_local = _resolve(sd.get("nse_local", "{data_root}/stock_data/nse_data")),
             nse_tv    = _resolve(sd.get("nse_tv",    "{data_root}/stock_data/tradingview")),
             us        = _resolve(sd.get("us",        "{data_root}/stock_data/us_stocks")),
-            us_alt    = _resolve(sd.get("us_alt",    "{data_root}/us_data")),
+            us_alt    = _resolve(sd.get("us_alt",    "{data_root}/stock_data/us_stocks")),
         ),
     )
 

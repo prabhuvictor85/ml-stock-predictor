@@ -240,6 +240,11 @@ def parse_args() -> argparse.Namespace:
                         "Default: log warnings and continue.")
     p.add_argument("--max_data_lag_days", type=int, default=7,
                    help="Max calendar days since the latest bar before flagging staleness (default 7)")
+    p.add_argument("--as_of", type=str, default=None,
+                   help="Treat this date as 'today' for staleness checks and scoring "
+                        "(format: YYYY-MM-DD). Use when running on historical data that "
+                        "is intentionally capped at a past date. "
+                        "Example: --as_of 2023-12-08")
     p.add_argument("--explain", type=str, default=None, metavar="TICKER",
                    help="Explain why TICKER was/wasn't selected. Uses the last run's scores. "
                         "E.g.: --explain AAPL")
@@ -2172,6 +2177,13 @@ def main() -> None:
             if benchmark_close.empty:
                 benchmark_close = panel.groupby(level="date")["close"].mean().rename("benchmark_close")
 
+        # ── Resolve as_of date ─────────────────────────────────────────────
+        as_of_dt: Optional[datetime] = None
+        if args.as_of:
+            as_of_dt = datetime.strptime(args.as_of, "%Y-%m-%d")
+            print(f"\n  [as_of={args.as_of}] Using {args.as_of} as reference date "
+                  f"for staleness checks and scoring.")
+
         # ── Data freshness checks (StaleDataGuard) ─────────────────────────
         from pipeline.monitoring.stale_data_guard import StaleDataGuard, StaleDataError
         guard = StaleDataGuard(
@@ -2180,9 +2192,9 @@ def main() -> None:
         )
         try:
             if args.strict_data_check:
-                guard.assert_fresh(panel, benchmark_close)
+                guard.assert_fresh(panel, benchmark_close, as_of=as_of_dt)
             else:
-                issues = guard.check(panel, benchmark_close)
+                issues = guard.check(panel, benchmark_close, as_of=as_of_dt)
                 if any(i.severity == "error" for i in issues):
                     print("  ⚠ Data freshness issues detected (use --strict_data_check to block):")
                     for i in issues:
@@ -2264,12 +2276,17 @@ def main() -> None:
                 except Exception as e:
                     print(f"Drift monitor warning [{m}]: {e}")
 
-        # ── Determine scoring date from CSV max date ───────────────────────
-        csv_max_date = get_csv_max_date(STOCK_DATA_DIR)
-        if csv_max_date is not None:
-            print(f"\nCSV max date detected: {csv_max_date.date()} — using as scoring as-of date")
+        # ── Determine scoring date ─────────────────────────────────────────
+        # Priority: --as_of flag > CSV max date > panel max date
+        if as_of_dt is not None:
+            csv_max_date = pd.Timestamp(as_of_dt)
+            print(f"\nScoring as-of date: {csv_max_date.date()} (from --as_of)")
         else:
-            print("\nCould not determine CSV max date — falling back to panel max date")
+            csv_max_date = get_csv_max_date(STOCK_DATA_DIR)
+            if csv_max_date is not None:
+                print(f"\nCSV max date detected: {csv_max_date.date()} — using as scoring as-of date")
+            else:
+                print("\nCould not determine CSV max date — falling back to panel max date")
 
         # ── Score & rank each mode, save outputs ───────────────────────────
         for m, art in results_by_mode.items():

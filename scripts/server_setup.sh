@@ -117,11 +117,12 @@ if ! python3 -m pip --version &>/dev/null; then
 fi
 
 # Ensure pip is up to date
-python3 -m pip install --upgrade pip --quiet
+# --break-system-packages is safe here: Hetzner servers are ephemeral/throwaway
+python3 -m pip install --upgrade pip --quiet --break-system-packages
 
 if [ -f "requirements.txt" ]; then
     info "Installing from requirements.txt ..."
-    python3 -m pip install -r requirements.txt --quiet
+    python3 -m pip install -r requirements.txt --quiet --break-system-packages
 else
     warn "requirements.txt not found — skipping pip install"
 fi

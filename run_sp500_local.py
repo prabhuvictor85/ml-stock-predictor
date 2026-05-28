@@ -813,6 +813,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 if not sf_te:
                     continue
                 sf_te2 = [f for f in sf_te if f in te_univ.columns]
+                if not sf_te2:
+                    continue
 
                 _rank = tr_grp["cs_rank_composite"].fillna(0)
                 y_tr_r = 1.0 - _rank if mode == "reversal" else _rank

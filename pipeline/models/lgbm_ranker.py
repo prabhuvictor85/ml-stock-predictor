@@ -160,6 +160,7 @@ class LGBMRanker:
             "label_gain":   build_label_gain(),
             "verbosity":    -1,
             "seed":         self.seed,
+            "num_threads":  -1,   # -1 = use all available CPU cores
             **self.params,
         }
 

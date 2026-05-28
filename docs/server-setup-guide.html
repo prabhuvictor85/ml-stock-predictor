@@ -61,6 +61,52 @@
     }
     nav ul li a:hover { color: var(--text); background: var(--surface2); }
     nav ul li.section { padding: 16px 20px 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #475569; }
+
+    /* ── Quick Start hero ── */
+    .quickstart {
+      background: linear-gradient(135deg, rgba(108,142,245,.15), rgba(74,222,128,.08));
+      border: 1px solid var(--accent);
+      border-radius: 12px;
+      padding: 28px 32px;
+      margin-bottom: 40px;
+    }
+    .quickstart h2 { border: none; margin: 0 0 6px; font-size: 22px; color: #fff; padding: 0; }
+    .quickstart .qs-sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+    .quickstart pre  { background: rgba(0,0,0,.4); border-color: rgba(108,142,245,.3); margin: 0; }
+    .quickstart .steps-inline { display: flex; gap: 16px; flex-wrap: wrap; margin: 16px 0 20px; }
+    .quickstart .step-pill {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 12px;
+      color: var(--muted);
+      flex: 1;
+      min-width: 140px;
+    }
+    .quickstart .step-pill strong { display: block; color: var(--accent2); margin-bottom: 2px; font-size: 13px; }
+
+    /* ── Manual fallback collapsible ── */
+    .manual-section {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 16px;
+      overflow: hidden;
+    }
+    .manual-header {
+      background: var(--surface2);
+      padding: 14px 20px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      user-select: none;
+    }
+    .manual-header:hover { background: #2a2f47; }
+    .manual-header h2 { border: none; margin: 0; padding: 0; font-size: 16px; color: var(--warn); }
+    .manual-header .toggle { color: var(--muted); font-size: 18px; transition: transform .2s; }
+    .manual-body { padding: 24px 28px; display: none; }
+    .manual-body.open { display: block; }
     nav ul li.active a { color: var(--accent); border-left-color: var(--accent); background: rgba(108,142,245,.08); }
 
     main { flex: 1; padding: 40px 48px; max-width: 960px; }
@@ -191,11 +237,8 @@
     </div>
     <ul>
       <li class="section">Setup</li>
-      <li><a href="#server">1. Create Server</a></li>
-      <li><a href="#volume">2. Attach &amp; Mount Volume</a></li>
-      <li><a href="#git">3. Git Setup</a></li>
-      <li><a href="#python">4. Python &amp; Venv</a></li>
-      <li><a href="#paths">5. paths.yaml</a></li>
+      <li><a href="#quickstart">⚡ Quick Start (setup.sh)</a></li>
+      <li><a href="#manual">Manual Steps (fallback)</a></li>
       <li class="section">Data</li>
       <li><a href="#hf-download">6. Download from HF</a></li>
       <li><a href="#hf-upload">7. Upload to HF</a></li>
@@ -216,6 +259,42 @@
     <p class="subtitle">Complete reference for configuring a Hetzner server, managing data, and running full model training.</p>
 
     <!-- ══════════════════════════════════════════════════════ -->
+    <section id="quickstart">
+      <div class="quickstart">
+        <h2>⚡ Quick Start — <code>setup.sh</code></h2>
+        <p class="qs-sub">One command does everything: mounts volume, creates directories, clones repo, installs Python deps, and writes <code>paths.yaml</code>.</p>
+
+        <div class="steps-inline">
+          <div class="step-pill"><strong>Step 1 — Mount &amp; format</strong>Attaches /dev/sdb → /mnt/data, adds to fstab</div>
+          <div class="step-pill"><strong>Step 2 — Directories</strong>Creates all data + artefacts folders on volume</div>
+          <div class="step-pill"><strong>Step 3 — Git clone/pull</strong>Clones or updates ml-stock-predictor master</div>
+          <div class="step-pill"><strong>Step 4 — Python venv</strong>Creates /root/venv, installs requirements.txt</div>
+          <div class="step-pill"><strong>Step 5 — paths.yaml</strong>Writes machine-specific config automatically</div>
+        </div>
+
+        <pre><code><span class="comment"># On the Hetzner server — run once after every new server creation</span>
+curl -o setup.sh https://raw.githubusercontent.com/prabhuvictor85/ml-stock-predictor/master/scripts/server_setup.sh
+bash setup.sh
+
+<span class="comment"># Or if you've already cloned the repo:</span>
+bash /root/ml-stock-predictor/scripts/server_setup.sh</code></pre>
+
+        <div class="callout success" style="margin-top:16px;margin-bottom:0">
+          <span class="callout-icon">✅</span>
+          <p>When it prints <strong>"Server setup complete!"</strong> — activate the venv and you're ready: <code>source /root/venv/bin/activate</code></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="manual">
+      <div class="manual-section">
+        <div class="manual-header" onclick="toggleManual()">
+          <h2>⚠️ Manual Setup Steps — only if setup.sh fails</h2>
+          <span class="toggle" id="toggle-icon">▼</span>
+        </div>
+        <div class="manual-body" id="manual-body">
+
     <section id="server">
       <h2>1. Create Server (Hetzner)</h2>
       <p>Recommended spec for full training with <strong>n_jobs=4</strong>:</p>
@@ -438,6 +517,10 @@ stock_data:
         <p><code>paths.yaml</code> is in <code>.gitignore</code>. It will never be committed or overwritten by <code>git pull</code>.</p>
       </div>
     </section>
+
+        </div><!-- /manual-body -->
+      </div><!-- /manual-section -->
+    </section><!-- /manual -->
 
     <!-- ══════════════════════════════════════════════════════ -->
     <section id="hf-download">
@@ -820,5 +903,14 @@ rm -f /mnt/data/artefacts/us_local/checkpoints/panel_features.pkl
   </main>
 
 </div>
+
+<script>
+  function toggleManual() {
+    const body = document.getElementById('manual-body');
+    const icon = document.getElementById('toggle-icon');
+    const isOpen = body.classList.toggle('open');
+    icon.textContent = isOpen ? '▲' : '▼';
+  }
+</script>
 </body>
 </html>

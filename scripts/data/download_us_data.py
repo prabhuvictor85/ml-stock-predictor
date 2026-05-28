@@ -54,6 +54,8 @@ def parse_args() -> argparse.Namespace:
                    help="Only download/refresh benchmark index files")
     p.add_argument("--start", default=START_DATE,
                    help=f"History start date (default: {START_DATE})")
+    p.add_argument("--end", default=None,
+                   help="History end date e.g. 2023-12-31 (default: today)")
     p.add_argument("--no_constituents", action="store_true",
                    help="Skip constituent CSV refresh (use existing)")
     return p.parse_args()
@@ -157,7 +159,8 @@ def file_needs_update(path: Path, refresh_after_days: int) -> bool:
 
 
 def download_ticker(ticker: str, data_dir: Path, start: str,
-                    refresh_after_days: int) -> tuple[str, bool, str]:
+                    refresh_after_days: int,
+                    end: str = None) -> tuple[str, bool, str]:
     """
     Download daily OHLCV for a single ticker and save as {ticker}-1d.csv.
     Returns (ticker, success, message).
@@ -169,7 +172,7 @@ def download_ticker(ticker: str, data_dir: Path, start: str,
         return ticker, True, "skipped (up to date)"
 
     try:
-        df = yf.download(ticker, start=start, auto_adjust=True,
+        df = yf.download(ticker, start=start, end=end, auto_adjust=True,
                          progress=False, multi_level_index=False)
         if df.empty:
             return ticker, False, "empty response from yfinance"
@@ -207,8 +210,8 @@ def download_ticker(ticker: str, data_dir: Path, start: str,
 
 
 def download_all(tickers: List[str], data_dir: Path, start: str,
-                 refresh_after_days: int) -> None:
-    """Download all tickers in parallel with progress reporting."""
+                 refresh_after_days: int, end: str = None) -> None:
+    """Download all tickers sequentially with progress reporting."""
     data_dir.mkdir(parents=True, exist_ok=True)
 
     total     = len(tickers)
@@ -221,7 +224,7 @@ def download_all(tickers: List[str], data_dir: Path, start: str,
 
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = {
-            pool.submit(download_ticker, t, data_dir, start, refresh_after_days): t
+            pool.submit(download_ticker, t, data_dir, start, refresh_after_days, end): t
             for t in tickers
         }
         done = 0
@@ -255,12 +258,13 @@ def download_all(tickers: List[str], data_dir: Path, start: str,
         print(f"  Failed list saved to: {fail_path}")
 
 
-def download_benchmarks(data_dir: Path, start: str, refresh_after_days: int) -> None:
+def download_benchmarks(data_dir: Path, start: str, refresh_after_days: int,
+                        end: str = None) -> None:
     """Download ^GSPC and ^NDX benchmark files."""
     print(f"\nDownloading benchmark indices ...")
     data_dir.mkdir(parents=True, exist_ok=True)
     for ticker in BENCHMARK_TICKERS:
-        t, ok, msg = download_ticker(ticker, data_dir, start, refresh_after_days)
+        t, ok, msg = download_ticker(ticker, data_dir, start, refresh_after_days, end)
         status = "OK" if ok else "FAILED"
         print(f"  [{status}] {ticker}: {msg}")
 
@@ -276,20 +280,21 @@ def main() -> None:
     print("  US Market Data Downloader")
     print("  Universe: S&P 500 + NASDAQ 100")
     print(f"  Start   : {args.start}")
+    print(f"  End     : {args.end or 'today'}")
     print(f"  Output  : {DATA_DIR}")
     print("=" * 60)
 
     # ── Benchmarks only ────────────────────────────────────────────────────
     if args.benchmarks_only:
-        download_benchmarks(DATA_DIR, args.start, max(1, args.refresh_after))
+        download_benchmarks(DATA_DIR, args.start, max(1, args.refresh_after), args.end)
         return
 
     # ── Specific tickers ───────────────────────────────────────────────────
     if args.tickers:
         tickers = [t.strip().upper() for t in args.tickers]
         print(f"\nDownloading {len(tickers)} specified ticker(s)...")
-        download_all(tickers, DATA_DIR, args.start, args.refresh_after)
-        download_benchmarks(DATA_DIR, args.start, args.refresh_after)
+        download_all(tickers, DATA_DIR, args.start, args.refresh_after, args.end)
+        download_benchmarks(DATA_DIR, args.start, args.refresh_after, args.end)
         return
 
     # ── Full run: fetch constituents + download ────────────────────────────
@@ -306,10 +311,10 @@ def main() -> None:
     tickers = universe["Symbol"].dropna().str.strip().tolist()
 
     print(f"\n[2/3] Downloading {len(tickers)} stock files...")
-    download_all(tickers, DATA_DIR, args.start, args.refresh_after)
+    download_all(tickers, DATA_DIR, args.start, args.refresh_after, args.end)
 
     print(f"\n[3/3] Downloading benchmark indices...")
-    download_benchmarks(DATA_DIR, args.start, max(1, args.refresh_after))
+    download_benchmarks(DATA_DIR, args.start, max(1, args.refresh_after), args.end)
 
     print(f"\n{'='*60}")
     print("  Done! Next step:")

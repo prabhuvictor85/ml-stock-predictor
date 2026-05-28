@@ -44,8 +44,8 @@ STOCK_DATA_DIR  = PATHS.stock_data.nse_local
 STOCK_LIST_CSV  = PATHS.stock_lists.nse_local
 BENCHMARK_TICKER = "^NSEI"
 START_DATE      = "2010-01-01"
-MAX_WORKERS     = 3   # yfinance rate-limits above 3-4 parallel requests
-RATE_LIMIT_SLEEP = 0.5  # 500ms between batches to avoid Yahoo throttling
+MAX_WORKERS     = 1   # sequential — avoids rate-limit and SQLite cache conflicts
+RATE_LIMIT_SLEEP = 0.3  # 300ms between tickers
 
 
 def parse_args() -> argparse.Namespace:

@@ -711,49 +711,42 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         # Zones depend only on price history up to the cutoff date — they are
         # identical for every Optuna trial on the same fold. Building them once
         # and reusing across all 50 trials gives a ~50x speedup on zone I/O.
-        print("      Pre-computing fold zones (runs once, reused across all trials) ...")
+        print("      Pre-computing fold zones (4 parallel workers) ...")
         t_cache = _time.time()
-        fold_cache = {}   # fold_id -> {"tr_grp", "tr_groups", "te_univ"}
-        for spec, tr_idx, te_idx in cv.split(train_panel):
+        from joblib import Parallel, delayed
+
+        def _build_one_fold(spec, tr_idx, te_idx):
             tr = train_panel.iloc[tr_idx]
             if len(tr) == 0:
-                fold_cache[spec.fold_id] = None
-                continue
-
+                return spec.fold_id, None, None
             fold_cutoff = train_panel.index.get_level_values("date")[tr_idx].max()
             tr = fe.recompute_zones(tr, cutoff_date=fold_cutoff)
             tr_grp, tr_groups = cv.build_group_array(tr, min_group_size=5)
-
             if len(tr_grp) == 0:
-                fold_cache[spec.fold_id] = None
-                continue
-
+                return spec.fold_id, None, None
             avg_group_size = len(tr_grp) / max(len(tr_groups), 1)
             if avg_group_size < 10:
-                fold_cache[spec.fold_id] = None
-                print(f"        Fold {spec.fold_id}: avg_group={avg_group_size:.1f} < 10 — skipping", flush=True)
-                continue
-
+                return spec.fold_id, None, f"avg_group={avg_group_size:.1f} < 10 — skipping"
             te_panel = train_panel.iloc[te_idx]
             te_panel = fe.recompute_zones(te_panel, cutoff_date=spec.test_end)
             te_univ  = te_panel[te_panel["in_universe"] == True]
-
             if len(te_univ) < 5:
-                fold_cache[spec.fold_id] = None
-                print(f"        Fold {spec.fold_id}: test universe too small ({len(te_univ)}) — skipping", flush=True)
-                continue
+                return spec.fold_id, None, f"test universe too small ({len(te_univ)}) — skipping"
+            entry = {"tr_grp": tr_grp, "tr_groups": tr_groups, "te_univ": te_univ}
+            msg   = (f"cached train={len(tr_grp):,}rows/{len(tr_groups)}groups "
+                     f"test={len(te_univ):,}")
+            return spec.fold_id, entry, msg
 
-            fold_cache[spec.fold_id] = {
-                "tr_grp":    tr_grp,
-                "tr_groups": tr_groups,
-                "te_univ":   te_univ,
-            }
-            print(
-                f"        Fold {spec.fold_id}: cached "
-                f"train={len(tr_grp):,}rows/{len(tr_groups)}groups "
-                f"test={len(te_univ):,}",
-                flush=True,
-            )
+        fold_splits = list(cv.split(train_panel))
+        raw_results = Parallel(n_jobs=4, prefer="threads", verbose=0)(
+            delayed(_build_one_fold)(spec, tr_idx, te_idx)
+            for spec, tr_idx, te_idx in fold_splits
+        )
+        fold_cache = {}   # fold_id -> {"tr_grp", "tr_groups", "te_univ"}
+        for fold_id, entry, msg in sorted(raw_results, key=lambda x: x[0]):
+            fold_cache[fold_id] = entry
+            if msg:
+                print(f"        Fold {fold_id}: {msg}", flush=True)
 
         valid_fold_ids = [fid for fid, v in fold_cache.items() if v is not None]
         print(

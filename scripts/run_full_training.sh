@@ -1,24 +1,25 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run_full_training.sh — Train all three markets
-#
-# Markets:
-#   1. NSE Local         (run_nse_local.py)
-#   2. S&P 500 / NASDAQ  (run_sp500_local.py)
-#   3. NSE TradingView   (run_nse_tradingv_local.py)
-#
-# Data download is handled separately — run download scripts manually first.
+# run_full_training.sh — Train one or more markets
 #
 # Usage:
-#   bash scripts/run_full_training.sh                    # all markets, defaults
-#   bash scripts/run_full_training.sh --skip_nse         # skip NSE local
-#   bash scripts/run_full_training.sh --skip_sp500       # skip SP500
-#   bash scripts/run_full_training.sh --skip_tv          # skip TradingView
-#   bash scripts/run_full_training.sh --n_trials 5 --n_folds 3   # quick test run
+#   bash scripts/run_full_training.sh nse              # NSE local only
+#   bash scripts/run_full_training.sh sp500            # SP500 only
+#   bash scripts/run_full_training.sh tv               # NSE TradingView only
+#   bash scripts/run_full_training.sh nse sp500 tv     # all three
+#   bash scripts/run_full_training.sh nse sp500        # NSE + SP500
+#
+# Options:
+#   --n_folds  N    walk-forward CV folds   (default: 8)
+#   --n_trials N    Optuna HPO trials       (default: 25)
+#
+# Examples:
+#   bash scripts/run_full_training.sh nse --n_trials 1 --n_folds 2   # quick test
+#   bash scripts/run_full_training.sh nse sp500 tv                    # full run
 #
 # Recommended: run inside tmux so it survives SSH disconnect:
 #   tmux new -s training
-#   bash scripts/run_full_training.sh
+#   bash scripts/run_full_training.sh nse sp500 tv
 # =============================================================================
 
 set -euo pipefail
@@ -27,120 +28,112 @@ set -euo pipefail
 VENV_DIR="/root/venv"
 PROJECT_DIR="/root/ml-stock-predictor"
 LOG_DIR="${PROJECT_DIR}/logs"
-
-# Training defaults (match run_*.py defaults)
 N_FOLDS=8
 N_TRIALS=25
 
-# ── Flags ─────────────────────────────────────────────────────────────────────
-SKIP_NSE=0
-SKIP_SP500=0
-SKIP_TV=0
+# ── Parse arguments ───────────────────────────────────────────────────────────
+RUN_NSE=0
+RUN_SP500=0
+RUN_TV=0
 
-# Parse args
+if [ $# -eq 0 ]; then
+    echo "Usage: bash scripts/run_full_training.sh <market(s)> [--n_folds N] [--n_trials N]"
+    echo "  Markets : nse  sp500  tv  (space-separated, any combination)"
+    echo "  Example : bash scripts/run_full_training.sh nse sp500 tv"
+    exit 1
+fi
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --skip_nse)   SKIP_NSE=1;    shift ;;
-        --skip_sp500) SKIP_SP500=1;  shift ;;
-        --skip_tv)    SKIP_TV=1;     shift ;;
-        --n_folds)    N_FOLDS="$2";  shift 2 ;;
-        --n_trials)   N_TRIALS="$2"; shift 2 ;;
-        *) echo "Unknown argument: $1"; exit 1 ;;
+        nse)       RUN_NSE=1;        shift ;;
+        sp500)     RUN_SP500=1;      shift ;;
+        tv)        RUN_TV=1;         shift ;;
+        --n_folds)  N_FOLDS="$2";   shift 2 ;;
+        --n_trials) N_TRIALS="$2";  shift 2 ;;
+        *) echo "Unknown argument: $1  (valid markets: nse sp500 tv)"; exit 1 ;;
     esac
 done
+
+if [ $((RUN_NSE + RUN_SP500 + RUN_TV)) -eq 0 ]; then
+    echo "No markets selected. Specify at least one: nse  sp500  tv"
+    exit 1
+fi
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 info()    { echo -e "${GREEN}[INFO]${NC}  $*"; }
 warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 error()   { echo -e "${RED}[ERROR]${NC} $*"; }
-section() { echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; \
-            echo -e "${CYAN}  $*${NC}"; \
+section() { echo -e "\n${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+            echo -e "${CYAN}  $*${NC}"
             echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"; }
 
-# ── Timing helpers ────────────────────────────────────────────────────────────
-START_TOTAL=$(date +%s)
-elapsed() {
-    local secs=$(( $(date +%s) - $1 ))
-    printf "%dm %ds" $(( secs/60 )) $(( secs%60 ))
-}
+elapsed() { local s=$(( $(date +%s) - $1 )); printf "%dm %ds" $(( s/60 )) $(( s%60 )); }
 
 # ── Setup ─────────────────────────────────────────────────────────────────────
 mkdir -p "${LOG_DIR}"
 RUN_TS=$(date +"%Y%m%d_%H%M%S")
-MASTER_LOG="${LOG_DIR}/full_training_${RUN_TS}.log"
+MASTER_LOG="${LOG_DIR}/training_${RUN_TS}.log"
+START_TOTAL=$(date +%s)
 
-# Activate venv
 if [ ! -f "${VENV_DIR}/bin/activate" ]; then
-    error "venv not found at ${VENV_DIR}. Run server_setup.sh first."
+    echo "ERROR: venv not found at ${VENV_DIR}. Run server_setup.sh first."
     exit 1
 fi
 source "${VENV_DIR}/bin/activate"
 cd "${PROJECT_DIR}"
 
-# Pull latest code
-info "Pulling latest code from master ..."
 git pull origin master --quiet
 
 echo ""
 echo -e "${GREEN}============================================================${NC}"
-echo -e "${GREEN}  Full Training Run — $(date '+%Y-%m-%d %H:%M:%S')${NC}"
+echo -e "${GREEN}  Training Run — $(date '+%Y-%m-%d %H:%M:%S')${NC}"
 echo -e "${GREEN}============================================================${NC}"
+echo "  Markets  : $([ $RUN_NSE -eq 1 ] && echo -n 'NSE  ') $([ $RUN_SP500 -eq 1 ] && echo -n 'SP500  ') $([ $RUN_TV -eq 1 ] && echo -n 'TradingView')"
 echo "  n_folds  : ${N_FOLDS}"
 echo "  n_trials : ${N_TRIALS}"
 echo "  Log      : ${MASTER_LOG}"
 echo ""
 
-# Tee all output to master log
 exec > >(tee -a "${MASTER_LOG}") 2>&1
 
-# ── Track per-market results ───────────────────────────────────────────────────
 declare -A MARKET_STATUS
 declare -A MARKET_TIME
+STEP=0
+TOTAL=$(( RUN_NSE + RUN_SP500 + RUN_TV ))
 
-# =============================================================================
-# STEP 1: NSE LOCAL TRAINING
-# =============================================================================
-if [ "${SKIP_NSE}" -eq 0 ]; then
-    section "STEP 1/3  NSE Local Training  (momentum + reversal)"
+# ── NSE Local ─────────────────────────────────────────────────────────────────
+if [ "${RUN_NSE}" -eq 1 ]; then
+    STEP=$(( STEP + 1 ))
+    section "STEP ${STEP}/${TOTAL}  NSE Local  (momentum + reversal)"
     T=$(date +%s)
     if python run_nse_local.py --n_folds "${N_FOLDS}" --n_trials "${N_TRIALS}"; then
         MARKET_STATUS[nse]="✅ PASSED"
     else
         MARKET_STATUS[nse]="❌ FAILED"
-        error "NSE training failed — continuing with SP500"
+        error "NSE training failed — continuing"
     fi
     MARKET_TIME[nse]=$(elapsed $T)
-else
-    MARKET_STATUS[nse]="⏭  SKIPPED"
-    MARKET_TIME[nse]="—"
-    warn "Skipping NSE local (--skip_nse)"
 fi
 
-# =============================================================================
-# STEP 2: SP500 / NASDAQ TRAINING
-# =============================================================================
-if [ "${SKIP_SP500}" -eq 0 ]; then
-    section "STEP 2/3  SP500 / NASDAQ Training  (momentum + reversal)"
+# ── SP500 / NASDAQ ────────────────────────────────────────────────────────────
+if [ "${RUN_SP500}" -eq 1 ]; then
+    STEP=$(( STEP + 1 ))
+    section "STEP ${STEP}/${TOTAL}  SP500 / NASDAQ  (momentum + reversal)"
     T=$(date +%s)
     if python run_sp500_local.py --n_folds "${N_FOLDS}" --n_trials "${N_TRIALS}"; then
         MARKET_STATUS[sp500]="✅ PASSED"
     else
         MARKET_STATUS[sp500]="❌ FAILED"
-        error "SP500 training failed — continuing with TradingView"
+        error "SP500 training failed — continuing"
     fi
     MARKET_TIME[sp500]=$(elapsed $T)
-else
-    MARKET_STATUS[sp500]="⏭  SKIPPED"
-    MARKET_TIME[sp500]="—"
-    warn "Skipping SP500 (--skip_sp500)"
 fi
 
-# =============================================================================
-# STEP 3: NSE TRADINGVIEW TRAINING
-# =============================================================================
-if [ "${SKIP_TV}" -eq 0 ]; then
-    section "STEP 3/3  NSE TradingView Training  (momentum + reversal)"
+# ── NSE TradingView ───────────────────────────────────────────────────────────
+if [ "${RUN_TV}" -eq 1 ]; then
+    STEP=$(( STEP + 1 ))
+    section "STEP ${STEP}/${TOTAL}  NSE TradingView  (momentum + reversal)"
     T=$(date +%s)
     if python run_nse_tradingv_local.py --n_folds "${N_FOLDS}" --n_trials "${N_TRIALS}"; then
         MARKET_STATUS[tv]="✅ PASSED"
@@ -149,41 +142,25 @@ if [ "${SKIP_TV}" -eq 0 ]; then
         error "TradingView training failed"
     fi
     MARKET_TIME[tv]=$(elapsed $T)
-else
-    MARKET_STATUS[tv]="⏭  SKIPPED"
-    MARKET_TIME[tv]="—"
-    warn "Skipping TradingView (--skip_tv)"
 fi
 
-# =============================================================================
-# SUMMARY
-# =============================================================================
+# ── Summary ───────────────────────────────────────────────────────────────────
 echo ""
 echo -e "${GREEN}============================================================${NC}"
-echo -e "${GREEN}  Training Complete — $(date '+%Y-%m-%d %H:%M:%S')${NC}"
+echo -e "${GREEN}  Complete — $(date '+%Y-%m-%d %H:%M:%S')${NC}"
 echo -e "${GREEN}============================================================${NC}"
 echo ""
 printf "  %-22s  %-14s  %s\n" "Market" "Status" "Time"
 printf "  %-22s  %-14s  %s\n" "──────────────────────" "──────────────" "──────"
-printf "  %-22s  %-14s  %s\n" "NSE Local"        "${MARKET_STATUS[nse]:-⏭  SKIPPED}"   "${MARKET_TIME[nse]:-—}"
-printf "  %-22s  %-14s  %s\n" "SP500 / NASDAQ"   "${MARKET_STATUS[sp500]:-⏭  SKIPPED}" "${MARKET_TIME[sp500]:-—}"
-printf "  %-22s  %-14s  %s\n" "NSE TradingView"  "${MARKET_STATUS[tv]:-⏭  SKIPPED}"    "${MARKET_TIME[tv]:-—}"
+[ "${RUN_NSE}"   -eq 1 ] && printf "  %-22s  %-14s  %s\n" "NSE Local"       "${MARKET_STATUS[nse]}"   "${MARKET_TIME[nse]}"
+[ "${RUN_SP500}" -eq 1 ] && printf "  %-22s  %-14s  %s\n" "SP500 / NASDAQ"  "${MARKET_STATUS[sp500]}" "${MARKET_TIME[sp500]}"
+[ "${RUN_TV}"    -eq 1 ] && printf "  %-22s  %-14s  %s\n" "NSE TradingView" "${MARKET_STATUS[tv]}"    "${MARKET_TIME[tv]}"
 echo ""
 echo -e "  Total elapsed : ${GREEN}$(elapsed $START_TOTAL)${NC}"
-echo -e "  Log file      : ${MASTER_LOG}"
-echo ""
-echo "  Output files:"
-echo "    output/nse_local/watchlist_*.csv"
-echo "    output/us_local/watchlist_*.csv"
-echo "    output/nse_tradingv/watchlist_*.csv"
-echo ""
-echo -e "${YELLOW}  Next: detach volume in Hetzner console, then delete server.${NC}"
+echo -e "  Log           : ${MASTER_LOG}"
 echo ""
 
-# Exit with failure if any market failed
 for market in nse sp500 tv; do
-    if [[ "${MARKET_STATUS[$market]:-}" == "❌ FAILED" ]]; then
-        exit 1
-    fi
+    if [[ "${MARKET_STATUS[$market]:-}" == "❌ FAILED" ]]; then exit 1; fi
 done
 exit 0

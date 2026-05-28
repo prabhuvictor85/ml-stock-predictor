@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run_full_training.sh — Full pipeline: download + train all three markets
+# run_full_training.sh — Train all three markets
 #
 # Markets:
 #   1. NSE Local         (run_nse_local.py)
 #   2. S&P 500 / NASDAQ  (run_sp500_local.py)
 #   3. NSE TradingView   (run_nse_tradingv_local.py)
 #
+# Data download is handled separately — run download scripts manually first.
+#
 # Usage:
 #   bash scripts/run_full_training.sh                    # all markets, defaults
-#   bash scripts/run_full_training.sh --skip_download    # skip data download
 #   bash scripts/run_full_training.sh --skip_nse         # skip NSE local
 #   bash scripts/run_full_training.sh --skip_sp500       # skip SP500
 #   bash scripts/run_full_training.sh --skip_tv          # skip TradingView
@@ -32,7 +33,6 @@ N_FOLDS=8
 N_TRIALS=25
 
 # ── Flags ─────────────────────────────────────────────────────────────────────
-SKIP_DOWNLOAD=0
 SKIP_NSE=0
 SKIP_SP500=0
 SKIP_TV=0
@@ -40,12 +40,11 @@ SKIP_TV=0
 # Parse args
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --skip_download) SKIP_DOWNLOAD=1; shift ;;
-        --skip_nse)      SKIP_NSE=1;      shift ;;
-        --skip_sp500)    SKIP_SP500=1;    shift ;;
-        --skip_tv)       SKIP_TV=1;       shift ;;
-        --n_folds)       N_FOLDS="$2";   shift 2 ;;
-        --n_trials)      N_TRIALS="$2";  shift 2 ;;
+        --skip_nse)   SKIP_NSE=1;    shift ;;
+        --skip_sp500) SKIP_SP500=1;  shift ;;
+        --skip_tv)    SKIP_TV=1;     shift ;;
+        --n_folds)    N_FOLDS="$2";  shift 2 ;;
+        --n_trials)   N_TRIALS="$2"; shift 2 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
@@ -100,29 +99,10 @@ declare -A MARKET_STATUS
 declare -A MARKET_TIME
 
 # =============================================================================
-# STEP 1: DOWNLOAD DATA
-# =============================================================================
-if [ "${SKIP_DOWNLOAD}" -eq 0 ]; then
-    section "STEP 1/4  Downloading NSE data"
-    T=$(date +%s)
-    python scripts/data/download_nse_data.py && \
-        info "NSE download complete ($(elapsed $T))" || \
-        warn "NSE download had errors — training will use existing data"
-
-    section "STEP 2/4  Downloading US data"
-    T=$(date +%s)
-    python scripts/data/download_us_data.py && \
-        info "US download complete ($(elapsed $T))" || \
-        warn "US download had errors — training will use existing data"
-else
-    warn "Skipping data download (--skip_download)"
-fi
-
-# =============================================================================
-# STEP 2: NSE LOCAL TRAINING
+# STEP 1: NSE LOCAL TRAINING
 # =============================================================================
 if [ "${SKIP_NSE}" -eq 0 ]; then
-    section "STEP 3/4  NSE Local Training  (momentum + reversal)"
+    section "STEP 1/3  NSE Local Training  (momentum + reversal)"
     T=$(date +%s)
     if python run_nse_local.py --n_folds "${N_FOLDS}" --n_trials "${N_TRIALS}"; then
         MARKET_STATUS[nse]="✅ PASSED"
@@ -138,10 +118,10 @@ else
 fi
 
 # =============================================================================
-# STEP 3: SP500 / NASDAQ TRAINING
+# STEP 2: SP500 / NASDAQ TRAINING
 # =============================================================================
 if [ "${SKIP_SP500}" -eq 0 ]; then
-    section "STEP 4/4a  SP500 / NASDAQ Training  (momentum + reversal)"
+    section "STEP 2/3  SP500 / NASDAQ Training  (momentum + reversal)"
     T=$(date +%s)
     if python run_sp500_local.py --n_folds "${N_FOLDS}" --n_trials "${N_TRIALS}"; then
         MARKET_STATUS[sp500]="✅ PASSED"
@@ -157,10 +137,10 @@ else
 fi
 
 # =============================================================================
-# STEP 4: NSE TRADINGVIEW TRAINING
+# STEP 3: NSE TRADINGVIEW TRAINING
 # =============================================================================
 if [ "${SKIP_TV}" -eq 0 ]; then
-    section "STEP 4/4b  NSE TradingView Training  (momentum + reversal)"
+    section "STEP 3/3  NSE TradingView Training  (momentum + reversal)"
     T=$(date +%s)
     if python run_nse_tradingv_local.py --n_folds "${N_FOLDS}" --n_trials "${N_TRIALS}"; then
         MARKET_STATUS[tv]="✅ PASSED"

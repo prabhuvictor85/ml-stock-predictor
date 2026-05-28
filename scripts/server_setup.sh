@@ -115,28 +115,40 @@ if [ -z "${SETUP_REEXECED:-}" ] && [ -f "${REPO_SCRIPT}" ]; then
 fi
 
 # =============================================================================
-# 4. INSTALL PYTHON DEPENDENCIES
+# 4. INSTALL PYTHON DEPENDENCIES  (isolated venv — avoids all system-pip issues)
 # =============================================================================
 section "4/5  Installing Python dependencies"
 
 cd "${PROJECT_DIR}"
 
-# Ensure pip is available (Hetzner Ubuntu images may not include it)
-if ! python3 -m pip --version &>/dev/null; then
-    info "pip not found — installing via apt ..."
-    apt-get update -qq && apt-get install -y python3-pip python3-venv
+VENV_DIR="/root/venv"
+
+# Ensure python3-venv is available
+if ! python3 -m venv --help &>/dev/null; then
+    info "python3-venv not found — installing ..."
+    apt-get update -qq && apt-get install -y python3-venv python3-full
 fi
 
-# --break-system-packages is safe: Hetzner servers are ephemeral/throwaway
-# Skip pip self-upgrade to avoid Debian RECORD file conflict
+# Create venv if it doesn't exist yet
+if [ ! -f "${VENV_DIR}/bin/activate" ]; then
+    info "Creating virtual environment at ${VENV_DIR} ..."
+    python3 -m venv "${VENV_DIR}"
+else
+    info "Virtual environment already exists at ${VENV_DIR} — reusing"
+fi
+
+# Activate venv and install requirements
+source "${VENV_DIR}/bin/activate"
+
 if [ -f "requirements.txt" ]; then
-    info "Installing from requirements.txt ..."
-    python3 -m pip install -r requirements.txt --break-system-packages
+    info "Installing from requirements.txt into venv ..."
+    pip install --upgrade pip --quiet
+    pip install -r requirements.txt --quiet
 else
     warn "requirements.txt not found — skipping pip install"
 fi
 
-info "Python dependencies installed"
+info "Python dependencies installed into ${VENV_DIR}"
 
 # =============================================================================
 # 5. WRITE paths.yaml
@@ -186,6 +198,9 @@ echo "  Data    : ${DATA_ROOT}"
 echo "  Models  : ${ARTEFACTS_ROOT}"
 echo ""
 echo "Next steps:"
+echo "  # Activate the Python venv first (required every new shell session):"
+echo "  source /root/venv/bin/activate"
+echo ""
 echo "  # Download NSE data (first time or delta update):"
 echo "  cd ${PROJECT_DIR}"
 echo "  python scripts/data/download_nse_data.py"

@@ -34,9 +34,8 @@ import yfinance as yf
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from pipeline.config.paths import PATHS
-DATA_DIR       = PATHS.stock_data.us          # stock_data/us_stocks — same path run_sp500_local.py reads
-LISTS_DIR      = PATHS.stock_lists.lists_dir
-CONSTITUENT_CSV = LISTS_DIR / "constituents_us.csv"
+DATA_DIR        = PATHS.stock_data.us          # stock_data/us_stocks — same path run_sp500_local.py reads
+CONSTITUENT_CSV = PATHS.stock_lists.us_combined  # constituents_us_combined.csv
 
 BENCHMARK_TICKERS = ["^GSPC", "^NDX"]   # S&P 500 + NASDAQ 100 indices
 START_DATE        = "2010-01-01"         # history start
@@ -45,19 +44,17 @@ RATE_LIMIT_SLEEP  = 0.3                  # 300ms between tickers
 
 
 def parse_args() -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Download S&P 500 + NASDAQ 100 data")
+    p = argparse.ArgumentParser(description="Download US stock data via yfinance")
     p.add_argument("--refresh_after", type=int, default=0,
                    help="Re-download files older than N days (0 = skip existing files)")
     p.add_argument("--tickers", nargs="+", default=None,
-                   help="Download only these specific tickers (bypasses constituent fetch)")
+                   help="Download only these specific tickers (bypasses constituent list)")
     p.add_argument("--benchmarks_only", action="store_true",
                    help="Only download/refresh benchmark index files")
     p.add_argument("--start", default=START_DATE,
                    help=f"History start date (default: {START_DATE})")
     p.add_argument("--end", default=None,
                    help="History end date e.g. 2023-12-31 (default: today)")
-    p.add_argument("--no_constituents", action="store_true",
-                   help="Skip constituent CSV refresh (use existing)")
     return p.parse_args()
 
 
@@ -278,7 +275,6 @@ def main() -> None:
 
     print("=" * 60)
     print("  US Market Data Downloader")
-    print("  Universe: S&P 500 + NASDAQ 100")
     print(f"  Start   : {args.start}")
     print(f"  End     : {args.end or 'today'}")
     print(f"  Output  : {DATA_DIR}")
@@ -297,23 +293,24 @@ def main() -> None:
         download_benchmarks(DATA_DIR, args.start, args.refresh_after, args.end)
         return
 
-    # ── Full run: fetch constituents + download ────────────────────────────
-    if not args.no_constituents or not CONSTITUENT_CSV.exists():
-        print("\n[1/3] Fetching constituent lists...")
-        universe = build_universe()
-        universe.to_csv(CONSTITUENT_CSV, index=False)
-        print(f"  Saved: {CONSTITUENT_CSV}")
-    else:
-        print(f"\n[1/3] Using existing constituent list: {CONSTITUENT_CSV}")
-        universe = pd.read_csv(CONSTITUENT_CSV)
-        print(f"  Loaded {len(universe)} tickers")
+    # ── Full run: load constituent list + download ─────────────────────────
+    if not CONSTITUENT_CSV.exists():
+        print(f"ERROR: Constituent list not found: {CONSTITUENT_CSV}")
+        print("  Copy constituents_us_combined.csv to the stock_lists directory.")
+        raise SystemExit(1)
 
-    tickers = universe["Symbol"].dropna().str.strip().tolist()
+    print(f"\n[1/2] Loading constituent list: {CONSTITUENT_CSV.name}")
+    universe = pd.read_csv(CONSTITUENT_CSV)
+    col = next((c for c in universe.columns if c.strip().lower() == "symbol"), None)
+    if col is None:
+        raise ValueError(f"No 'Symbol' column in {CONSTITUENT_CSV}")
+    tickers = universe[col].dropna().str.strip().tolist()
+    print(f"  Loaded {len(tickers)} tickers")
 
-    print(f"\n[2/3] Downloading {len(tickers)} stock files...")
+    print(f"\n[2/2] Downloading {len(tickers)} stock files...")
     download_all(tickers, DATA_DIR, args.start, args.refresh_after, args.end)
 
-    print(f"\n[3/3] Downloading benchmark indices...")
+    print(f"\nDownloading benchmark indices...")
     download_benchmarks(DATA_DIR, args.start, max(1, args.refresh_after), args.end)
 
     print(f"\n{'='*60}")

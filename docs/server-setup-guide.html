@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ML Stock Predictor — Server Setup & Training Guide</title>
+  <style>
+    :root {
+      --bg:        #0f1117;
+      --surface:   #1a1d27;
+      --surface2:  #22263a;
+      --border:    #2e3250;
+      --accent:    #6c8ef5;
+      --accent2:   #4ade80;
+      --warn:      #f59e0b;
+      --danger:    #f87171;
+      --text:      #e2e8f0;
+      --muted:     #94a3b8;
+      --code-bg:   #111827;
+      --code-text: #a5f3fc;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.7;
+      font-size: 15px;
+    }
+
+    /* ── Layout ── */
+    .wrapper { display: flex; min-height: 100vh; }
+
+    nav {
+      width: 260px;
+      min-width: 260px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 0;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow-y: auto;
+    }
+    nav .logo {
+      padding: 0 20px 20px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+    nav .logo h2 { font-size: 14px; color: var(--accent); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+    nav .logo p  { font-size: 11px; color: var(--muted); margin-top: 2px; }
+    nav ul { list-style: none; }
+    nav ul li a {
+      display: block;
+      padding: 7px 20px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 13px;
+      border-left: 3px solid transparent;
+      transition: all .15s;
+    }
+    nav ul li a:hover { color: var(--text); background: var(--surface2); }
+    nav ul li.section { padding: 16px 20px 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em; color: #475569; }
+    nav ul li.active a { color: var(--accent); border-left-color: var(--accent); background: rgba(108,142,245,.08); }
+
+    main { flex: 1; padding: 40px 48px; max-width: 960px; }
+
+    /* ── Typography ── */
+    h1 { font-size: 28px; font-weight: 800; color: #fff; margin-bottom: 6px; }
+    h1 span { color: var(--accent); }
+    .subtitle { color: var(--muted); font-size: 14px; margin-bottom: 40px; }
+    h2 { font-size: 20px; font-weight: 700; color: #fff; margin: 48px 0 16px; padding-top: 16px; border-top: 1px solid var(--border); }
+    h2:first-of-type { border-top: none; margin-top: 0; }
+    h3 { font-size: 15px; font-weight: 600; color: var(--accent); margin: 24px 0 10px; }
+    p  { color: var(--muted); margin-bottom: 12px; }
+    strong { color: var(--text); }
+
+    /* ── Steps ── */
+    .steps { counter-reset: step; }
+    .step {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 28px;
+    }
+    .step-num {
+      counter-increment: step;
+      min-width: 32px;
+      height: 32px;
+      background: var(--accent);
+      color: #fff;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      font-weight: 700;
+      flex-shrink: 0;
+      margin-top: 2px;
+    }
+    .step-body h3 { margin-top: 0; }
+
+    /* ── Code blocks ── */
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 16px 20px;
+      overflow-x: auto;
+      margin: 10px 0 16px;
+      font-size: 13px;
+      line-height: 1.6;
+    }
+    code { font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", monospace; color: var(--code-text); }
+    pre code { color: var(--code-text); }
+    .comment { color: #6b7280; font-style: italic; }
+    .cmd     { color: #a5f3fc; }
+    .flag    { color: #fde68a; }
+    .path    { color: #86efac; }
+    .warn-inline { color: var(--warn); }
+
+    /* ── Callouts ── */
+    .callout {
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin: 16px 0;
+      font-size: 14px;
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+    .callout.info    { background: rgba(108,142,245,.1); border-left: 4px solid var(--accent); }
+    .callout.warn    { background: rgba(245,158,11,.1);  border-left: 4px solid var(--warn); }
+    .callout.danger  { background: rgba(248,113,113,.1); border-left: 4px solid var(--danger); }
+    .callout.success { background: rgba(74,222,128,.1);  border-left: 4px solid var(--accent2); }
+    .callout-icon { font-size: 18px; line-height: 1.4; }
+    .callout p { margin: 0; color: var(--text); }
+
+    /* ── Tables ── */
+    table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 13px; }
+    th { background: var(--surface2); color: var(--text); font-weight: 600; padding: 10px 14px; text-align: left; border-bottom: 2px solid var(--border); }
+    td { padding: 10px 14px; border-bottom: 1px solid var(--border); color: var(--muted); vertical-align: top; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: var(--surface2); }
+    .badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+    }
+    .badge.green  { background: rgba(74,222,128,.15);  color: var(--accent2); }
+    .badge.yellow { background: rgba(245,158,11,.15);  color: var(--warn); }
+    .badge.red    { background: rgba(248,113,113,.15); color: var(--danger); }
+    .badge.blue   { background: rgba(108,142,245,.15); color: var(--accent); }
+
+    /* ── Checklist ── */
+    .checklist { list-style: none; margin: 8px 0 16px; }
+    .checklist li {
+      padding: 6px 0;
+      padding-left: 28px;
+      position: relative;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .checklist li::before {
+      content: "☐";
+      position: absolute;
+      left: 0;
+      color: var(--border);
+      font-size: 16px;
+    }
+
+    /* ── Section anchor ── */
+    section { scroll-margin-top: 24px; }
+
+    /* ── Divider ── */
+    hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+
+    /* ── Footer ── */
+    footer { margin-top: 60px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+<div class="wrapper">
+
+  <!-- ── Sidebar ── -->
+  <nav>
+    <div class="logo">
+      <h2>ML Stock Predictor</h2>
+      <p>Server Setup &amp; Training Guide</p>
+    </div>
+    <ul>
+      <li class="section">Setup</li>
+      <li><a href="#server">1. Create Server</a></li>
+      <li><a href="#volume">2. Attach &amp; Mount Volume</a></li>
+      <li><a href="#git">3. Git Setup</a></li>
+      <li><a href="#python">4. Python &amp; Venv</a></li>
+      <li><a href="#paths">5. paths.yaml</a></li>
+      <li class="section">Data</li>
+      <li><a href="#hf-download">6. Download from HF</a></li>
+      <li><a href="#hf-upload">7. Upload to HF</a></li>
+      <li class="section">Training</li>
+      <li><a href="#when-to-train">8. When to Train</a></li>
+      <li><a href="#pre-training">9. Pre-training Checklist</a></li>
+      <li><a href="#full-training">10. Run Full Training</a></li>
+      <li><a href="#monitoring">11. Monitor &amp; Troubleshoot</a></li>
+      <li><a href="#post-training">12. Post-training Steps</a></li>
+      <li class="section">Reference</li>
+      <li><a href="#commands">Quick Reference</a></li>
+    </ul>
+  </nav>
+
+  <!-- ── Main ── -->
+  <main>
+    <h1>Server Setup &amp; <span>Training Guide</span></h1>
+    <p class="subtitle">Complete reference for configuring a Hetzner server, managing data, and running full model training.</p>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="server">
+      <h2>1. Create Server (Hetzner)</h2>
+      <p>Recommended spec for full training with <strong>n_jobs=4</strong>:</p>
+      <table>
+        <tr><th>Setting</th><th>Value</th><th>Notes</th></tr>
+        <tr><td>Server type</td><td><strong>CCX33</strong></td><td>8 vCPU, 32 GB RAM — minimum for SP500 full run</td></tr>
+        <tr><td>Image</td><td>Ubuntu 22.04 LTS</td><td>Stable, well-supported</td></tr>
+        <tr><td>Location</td><td>NBG1 / FSN1</td><td>Closest to your data sources</td></tr>
+        <tr><td>Volume</td><td>100 GB+</td><td>Attach at creation (see Section 2)</td></tr>
+        <tr><td>SSH key</td><td>Your public key</td><td>Add before creation</td></tr>
+      </table>
+      <div class="callout warn">
+        <span class="callout-icon">⚠️</span>
+        <p>Do <strong>not</strong> store stock data or artefacts on the root disk — use the attached volume at <code>/mnt/data</code>. Root disk is lost when server is deleted.</p>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="volume">
+      <h2>2. Attach &amp; Mount Volume</h2>
+
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Create &amp; attach in Hetzner Console</h3>
+            <p>Go to <strong>console.hetzner.cloud → Volumes → Create Volume</strong>. Set size ≥ 100 GB, attach to your server.</p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Find the device name</h3>
+            <pre><code>ls /dev/disk/by-id/ | grep HC_Volume</code></pre>
+            <p>Note the full path, e.g. <code>/dev/disk/by-id/scsi-0HC_Volume_12345678</code></p>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Format (first time only)</h3>
+            <pre><code><span class="comment"># Only if brand new volume — SKIPS THIS if data already exists!</span>
+mkfs.ext4 /dev/disk/by-id/scsi-0HC_Volume_XXXXXXXX</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Mount</h3>
+            <pre><code>mkdir -p /mnt/data
+mount -o discard,defaults /dev/disk/by-id/scsi-0HC_Volume_XXXXXXXX /mnt/data</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Make mount permanent (survives reboot)</h3>
+            <pre><code><span class="comment"># Add to /etc/fstab</span>
+echo "/dev/disk/by-id/scsi-0HC_Volume_XXXXXXXX /mnt/data ext4 discard,nofail,defaults 0 0" >> /etc/fstab</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Resize filesystem after volume resize</h3>
+            <pre><code><span class="comment"># After resizing volume in Hetzner console (no reboot needed)</span>
+resize2fs /dev/disk/by-id/scsi-0HC_Volume_XXXXXXXX
+df -h /mnt/data  <span class="comment"># confirm new size</span></code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Create directory structure</h3>
+            <pre><code>mkdir -p /mnt/data/artefacts/{nse_local,us_local}
+mkdir -p /mnt/data/Learning_charts/{stock_data/{nse_data,us_stocks,tradingview},stock_lists}</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Detach volume before shutdown</h3>
+            <pre><code><span class="comment"># 1. Shutdown server gracefully</span>
+sudo poweroff
+
+<span class="comment"># 2. In Hetzner console: Volumes → ⋮ → Detach</span>
+<span class="comment"># Volume + all data is preserved and billed at ~€0.05/GB/month</span>
+<span class="comment"># Server stops billing once deleted</span></code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="git">
+      <h2>3. Git Setup</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Configure identity</h3>
+            <pre><code>git config --global user.email "your@email.com"
+git config --global user.name "Your Name"
+git config --global pull.rebase false  <span class="comment"># use merge on pull</span></code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Clone the repo</h3>
+            <pre><code>cd /root
+git clone https://github.com/prabhuvictor85/ml-stock-predictor.git
+cd ml-stock-predictor</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Pull latest changes (existing server)</h3>
+            <pre><code>cd /root/ml-stock-predictor
+git stash            <span class="comment"># park local changes (paths.yaml etc.)</span>
+git pull origin master
+git stash pop        <span class="comment"># restore paths.yaml</span></code></pre>
+            <div class="callout warn">
+              <span class="callout-icon">⚠️</span>
+              <p>If you see <strong>"divergent branches"</strong>: <code>git stash → git reset --hard origin/master → git stash pop</code></p>
+            </div>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Resolve common conflicts</h3>
+            <pre><code><span class="comment"># paths.yaml conflict (machine-specific — always keep ours)</span>
+git checkout --ours paths.yaml
+git add paths.yaml
+
+<span class="comment"># Artefact files staged for deletion — unstage them</span>
+git restore --staged artefacts/</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="python">
+      <h2>4. Python &amp; Virtual Environment</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Install Python dependencies</h3>
+            <pre><code>apt update && apt install -y python3 python3-venv python3-pip</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Create and activate venv</h3>
+            <pre><code>python3 -m venv /root/venv
+source /root/venv/bin/activate
+
+<span class="comment"># Add to .bashrc so it auto-activates on SSH login</span>
+echo "source /root/venv/bin/activate" >> ~/.bashrc</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Install requirements</h3>
+            <pre><code>pip install --upgrade pip
+pip install -r /root/ml-stock-predictor/requirements.txt</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Install HF CLI</h3>
+            <pre><code>pip install huggingface_hub
+hf auth login   <span class="comment"># paste your HF write token</span></code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="paths">
+      <h2>5. Configure paths.yaml</h2>
+      <p><code>paths.yaml</code> is machine-specific and <strong>not tracked by git</strong>. Create it fresh on each server.</p>
+      <pre><code><span class="comment"># /root/ml-stock-predictor/paths.yaml</span>
+data_root:      /mnt/data/Learning_charts
+project_root:   /root/ml-stock-predictor
+artefacts_root: /mnt/data/artefacts
+stock_lists:
+  nse_local:     /mnt/data/Learning_charts/stock_lists/constituentsi.csv
+  nse_tv:        /mnt/data/Learning_charts/stock_lists/constituents_nse_tradingv.csv
+  nse_cap_tiers: /mnt/data/Learning_charts/stock_lists/nse_cap_tiers.csv
+  us_combined:   /mnt/data/Learning_charts/stock_lists/constituents_us_combined.csv
+  lists_dir:     /mnt/data/Learning_charts/stock_lists
+stock_data:
+  nse_local: /mnt/data/Learning_charts/stock_data/nse_data
+  nse_tv:    /mnt/data/Learning_charts/stock_data/tradingview
+  us:        /mnt/data/Learning_charts/stock_data/us_stocks
+  us_alt:    /mnt/data/Learning_charts/stock_data/us_stocks</code></pre>
+      <div class="callout info">
+        <span class="callout-icon">ℹ️</span>
+        <p><code>paths.yaml</code> is in <code>.gitignore</code>. It will never be committed or overwritten by <code>git pull</code>.</p>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="hf-download">
+      <h2>6. Download Artefacts &amp; Data from HF</h2>
+      <p>Download previously trained models and watchlists from <code>prabhuvictor85/ml-stock-dashboard</code>:</p>
+      <pre><code>source /root/venv/bin/activate
+hf auth login
+
+<span class="comment"># Download entire dataset repo to local staging dir</span>
+hf download prabhuvictor85/ml-stock-dashboard \
+  --repo-type dataset \
+  --local-dir /tmp/hf-download
+
+<span class="comment"># Copy artefacts to correct locations</span>
+cp -r /tmp/hf-download/artefacts/nse_local/momentum /mnt/data/artefacts/nse_local/
+cp -r /tmp/hf-download/artefacts/nse_local/reversal  /mnt/data/artefacts/nse_local/
+cp -r /tmp/hf-download/output /mnt/data/artefacts/nse_local/output
+
+<span class="comment"># Verify</span>
+ls -lh /mnt/data/artefacts/nse_local/momentum/
+ls -lh /mnt/data/artefacts/nse_local/reversal/</code></pre>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="hf-upload">
+      <h2>7. Upload Artefacts &amp; Watchlists to HF</h2>
+      <p>Run after every full training or watchlist refresh:</p>
+      <pre><code>source /root/venv/bin/activate
+
+<span class="comment"># ── NSE model artefacts ─────────────────────────────────────────</span>
+hf upload prabhuvictor85/ml-stock-dashboard \
+  /mnt/data/artefacts/nse_local/momentum/ensemble.pkl \
+  artefacts/nse_local/momentum/ensemble.pkl --repo-type dataset
+
+hf upload prabhuvictor85/ml-stock-dashboard \
+  /mnt/data/artefacts/nse_local/momentum/lgbm_ranker.pkl \
+  artefacts/nse_local/momentum/lgbm_ranker.pkl --repo-type dataset
+
+hf upload prabhuvictor85/ml-stock-dashboard \
+  /mnt/data/artefacts/nse_local/momentum/selected_features.txt \
+  artefacts/nse_local/momentum/selected_features.txt --repo-type dataset
+
+hf upload prabhuvictor85/ml-stock-dashboard \
+  /mnt/data/artefacts/nse_local/reversal/ensemble.pkl \
+  artefacts/nse_local/reversal/ensemble.pkl --repo-type dataset
+
+hf upload prabhuvictor85/ml-stock-dashboard \
+  /mnt/data/artefacts/nse_local/reversal/lgbm_ranker.pkl \
+  artefacts/nse_local/reversal/lgbm_ranker.pkl --repo-type dataset
+
+hf upload prabhuvictor85/ml-stock-dashboard \
+  /mnt/data/artefacts/nse_local/reversal/selected_features.txt \
+  artefacts/nse_local/reversal/selected_features.txt --repo-type dataset
+
+<span class="comment"># ── NSE watchlist output (entire folder) ────────────────────────</span>
+hf upload prabhuvictor85/ml-stock-dashboard \
+  /mnt/data/artefacts/nse_local/output \
+  output/nse_local --repo-type dataset
+
+<span class="comment"># ── SP500 watchlist output ──────────────────────────────────────</span>
+hf upload prabhuvictor85/ml-stock-dashboard \
+  /mnt/data/artefacts/us_local/output \
+  output/us_local --repo-type dataset</code></pre>
+    </section>
+
+    <hr />
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="when-to-train">
+      <h2>8. When to Run Full Training</h2>
+      <table>
+        <tr>
+          <th>Trigger</th>
+          <th>Cadence</th>
+          <th>Command</th>
+          <th>Priority</th>
+        </tr>
+        <tr>
+          <td><strong>Quarterly refresh</strong><br><span style="color:var(--muted);font-size:12px">Mar / Jun / Sep / Dec</span></td>
+          <td>Every 3 months</td>
+          <td><code>run_nse_local.py</code> (no <code>--skip_train</code>)</td>
+          <td><span class="badge green">Routine</span></td>
+        </tr>
+        <tr>
+          <td><strong>Feature drift alert</strong><br><span style="color:var(--muted);font-size:12px">drift_monitor flags degradation</span></td>
+          <td>Immediate</td>
+          <td>Full retrain on latest data</td>
+          <td><span class="badge red">Urgent</span></td>
+        </tr>
+        <tr>
+          <td><strong>Major market event</strong><br><span style="color:var(--muted);font-size:12px">Rate shock, crash, regime change</span></td>
+          <td>Immediate</td>
+          <td>Full retrain with updated <code>--as_of</code></td>
+          <td><span class="badge red">Urgent</span></td>
+        </tr>
+        <tr>
+          <td><strong>New data source added</strong><br><span style="color:var(--muted);font-size:12px">New features or universe change</span></td>
+          <td>Once after change</td>
+          <td>Full retrain from scratch</td>
+          <td><span class="badge yellow">As needed</span></td>
+        </tr>
+        <tr>
+          <td><strong>Weekly watchlist refresh</strong><br><span style="color:var(--muted);font-size:12px">Same model, fresh market data</span></td>
+          <td>Weekly / Daily</td>
+          <td><code>--skip_train</code> only</td>
+          <td><span class="badge blue">Routine</span></td>
+        </tr>
+      </table>
+
+      <div class="callout success">
+        <span class="callout-icon">✅</span>
+        <p><strong>Key distinction:</strong> <code>--skip_train</code> rescores existing models on fresh data (fast, minutes). Full training rebuilds models from scratch (slow, 3–5 hours). Run <code>--skip_train</code> weekly; full retrain quarterly.</p>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="pre-training">
+      <h2>9. Pre-training Checklist</h2>
+      <p>Complete these steps <strong>before</strong> starting a full training run:</p>
+
+      <h3>Server &amp; Environment</h3>
+      <ul class="checklist">
+        <li>Server is CCX33 (8 vCPU / 32 GB RAM) or larger</li>
+        <li>Volume mounted at <code>/mnt/data</code> — confirm with <code>df -h /mnt/data</code></li>
+        <li>At least <strong>30 GB free</strong> on <code>/mnt/data</code> for SP500 (NSE needs ~5 GB)</li>
+        <li>venv activated: <code>source /root/venv/bin/activate</code></li>
+        <li>Latest code pulled: <code>git pull origin master</code></li>
+        <li><code>paths.yaml</code> exists and points to correct data directories</li>
+      </ul>
+
+      <h3>Data</h3>
+      <ul class="checklist">
+        <li>Stock CSV files present in <code>/mnt/data/Learning_charts/stock_data/</code></li>
+        <li>Stock list CSV present (e.g. <code>constituentsi.csv</code>)</li>
+        <li>Benchmark data present (<code>^NSEI-1d.csv</code> or <code>^GSPC-1d.csv</code>)</li>
+        <li>Data is fresh — latest bar within last 5 trading days</li>
+      </ul>
+
+      <h3>Cleanup (avoid stale checkpoint issues)</h3>
+      <ul class="checklist">
+        <li>Delete old Optuna HPO databases if restarting from scratch</li>
+        <li>Delete stale panel checkpoints if numpy version changed</li>
+        <li>Run <code>pip cache purge</code> if disk space is low</li>
+      </ul>
+
+      <pre><code><span class="comment"># Cleanup stale checkpoints (run if restarting from scratch)</span>
+rm -f /mnt/data/artefacts/nse_local/momentum/checkpoints/optuna_hpo.db
+rm -f /mnt/data/artefacts/nse_local/reversal/checkpoints/optuna_hpo.db
+rm -f /mnt/data/artefacts/nse_local/checkpoints/*.pkl
+
+rm -f /mnt/data/artefacts/us_local/momentum/checkpoints/optuna_hpo.db
+rm -f /mnt/data/artefacts/us_local/reversal/checkpoints/optuna_hpo.db
+rm -f /mnt/data/artefacts/us_local/checkpoints/*.pkl
+
+<span class="comment"># Check free disk space</span>
+df -h /mnt/data</code></pre>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="full-training">
+      <h2>10. Run Full Training</h2>
+
+      <div class="callout info">
+        <span class="callout-icon">💡</span>
+        <p>Always run inside <strong>tmux</strong> so the session survives SSH disconnection. Use <code>Ctrl+B d</code> to detach and <code>tmux attach -t training</code> to reconnect.</p>
+      </div>
+
+      <h3>Start tmux session</h3>
+      <pre><code>tmux new -s training
+
+<span class="comment"># Tmux quick reference:</span>
+<span class="comment"># Ctrl+B %     → split pane vertically</span>
+<span class="comment"># Ctrl+B "     → split pane horizontally</span>
+<span class="comment"># Ctrl+B →/←   → move between panes</span>
+<span class="comment"># Ctrl+B z     → zoom/unzoom pane (full screen)</span>
+<span class="comment"># Ctrl+B d     → detach (leave running)</span>
+<span class="comment"># tmux attach -t training  → re-attach</span></code></pre>
+
+      <h3>NSE Full Training</h3>
+      <pre><code>source /root/venv/bin/activate
+cd /root/ml-stock-predictor
+
+python3 run_nse_local.py \
+  --train_start 2010-01-01 \
+  --as_of 2023-12-08 \
+  --n_jobs 4 \
+  2>&1 | tee /mnt/data/artefacts/nse_local/run_nse_full.log
+
+<span class="comment"># Expected time breakdown:</span>
+<span class="comment">#   Feature engineering + targets : ~10 min (or instant from checkpoint)</span>
+<span class="comment">#   Fold cache (11 folds, ~1yr each): ~20 min</span>
+<span class="comment">#   HPO (25 trials × 4 parallel)   : ~25 min per mode</span>
+<span class="comment">#   Final model training            : ~5 min per mode</span>
+<span class="comment">#   Total (2 modes)                 : ~1.5–2 hours</span></code></pre>
+
+      <h3>SP500 Full Training (in separate tmux pane)</h3>
+      <pre><code><span class="comment"># Ctrl+B % to split, Ctrl+B → to move to new pane</span>
+source /root/venv/bin/activate
+cd /root/ml-stock-predictor
+
+python3 run_sp500_local.py \
+  --train_start 2010-01-01 \
+  --as_of 2023-12-08 \
+  --n_jobs 2 \
+  2>&1 | tee /mnt/data/artefacts/us_local/run_sp500_full.log
+
+<span class="comment"># Expected time breakdown:</span>
+<span class="comment">#   Feature engineering + targets : ~15 min (or instant from checkpoint)</span>
+<span class="comment">#   Fold cache (11 folds, large)   : ~55–60 min</span>
+<span class="comment">#   HPO (25 trials × 2 parallel)   : ~45–60 min per mode</span>
+<span class="comment">#   Final model training            : ~10 min per mode</span>
+<span class="comment">#   Total (2 modes)                 : ~3–4 hours</span></code></pre>
+
+      <h3>Weekly Watchlist Refresh (skip_train)</h3>
+      <pre><code><span class="comment"># Fast — just rescores existing models on fresh data</span>
+python3 run_nse_local.py \
+  --skip_train \
+  --as_of $(date +%Y-%m-%d) \
+  2>&1 | tee /mnt/data/artefacts/nse_local/run_nse_skip.log
+
+python3 run_sp500_local.py \
+  --skip_train \
+  --as_of $(date +%Y-%m-%d) \
+  2>&1 | tee /mnt/data/artefacts/us_local/run_sp500_skip.log
+
+<span class="comment"># Each takes ~2–5 minutes. Run both in parallel (separate tmux panes).</span></code></pre>
+
+      <h3>Key Arguments Reference</h3>
+      <table>
+        <tr><th>Argument</th><th>Default</th><th>Description</th></tr>
+        <tr><td><code>--train_start</code></td><td>2010-01-01</td><td>Start of training data window</td></tr>
+        <tr><td><code>--as_of</code></td><td>today</td><td>Scoring reference date (end of data)</td></tr>
+        <tr><td><code>--n_jobs</code></td><td>1</td><td>Parallel Optuna trials. Use 4 for NSE, 2 for SP500</td></tr>
+        <tr><td><code>--n_folds</code></td><td>auto</td><td>CV folds — auto-computed from date range (do not override)</td></tr>
+        <tr><td><code>--n_trials</code></td><td>25</td><td>Optuna HPO trials. 25 = good balance; 50 = exhaustive</td></tr>
+        <tr><td><code>--skip_train</code></td><td>off</td><td>Skip training, score only using saved models</td></tr>
+        <tr><td><code>--top_n</code></td><td>30</td><td>Stocks per watchlist</td></tr>
+      </table>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="monitoring">
+      <h2>11. Monitor &amp; Troubleshoot</h2>
+
+      <h3>Watch logs in real time</h3>
+      <pre><code><span class="comment"># Tail the log from another tmux pane</span>
+tail -f /mnt/data/artefacts/nse_local/run_nse_full.log
+tail -f /mnt/data/artefacts/us_local/run_sp500_full.log</code></pre>
+
+      <h3>Check CPU &amp; memory</h3>
+      <pre><code>htop   <span class="comment"># H key to show/hide threads</span></code></pre>
+      <table>
+        <tr><th>What you see</th><th>Meaning</th></tr>
+        <tr><td>4–5 Python processes, ~30–35% CPU each</td><td>HPO running normally (4 parallel trials)</td></tr>
+        <tr><td>1 Python process, ~200–400% CPU</td><td>Fold caching running (sequential, LightGBM multithreaded)</td></tr>
+        <tr><td>All processes near 0% CPU for >10 min</td><td>Likely hung — check log for errors</td></tr>
+      </table>
+
+      <h3>Common errors &amp; fixes</h3>
+      <table>
+        <tr><th>Error</th><th>Cause</th><th>Fix</th></tr>
+        <tr>
+          <td><code>OSError: No space left on device</code></td>
+          <td>Disk full — checkpoints too large</td>
+          <td>Delete <code>*.pkl</code> checkpoints and Optuna <code>.db</code> files; resize volume</td>
+        </tr>
+        <tr>
+          <td><code>Best iteration: 0</code> on every fold</td>
+          <td>No val set passed to LightGBM early stopping</td>
+          <td>Already fixed in current code — pull latest</td>
+        </tr>
+        <tr>
+          <td><code>ModuleNotFoundError: numpy._core</code></td>
+          <td>Stale <code>.pkl</code> saved with different numpy version</td>
+          <td>Delete all <code>*.pkl</code> checkpoints and rerun</td>
+        </tr>
+        <tr>
+          <td>Fold cache hangs forever (no output)</td>
+          <td>Thread-unsafe <code>recompute_zones</code></td>
+          <td>Fold caching is sequential in current code — pull latest</td>
+        </tr>
+        <tr>
+          <td>Output folder empty after training</td>
+          <td>Scoring used wrong panel (before feature engineering)</td>
+          <td>Already fixed — pull latest</td>
+        </tr>
+        <tr>
+          <td>Git pull fails: divergent branches</td>
+          <td>Local commits diverged from origin</td>
+          <td><code>git stash → git reset --hard origin/master → git stash pop</code></td>
+        </tr>
+      </table>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="post-training">
+      <h2>12. Post-training Steps</h2>
+      <div class="steps">
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Verify output files were generated</h3>
+            <pre><code>ls -lh /mnt/data/artefacts/nse_local/output/
+ls -lh /mnt/data/artefacts/us_local/output/
+
+<span class="comment"># Expected files per run:</span>
+<span class="comment"># watchlist_momentum_pureml_bull_YYYYMMDD.csv</span>
+<span class="comment"># watchlist_momentum_composite_bull_YYYYMMDD.csv</span>
+<span class="comment"># watchlist_reversal_pureml_bull_YYYYMMDD.csv</span>
+<span class="comment"># watchlist_reversal_composite_bull_YYYYMMDD.csv</span>
+<span class="comment"># (+ bear, combined, and cap-tier variants)</span></code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Upload models + watchlists to HF</h3>
+            <pre><code><span class="comment"># See Section 7 for full upload commands</span>
+hf upload prabhuvictor85/ml-stock-dashboard \
+  /mnt/data/artefacts/nse_local/output \
+  output/nse_local --repo-type dataset</code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Clean up large checkpoints</h3>
+            <pre><code><span class="comment"># Free disk space — checkpoints regenerated on next run</span>
+rm -f /mnt/data/artefacts/nse_local/checkpoints/panel_targets.pkl
+rm -f /mnt/data/artefacts/nse_local/checkpoints/panel_features.pkl
+rm -f /mnt/data/artefacts/us_local/checkpoints/panel_targets.pkl
+rm -f /mnt/data/artefacts/us_local/checkpoints/panel_features.pkl
+
+<span class="comment"># Keep: ensemble.pkl, lgbm_ranker.pkl, selected_features.txt</span>
+<span class="comment"># Keep: Optuna .db files (resume HPO if interrupted)</span></code></pre>
+          </div>
+        </div>
+
+        <div class="step">
+          <div class="step-num"></div>
+          <div class="step-body">
+            <h3>Shutdown server (if not running again soon)</h3>
+            <pre><code>sudo poweroff
+<span class="comment"># Then in Hetzner console: Volumes → Detach</span>
+<span class="comment"># Server stops billing; volume keeps data at ~€0.05/GB/month</span></code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ══════════════════════════════════════════════════════ -->
+    <section id="commands">
+      <h2>Quick Reference</h2>
+      <table>
+        <tr><th>Task</th><th>Command</th></tr>
+        <tr><td>Mount volume</td><td><code>mount -o discard,defaults /dev/disk/by-id/scsi-0HC_Volume_XXXX /mnt/data</code></td></tr>
+        <tr><td>Pull latest code</td><td><code>git stash && git pull origin master && git stash pop</code></td></tr>
+        <tr><td>Activate venv</td><td><code>source /root/venv/bin/activate</code></td></tr>
+        <tr><td>NSE full train</td><td><code>python3 run_nse_local.py --train_start 2010-01-01 --as_of 2023-12-08 --n_jobs 4</code></td></tr>
+        <tr><td>SP500 full train</td><td><code>python3 run_sp500_local.py --train_start 2010-01-01 --as_of 2023-12-08 --n_jobs 2</code></td></tr>
+        <tr><td>NSE skip_train</td><td><code>python3 run_nse_local.py --skip_train --as_of 2023-12-08</code></td></tr>
+        <tr><td>SP500 skip_train</td><td><code>python3 run_sp500_local.py --skip_train --as_of 2023-12-08</code></td></tr>
+        <tr><td>Watch log</td><td><code>tail -f /mnt/data/artefacts/nse_local/run_nse_full.log</code></td></tr>
+        <tr><td>Check disk</td><td><code>df -h /mnt/data</code></td></tr>
+        <tr><td>HF login</td><td><code>hf auth login</code></td></tr>
+        <tr><td>Upload output</td><td><code>hf upload prabhuvictor85/ml-stock-dashboard /mnt/data/artefacts/nse_local/output output/nse_local --repo-type dataset</code></td></tr>
+        <tr><td>Detach &amp; shutdown</td><td><code>sudo poweroff</code> → Hetzner console → Volumes → Detach</td></tr>
+        <tr><td>Resize filesystem</td><td><code>resize2fs /dev/disk/by-id/scsi-0HC_Volume_XXXX</code></td></tr>
+        <tr><td>New tmux session</td><td><code>tmux new -s training</code></td></tr>
+        <tr><td>Detach tmux</td><td><code>Ctrl+B d</code></td></tr>
+        <tr><td>Reattach tmux</td><td><code>tmux attach -t training</code></td></tr>
+      </table>
+    </section>
+
+    <footer>
+      <p>ml-stock-predictor · Server Setup &amp; Training Guide · Last updated 2026-05</p>
+    </footer>
+  </main>
+
+</div>
+</body>
+</html>

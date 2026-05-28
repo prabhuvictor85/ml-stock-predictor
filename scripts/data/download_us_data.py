@@ -270,7 +270,6 @@ def download_benchmarks(data_dir: Path, start: str, refresh_after_days: int,
 
 def main() -> None:
     args = parse_args()
-    LISTS_DIR.mkdir(parents=True, exist_ok=True)
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
     print("=" * 60)

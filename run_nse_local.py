@@ -242,6 +242,12 @@ def parse_args() -> argparse.Namespace:
                        "'reversal' = demand zone bounce plays, stocks 15%%+ below 52w high. "
                        "'legacy' = original single-ranker (backward compat)."
                    ))
+    p.add_argument("--train_start", type=str, default="2010-01-01",
+                   help="Earliest date included in the training panel (default: 2010-01-01). "
+                        "Rows before this date are dropped before walk-forward CV and HPO, "
+                        "so all 8 folds land in the meaningful data window. "
+                        "Scoring always uses the full panel regardless of this setting. "
+                        "Example: --train_start 2010-01-01")
     return p.parse_args()
 
 
@@ -2207,13 +2213,32 @@ def main() -> None:
             # Train each mode sequentially.
             # Checkpoints 1+2 (feature engineering + targets) are shared and built once —
             # the second mode call loads them instantly from disk.
+
+            # ── Apply train_start cutoff ──────────────────────────────────────
+            # Trim the panel used for CV/HPO/training to data on or after
+            # --train_start.  Scoring (below) always uses the full panel so the
+            # latest cross-section is never lost.
+            full_panel = panel   # keep unsliced for scoring
+            train_start_ts = pd.Timestamp(args.train_start)
+            panel_dates = panel.index.get_level_values("date")
+            if panel_dates.min() < train_start_ts:
+                panel_for_train = panel[panel_dates >= train_start_ts].copy()
+                n_dropped = len(panel) - len(panel_for_train)
+                print(f"\n  [train_start={args.train_start}] Trimmed training panel: "
+                      f"{len(panel_for_train):,} rows kept "
+                      f"({n_dropped:,} pre-{args.train_start} rows excluded from CV/HPO)")
+            else:
+                panel_for_train = panel
+                print(f"\n  [train_start={args.train_start}] Panel already starts at "
+                      f"{panel_dates.min().date()} — no rows dropped")
+
             for m in MODES_TO_RUN:
                 print(f"\n{'='*62}")
                 print(f"  TRAINING  MODE: {m.upper()}")
                 print(f"{'='*62}")
                 with perf.stage(f"Full training — {m}"):
                     artefacts = train(
-                        panel=panel,
+                        panel=panel_for_train,
                         benchmark_close=benchmark_close,
                         cfg=cfg,
                         n_folds=args.n_folds,
@@ -2223,7 +2248,7 @@ def main() -> None:
                         mode=m,
                         mode_artefacts_dir=MODE_DIRS[m],
                     )
-                panel = artefacts["panel"]   # full unfiltered panel from shared checkpoint
+                panel = full_panel   # restore full panel for scoring / next mode
                 results_by_mode[m] = {
                     "ensemble":      artefacts["ensemble"],
                     "final_features": artefacts["final_features"],

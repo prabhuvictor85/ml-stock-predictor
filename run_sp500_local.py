@@ -674,6 +674,14 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         fold_specs = cv.get_fold_specs(train_panel)
     print(f"      {len(fold_specs)} folds generated")
 
+    # ── Compute num_threads per LGBMRanker ──────────────────────────────────
+    import os as _os
+    _cpu_count = _os.cpu_count() or 8
+    _lgbm_threads = max(1, _cpu_count // n_jobs)
+    if n_jobs > 1:
+        print(f"      Thread allocation: {n_jobs} parallel trials × "
+              f"{_lgbm_threads} threads each = {n_jobs * _lgbm_threads}/{_cpu_count} cores")
+
     # ── Optuna HPO ──────────────────────────────────────────────────────────
     best_params = {
         "num_leaves": 63, "learning_rate": 0.05,
@@ -810,7 +818,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 y_tr_r = 1.0 - _rank if mode == "reversal" else _rank
 
                 t_fold = _time.time()
-                ranker = LGBMRanker(params, seed=cfg.random_seed)
+                ranker = LGBMRanker(params, seed=cfg.random_seed, num_threads=_lgbm_threads)
                 ranker.fit(tr_grp[sf_te].fillna(0), y_tr_r, tr_groups)
 
                 n_trees = ranker.model_.num_trees()
@@ -917,7 +925,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     print(f"      Selected {len(final_features)} features")
 
     X_fin = X_full[final_features].fillna(0)
-    final_ranker = LGBMRanker(best_params, seed=cfg.random_seed)
+    final_ranker = LGBMRanker(best_params, seed=cfg.random_seed, num_threads=-1)  # final model uses all cores
     final_ranker.fit(X_fin, y_full_r, full_groups)
 
     ensemble = EnsembleRanker(final_ranker)

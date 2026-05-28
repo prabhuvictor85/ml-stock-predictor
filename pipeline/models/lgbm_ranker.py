@@ -135,11 +135,13 @@ class LGBMRanker:
         seed: int = 42,
         use_gpu: bool = False,
         use_monotone_constraints: bool = True,
+        num_threads: int = -1,
     ) -> None:
         self.params = params
         self.seed = seed
         self.use_gpu = use_gpu
         self.use_monotone_constraints = use_monotone_constraints
+        self.num_threads = num_threads
         self.model_: Optional[lgb.Booster] = None
         self.feature_names_: List[str] = []
 
@@ -160,7 +162,7 @@ class LGBMRanker:
             "label_gain":   build_label_gain(),
             "verbosity":    -1,
             "seed":         self.seed,
-            "num_threads":  -1,   # -1 = use all available CPU cores
+            "num_threads":  self.num_threads,  # -1 = all cores; set lower when n_jobs>1
             **self.params,
         }
 

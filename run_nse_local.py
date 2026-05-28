@@ -50,9 +50,9 @@ from pipeline.config.paths import PATHS
 STOCK_LIST_CSV    = PATHS.stock_lists.nse_local
 NSE_CAP_TIERS_CSV = PATHS.stock_lists.nse_cap_tiers
 STOCK_DATA_DIR    = PATHS.stock_data.nse_local
-ARTEFACTS_DIR   = Path("artefacts/nse_local")
-OUTPUT_DIR      = Path("output/nse_local")
-REPORTS_DIR     = Path("reports")
+ARTEFACTS_DIR   = PATHS.artefacts_root / "nse_local"
+OUTPUT_DIR      = PATHS.artefacts_root / "nse_local" / "output"
+REPORTS_DIR     = PATHS.artefacts_root / "nse_local" / "reports"
 
 BENCHMARK_TICKER = "^NSEI"   # will be fetched via yfinance (or loaded if present)
 BENCHMARK_FILE   = STOCK_DATA_DIR / "^NSEI-1d.csv"

@@ -54,9 +54,9 @@ from pipeline.config.paths import PATHS
 STOCK_LIST_CSV    = PATHS.stock_lists.nse_tv
 NSE_CAP_TIERS_CSV = PATHS.stock_lists.nse_cap_tiers
 STOCK_DATA_DIR    = PATHS.stock_data.nse_tv
-ARTEFACTS_DIR   = Path("artefacts/nse_tradingv")
-OUTPUT_DIR      = Path("output/nse_tradingv")
-REPORTS_DIR     = Path("reports")
+ARTEFACTS_DIR   = PATHS.artefacts_root / "nse_tradingv"
+OUTPUT_DIR      = PATHS.artefacts_root / "nse_tradingv" / "output"
+REPORTS_DIR     = PATHS.artefacts_root / "nse_tradingv" / "reports"
 
 BENCHMARK_FILE  = STOCK_DATA_DIR / "NSE_NIFTY_1D_TV_div_adj.csv"
 

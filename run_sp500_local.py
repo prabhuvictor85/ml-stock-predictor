@@ -56,9 +56,9 @@ warnings.filterwarnings("ignore")
 from pipeline.config.paths import PATHS
 STOCK_LIST_CSV  = PATHS.stock_lists.us_combined
 STOCK_DATA_DIR  = PATHS.stock_data.us
-ARTEFACTS_DIR   = Path("artefacts/us_local")
-OUTPUT_DIR      = Path("output/us_local")
-REPORTS_DIR     = Path("reports")
+ARTEFACTS_DIR   = PATHS.artefacts_root / "us_local"
+OUTPUT_DIR      = PATHS.artefacts_root / "us_local" / "output"
+REPORTS_DIR     = PATHS.artefacts_root / "us_local" / "reports"
 
 # ── Dual benchmark: SPX + NDX blended (tech-heavy portfolio) ───────────────
 SPX_TICKER   = "^GSPC"

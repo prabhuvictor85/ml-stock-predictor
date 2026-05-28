@@ -39,6 +39,7 @@ _FALLBACK_PROJECT_ROOT = "C:/Victor/Project/ml-stock-predictor"
 _ENV_OVERRIDES = {
     "ML_DATA_ROOT":                 ("data_root",),
     "ML_PROJECT_ROOT":              ("project_root",),
+    "ML_ARTEFACTS_ROOT":            ("artefacts_root",),
     "ML_STOCK_LIST_NSE_LOCAL":      ("stock_lists", "nse_local"),
     "ML_STOCK_LIST_NSE_TV":         ("stock_lists", "nse_tv"),
     "ML_STOCK_LIST_NSE_CAP_TIERS":  ("stock_lists", "nse_cap_tiers"),
@@ -70,10 +71,11 @@ class _StockData:
 
 @dataclass(frozen=True)
 class _Paths:
-    data_root:    Path
-    project_root: Path
-    stock_lists:  _StockLists
-    stock_data:   _StockData
+    data_root:      Path
+    project_root:   Path
+    artefacts_root: Path
+    stock_lists:    _StockLists
+    stock_data:     _StockData
 
 
 def _find_yaml() -> Optional[Path]:
@@ -123,11 +125,13 @@ def _load() -> _Paths:
 
     sl = cfg.get("stock_lists", {})
     sd = cfg.get("stock_data",  {})
+    ar = cfg.get("artefacts_root", "{project_root}/artefacts")
 
     return _Paths(
-        data_root    = Path(data_root).resolve(),
-        project_root = Path(project_root).resolve(),
-        stock_lists  = _StockLists(
+        data_root      = Path(data_root).resolve(),
+        project_root   = Path(project_root).resolve(),
+        artefacts_root = _resolve(ar),
+        stock_lists    = _StockLists(
             nse_local     = _resolve(sl.get("nse_local",     "{data_root}/stock_lists/constituentsi.csv")),
             nse_tv        = _resolve(sl.get("nse_tv",        "{data_root}/stock_lists/constituents_nse_tradingv.csv")),
             nse_cap_tiers = _resolve(sl.get("nse_cap_tiers", "{data_root}/stock_lists/nse_cap_tiers.csv")),

@@ -7,6 +7,7 @@
 #  Environment variable overrides (highest priority):
 #    ML_DATA_ROOT          → data_root
 #    ML_PROJECT_ROOT       → project_root
+#    ML_ARTEFACTS_ROOT     → artefacts_root
 #    ML_STOCK_LIST_NSE_LOCAL    → stock_lists.nse_local
 #    ML_STOCK_LIST_NSE_TV       → stock_lists.nse_tv
 #    ML_STOCK_LIST_NSE_CAP_TIERS → stock_lists.nse_cap_tiers
@@ -19,8 +20,9 @@
 # ══════════════════════════════════════════════════════════════════════════════
 
 # ── Roots ─────────────────────────────────────────────────────────────────────
-data_root:    "C:/Victor/Learning_charts"
-project_root: "C:/Victor/Project/ml-stock-predictor"
+data_root:      "C:/Victor/Learning_charts"
+project_root:   "C:/Victor/Project/ml-stock-predictor"
+artefacts_root: "{project_root}/artefacts"   # override on Hetzner: /mnt/data/artefacts
 
 # ── Ticker / constituent lists ────────────────────────────────────────────────
 stock_lists:

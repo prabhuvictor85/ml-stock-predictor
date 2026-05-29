@@ -564,57 +564,167 @@ class FeatureEngineer:
         panel[f"{FEATURE_PREFIX}regime_bear"] = (regime_arr == 0).astype(np.float32)
         return panel
 
-    def recompute_zones(
+    def recompute_fold_features(
         self,
         panel: pd.DataFrame,
         cutoff_date: pd.Timestamp,
     ) -> pd.DataFrame:
         """
-        Recompute all zone_type_* and zone_active/dist/strength columns
-        for every ticker using only data up to cutoff_date.
+        Recompute ICT + zone features per CV fold using only data up to cutoff_date.
 
-        Call this once per CV fold (passing the fold's last training date)
-        before training the model. Zone labels for bars after cutoff_date
-        are carried forward from the last known zone state as of cutoff_date
-        via merge_asof — no test-period data is used.
+        Call this once per fold (passing the fold's train_end date) instead of
+        recompute_zones.  Fixes two sources of future leakage:
+
+        ICT (OB / BB / FVG / sweeps)
+        ─────────────────────────────
+        Computed on the slice [start → cutoff_date].  The last known active/
+        inactive state at cutoff_date is forward-filled to test rows so that
+        deactivations caused by post-cutoff price action are not visible during
+        training.  Multi-timeframe ICT composites are rebuilt the same way.
+
+        Zones (DZ / SZ / SDZ / SSZ)
+        ────────────────────────────
+        Passed to compute_zone_features with cutoff_date guard (unchanged from
+        the former recompute_zones implementation).
+
+        Panel-level composites
+        ───────────────────────
+        sdz_htf_score / ssz_htf_score (zone × trend multiplier) are rebuilt
+        after the ticker loop using trend columns already in the panel.
 
         Parameters
         ----------
-        panel       : full (ticker, date) panel with ohlcv columns.
-        cutoff_date : last bar of the training window for this fold.
+        panel       : fold panel slice with ohlcv + features_* columns.
+        cutoff_date : last training date for this fold (fold.train_end).
 
         Returns
         -------
-        panel with zone columns replaced (in-place copy).
+        panel with ICT + zone feature columns replaced.
         """
         from pipeline.features.zone_features import compute_zone_features, _ZONE_COLS
 
         panel = panel.copy()
         frames = []
 
-        for ticker, grp in panel.groupby(level="ticker"):
-            grp = grp.droplevel("ticker").sort_index()
-            ohlcv = grp[["open", "high", "low", "close", "volume"]].copy()
+        _HTF_W_Z  = {"zone_type_1d": 1, "zone_type_1wk": 2, "zone_type_1mo": 3,
+                     "zone_type_3mo": 4, "zone_type_1y": 5}
+        _MAX_Z    = sum(_HTF_W_Z.values()) * 2   # 30
 
+        for ticker, grp in panel.groupby(level="ticker"):
+            grp        = grp.droplevel("ticker").sort_index()
+            full_index = grp.index
+            ohlcv_full = grp[["open", "high", "low", "close", "volume"]].copy()
+
+            # Slice up to cutoff — used for both ICT and MTF ICT
+            grp_cut    = grp[grp.index <= cutoff_date].copy()
+            ohlcv_cut  = grp_cut[["open", "high", "low", "close", "volume"]].copy()
+
+            # ── 1. ICT daily recompute ────────────────────────────────────
+            # Compute on training slice, ffill last state to test rows.
+            # atr_14 already present from engineer.build() — no recompute needed.
+            if len(grp_cut) >= 10:
+                try:
+                    ict_result   = self._ict.compute(grp_cut)
+                    raw_ict_cols = [c for c in ict_result.columns if c.startswith("ict_")]
+                    for raw_col in raw_ict_cols:
+                        feat_col = f"{FEATURE_PREFIX}{raw_col}"
+                        if feat_col in grp.columns:
+                            series = (
+                                ict_result[raw_col]
+                                .reindex(full_index, method="ffill")
+                                .fillna(0)
+                            )
+                            grp[feat_col] = series.values.astype(np.float32)
+                except Exception as e:
+                    log.warning(f"{ticker}: ICT daily recompute failed ({e}) — keeping existing values")
+
+            # ── 2. MTF ICT recompute ─────────────────────────────────────
             try:
-                zone_result = compute_zone_features(ohlcv, cutoff_date=cutoff_date)
+                ict_bull_htf = np.zeros(len(grp), dtype=np.float32)
+                ict_bear_htf = np.zeros(len(grp), dtype=np.float32)
+
+                # 1d contribution (freshly recomputed above)
+                for _prio_col, _acc in [
+                    (f"{FEATURE_PREFIX}ict_bull_zone_priority", ict_bull_htf),
+                    (f"{FEATURE_PREFIX}ict_bear_zone_priority", ict_bear_htf),
+                ]:
+                    if _prio_col in grp.columns:
+                        _acc += (
+                            _ICT_HTF_W["1d"]
+                            * grp[_prio_col].fillna(0).values.astype(np.float32)
+                            / _ICT_PRIORITY_MAX
+                        )
+
+                for tf_label, rule in _ICT_HTF_RESAMPLE.items():
+                    try:
+                        htf = ohlcv_cut.resample(rule).agg({
+                            "open": "first", "high": "max",
+                            "low": "min",    "close": "last", "volume": "sum",
+                        }).dropna(subset=["close"])
+
+                        if len(htf) < 5:
+                            continue
+
+                        htf["atr_14"] = _wilder_atr(
+                            htf["high"].values.astype(float),
+                            htf["low"].values.astype(float),
+                            htf["close"].values.astype(float), 14,
+                        )
+
+                        htf_ict   = self._ict.compute(htf)
+                        htf_reset = htf_ict.reset_index()
+                        date_col  = htf_reset.columns[0]
+                        htf_reset = (htf_reset
+                                     .rename(columns={date_col: "date"})
+                                     .sort_values("date"))
+                        carry     = [c for c in _ICT_CARRY_COLS if c in htf_reset.columns]
+
+                        daily_r = pd.DataFrame({"date": full_index}).sort_values("date")
+                        merged  = pd.merge_asof(
+                            daily_r,
+                            htf_reset[["date"] + carry],
+                            on="date", direction="backward",
+                        ).set_index("date")
+
+                        w = _ICT_HTF_W[tf_label]
+                        for col in carry:
+                            vals     = merged[col].reindex(full_index).fillna(0).values.astype(np.float32)
+                            feat_col = f"{FEATURE_PREFIX}{col}_{tf_label}"
+                            if feat_col in grp.columns:
+                                grp[feat_col] = vals
+                            if col == "ict_bull_zone_priority":
+                                ict_bull_htf += w * vals / _ICT_PRIORITY_MAX
+                            elif col == "ict_bear_zone_priority":
+                                ict_bear_htf += w * vals / _ICT_PRIORITY_MAX
+
+                    except Exception as _e:
+                        log.debug(f"{ticker} ICT HTF {tf_label} recompute: {_e}")
+
+                grp[f"{FEATURE_PREFIX}ict_bull_htf_score"] = (
+                    ict_bull_htf / _ICT_SIGNAL_MAX
+                ).clip(0, 1).astype(np.float32)
+                grp[f"{FEATURE_PREFIX}ict_bear_htf_score"] = (
+                    ict_bear_htf / _ICT_SIGNAL_MAX
+                ).clip(0, 1).astype(np.float32)
+
+            except Exception as e:
+                log.warning(f"{ticker}: MTF ICT recompute failed ({e})")
+
+            # ── 3. Zone recompute (cutoff guard) ─────────────────────────
+            try:
+                zone_result = compute_zone_features(ohlcv_full, cutoff_date=cutoff_date)
                 for col in _ZONE_COLS:
                     if col in zone_result.columns:
                         grp[col] = zone_result[col].values
             except Exception as e:
-                log.warning(f"{ticker}: recompute_zones failed ({e})")
+                log.warning(f"{ticker}: zone recompute failed ({e})")
 
-            # Rebuild composite zone feature columns from fresh zone_type_* cols
-            _HTF_W = {
-                "zone_type_1d": 1, "zone_type_1wk": 2, "zone_type_1mo": 3,
-                "zone_type_3mo": 4, "zone_type_1y": 5,
-            }
-            _MAX_SCORE = sum(_HTF_W.values()) * 2
+            # Rebuild zone composite columns
             sdz = np.zeros(len(grp), dtype=np.float32)
             ssz = np.zeros(len(grp), dtype=np.float32)
             dz  = np.zeros(len(grp), dtype=np.float32)
             sz  = np.zeros(len(grp), dtype=np.float32)
-            for tf_col, w in _HTF_W.items():
+            for tf_col, w in _HTF_W_Z.items():
                 if tf_col not in grp.columns:
                     continue
                 zt = grp[tf_col].astype(str).str.strip().str.upper()
@@ -628,28 +738,52 @@ class FeatureEngineer:
                 grp[f"{FEATURE_PREFIX}dz_{tf_short}"]  = (zt == "DZ").astype(np.float32)
                 grp[f"{FEATURE_PREFIX}sz_{tf_short}"]  = (zt == "SZ").astype(np.float32)
 
-            grp[f"{FEATURE_PREFIX}sdz_raw_score"]  = (sdz / _MAX_SCORE).clip(0, 1)
-            grp[f"{FEATURE_PREFIX}ssz_raw_score"]  = (ssz / _MAX_SCORE).clip(0, 1)
-            grp[f"{FEATURE_PREFIX}dz_raw_score"]   = (dz  / _MAX_SCORE).clip(0, 1)
-            grp[f"{FEATURE_PREFIX}sz_raw_score"]   = (sz  / _MAX_SCORE).clip(0, 1)
+            grp[f"{FEATURE_PREFIX}sdz_raw_score"]  = (sdz / _MAX_Z).clip(0, 1)
+            grp[f"{FEATURE_PREFIX}ssz_raw_score"]  = (ssz / _MAX_Z).clip(0, 1)
+            grp[f"{FEATURE_PREFIX}dz_raw_score"]   = (dz  / _MAX_Z).clip(0, 1)
+            grp[f"{FEATURE_PREFIX}sz_raw_score"]   = (sz  / _MAX_Z).clip(0, 1)
             grp[f"{FEATURE_PREFIX}any_valid_sdz"]  = (sdz > 0).astype(np.float32)
             grp[f"{FEATURE_PREFIX}any_valid_ssz"]  = (ssz > 0).astype(np.float32)
-            grp[f"{FEATURE_PREFIX}any_valid_zone"] = ((sdz+ssz+dz+sz) > 0).astype(np.float32)
+            grp[f"{FEATURE_PREFIX}any_valid_zone"] = ((sdz + ssz + dz + sz) > 0).astype(np.float32)
             grp[f"{FEATURE_PREFIX}zone_active"]    = grp.get("zone_active_1d",   pd.Series(0.0, index=grp.index)).astype(np.float32)
             grp[f"{FEATURE_PREFIX}zone_dist_atr"]  = grp.get("zone_dist_atr_1d", pd.Series(np.nan, index=grp.index)).astype(np.float32)
-            grp[f"{FEATURE_PREFIX}zone_strength"]  = grp.get("zone_strength_1d", pd.Series(0.0, index=grp.index)).astype(np.float32)
+            grp[f"{FEATURE_PREFIX}zone_strength"]  = grp.get("zone_strength_1d", pd.Series(0.0,  index=grp.index)).astype(np.float32)
 
             grp["ticker"] = ticker
             grp = grp.set_index("ticker", append=True).reorder_levels(["ticker", "date"])
             frames.append(grp)
 
         if not frames:
-            log.warning(
-                "recompute_zones: no frames produced (empty panel or no tickers) "
-                "— returning panel unchanged."
-            )
+            log.warning("recompute_fold_features: no frames produced — returning panel unchanged.")
             return panel
 
-        return pd.concat(frames).sort_index()
+        result = pd.concat(frames).sort_index()
+
+        # ── 4. Panel-level: rebuild sdz_htf_score × trend multiplier ─────
+        # Trend columns are causal (rolling SMAs) — no recompute needed.
+        # Rebuild the zone×trend composite so it reflects fresh zone scores.
+        sdz_r = result.get(f"{FEATURE_PREFIX}sdz_raw_score", pd.Series(0.0, index=result.index))
+        ssz_r = result.get(f"{FEATURE_PREFIX}ssz_raw_score", pd.Series(0.0, index=result.index))
+        wt  = result.get("weekly_trend",    pd.Series(0.0, index=result.index)).fillna(0)
+        mt  = result.get("monthly_trend",   pd.Series(0.0, index=result.index)).fillna(0)
+        qt  = result.get("quarterly_trend", pd.Series(0.0, index=result.index)).fillna(0)
+        yt  = result.get("yearly_trend",    pd.Series(0.0, index=result.index)).fillna(0)
+        up_mult = 0.5 + 0.375*wt + 0.375*mt + 0.375*qt + 0.375*yt
+        dn_mult = 0.5 + 0.375*(1-wt) + 0.375*(1-mt) + 0.375*(1-qt) + 0.375*(1-yt)
+        result[f"{FEATURE_PREFIX}sdz_htf_score"]      = (sdz_r * up_mult).astype(np.float32)
+        result[f"{FEATURE_PREFIX}ssz_htf_score"]      = (ssz_r * dn_mult).astype(np.float32)
+        result[f"{FEATURE_PREFIX}zone_htf_confluence"] = (
+            result[f"{FEATURE_PREFIX}sdz_htf_score"] - result[f"{FEATURE_PREFIX}ssz_htf_score"]
+        ).astype(np.float32)
+
+        return result
+
+    def recompute_zones(
+        self,
+        panel: pd.DataFrame,
+        cutoff_date: pd.Timestamp,
+    ) -> pd.DataFrame:
+        """Deprecated alias — use recompute_fold_features instead."""
+        return self.recompute_fold_features(panel, cutoff_date)
 
 

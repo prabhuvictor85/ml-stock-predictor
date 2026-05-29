@@ -686,7 +686,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 continue
 
             fold_cutoff = train_panel.index.get_level_values("date")[tr_idx].max()
-            tr = fe.recompute_zones(tr, cutoff_date=fold_cutoff)
+            tr = fe.recompute_fold_features(tr, cutoff_date=fold_cutoff)
             tr_grp, tr_groups = cv.build_group_array(tr, min_group_size=5)
 
             if len(tr_grp) == 0:
@@ -700,7 +700,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 continue
 
             te_panel = train_panel.iloc[te_idx]
-            te_panel = fe.recompute_zones(te_panel, cutoff_date=spec.test_end)
+            te_panel = fe.recompute_fold_features(te_panel, cutoff_date=spec.test_end)
             te_univ  = te_panel[te_panel["in_universe"] == True]
 
             if len(te_univ) < 5:

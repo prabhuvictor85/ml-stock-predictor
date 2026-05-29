@@ -744,7 +744,7 @@ python3 run_nse_local.py \
   --as_of 2023-12-08 \
   --n_jobs 4 \
   2>&1 | tee /mnt/data/artefacts/nse_local/run_nse_full.log
-<span class="comment"># --n_folds is auto-computed from date range (2023 - 2010 - 2 warmup = 11 folds)</span>
+<span class="comment"># --n_folds is auto-computed from date range (2023 - 2010 - 2 warmup + 1 = 12 folds)</span>
 <span class="comment"># Do NOT pass --n_folds manually unless you need to override.</span>
 
 <span class="comment"># Expected time breakdown:</span>
@@ -764,7 +764,7 @@ python3 run_sp500_local.py \
   --as_of 2023-12-08 \
   --n_jobs 2 \
   2>&1 | tee /mnt/data/artefacts/us_local/run_sp500_full.log
-<span class="comment"># --n_folds is auto-computed from date range (2023 - 2010 - 2 warmup = 11 folds)</span>
+<span class="comment"># --n_folds is auto-computed from date range (2023 - 2010 - 2 warmup + 1 = 12 folds)</span>
 <span class="comment"># Do NOT pass --n_folds manually unless you need to override.</span>
 <span class="comment"># --n_jobs 2 for SP500 (large folds — each trial needs 4 LightGBM threads)</span>
 
@@ -795,7 +795,7 @@ python3 run_sp500_local.py \
         <tr><td><code>--train_start</code></td><td>2010-01-01</td><td>Start of training data window</td></tr>
         <tr><td><code>--as_of</code></td><td>today</td><td>Scoring reference date (end of data)</td></tr>
         <tr><td><code>--n_jobs</code></td><td>1</td><td>Parallel Optuna trials. Use 4 for NSE, 2 for SP500</td></tr>
-        <tr><td><code>--n_folds</code></td><td>auto</td><td>CV folds — auto-computed from date range (do not override)</td></tr>
+        <tr><td><code>--n_folds</code></td><td>auto</td><td>CV folds — auto-computed: <code>as_of_yr − start_yr − 2 + 1</code>. 2010→2023 = 12 folds (test windows 2012–2023). Do not override.</td></tr>
         <tr><td><code>--n_trials</code></td><td>25</td><td>Optuna HPO trials. 25 = good balance; 50 = exhaustive</td></tr>
         <tr><td><code>--skip_train</code></td><td>off</td><td>Skip training, score only using saved models</td></tr>
         <tr><td><code>--top_n</code></td><td>30</td><td>Stocks per watchlist</td></tr>

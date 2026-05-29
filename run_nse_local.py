@@ -2301,10 +2301,10 @@ def main() -> None:
                 _as_of_year      = pd.Timestamp(args.as_of).year if args.as_of else pd.Timestamp.now().year
                 _start_year      = pd.Timestamp(args.train_start).year
                 _warmup_years    = 2
-                _auto_folds      = max(6, _as_of_year - _start_year - _warmup_years)
+                _auto_folds      = max(6, _as_of_year - _start_year - _warmup_years + 1)
                 if _auto_folds != args.n_folds:
                     print(f"\n  [n_folds] Auto-computed {_auto_folds} folds "
-                          f"({_as_of_year} - {_start_year} - {_warmup_years} warmup) "
+                          f"({_as_of_year} - {_start_year} - {_warmup_years} warmup + 1) "
                           f"— overrides default of {args.n_folds}")
                     args.n_folds = _auto_folds
 

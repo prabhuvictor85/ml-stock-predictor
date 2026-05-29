@@ -679,7 +679,62 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         print("      Pre-computing fold zones (runs once, reused across all trials) ...")
         t_cache = _time.time()
         fold_cache = {}   # fold_id -> {"tr_grp", "tr_groups", "te_univ"}
+
+        # ── Disk-backed fold cache ────────────────────────────────────────────
+        # Each fold is saved as a pickle under <mode_artefacts>/fold_cache/.
+        # Cache key: fold_id + train_end + test_end + as_of date.
+        # On re-run (same data, same as_of), all folds load instantly — both
+        # momentum and reversal modes get their own cache directory so the
+        # mode-filtered panels don't collide.
+        FOLD_CACHE_DIR = _art_dir / "fold_cache"
+        FOLD_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        _as_of_str = args.as_of or pd.Timestamp.now().strftime("%Y-%m-%d")
+
+        def _fold_cache_path(fold_id: int) -> "Path":
+            return FOLD_CACHE_DIR / f"fold_{fold_id}.pkl"
+
+        def _load_fold_cache(fold_id: int, spec) -> dict | None:
+            p = _fold_cache_path(fold_id)
+            if not p.exists():
+                return None
+            try:
+                with open(p, "rb") as f:
+                    cached = pickle.load(f)
+                # Validate cache key matches current run
+                if (cached.get("train_end") == spec.train_end and
+                        cached.get("test_end")  == spec.test_end and
+                        cached.get("as_of")     == _as_of_str):
+                    return cached["data"]
+            except Exception:
+                pass
+            return None
+
+        def _save_fold_cache(fold_id: int, spec, data: dict) -> None:
+            try:
+                with open(_fold_cache_path(fold_id), "wb") as f:
+                    pickle.dump({
+                        "train_end": spec.train_end,
+                        "test_end":  spec.test_end,
+                        "as_of":     _as_of_str,
+                        "data":      data,
+                    }, f, protocol=4)
+            except Exception as e:
+                print(f"        [warn] Could not save fold {fold_id} cache: {e}", flush=True)
+
         for spec, tr_idx, te_idx in cv.split(train_panel):
+            # ── Try loading from disk first ───────────────────────────────
+            disk_hit = _load_fold_cache(spec.fold_id, spec)
+            if disk_hit is not None:
+                fold_cache[spec.fold_id] = disk_hit
+                print(
+                    f"        Fold {spec.fold_id}: loaded from disk  "
+                    f"train={len(disk_hit['tr_grp']):,}rows/{len(disk_hit['tr_groups'])}groups "
+                    f"test={len(disk_hit['te_univ']):,}",
+                    flush=True,
+                )
+                continue
+
+            # ── Compute and save ──────────────────────────────────────────
             tr = train_panel.iloc[tr_idx]
             if len(tr) == 0:
                 fold_cache[spec.fold_id] = None
@@ -708,11 +763,13 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 print(f"        Fold {spec.fold_id}: test universe too small ({len(te_univ)}) — skipping", flush=True)
                 continue
 
-            fold_cache[spec.fold_id] = {
+            fold_data = {
                 "tr_grp":    tr_grp,
                 "tr_groups": tr_groups,
                 "te_univ":   te_univ,
             }
+            fold_cache[spec.fold_id] = fold_data
+            _save_fold_cache(spec.fold_id, spec, fold_data)
             print(
                 f"        Fold {spec.fold_id}: cached "
                 f"train={len(tr_grp):,}rows/{len(tr_groups)}groups "

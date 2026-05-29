@@ -566,7 +566,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
           use_gpu: bool = False,
           mode: str = "legacy",
           mode_artefacts_dir: Optional[Path] = None,
-          n_jobs: int = 1) -> dict:
+          n_jobs: int = 1,
+          as_of: Optional[str] = None) -> dict:
     """Full train: features → targets → CV → Optuna → models → calibration.
 
     mode: "legacy" | "momentum" | "reversal"
@@ -733,7 +734,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         # ── Disk-backed fold cache ────────────────────────────────────────────
         FOLD_CACHE_DIR = _art_dir / "fold_cache"
         FOLD_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _as_of_str = args.as_of or pd.Timestamp.now().strftime("%Y-%m-%d")
+        _as_of_str = as_of or pd.Timestamp.now().strftime("%Y-%m-%d")
 
         def _fold_cache_path(fold_id: int) -> "Path":
             return FOLD_CACHE_DIR / f"fold_{fold_id}.pkl"
@@ -2390,6 +2391,7 @@ def main() -> None:
                         mode=m,
                         mode_artefacts_dir=MODE_DIRS[m],
                         n_jobs=args.n_jobs,
+                        as_of=args.as_of,
                     )
                 panel = artefacts["panel"]   # feature-engineered panel — required for score_and_rank
                 results_by_mode[m] = {

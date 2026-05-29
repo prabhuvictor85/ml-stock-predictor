@@ -20,12 +20,33 @@
 
 set -euo pipefail
 
+# ── GitHub token (required for private repos) ────────────────────────────────
+# Option A — export before running (recommended, token never stored in file):
+#   export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+#   bash server_setup.sh
+#
+# Option B — set it here (less secure, do not commit this file with token):
+#   GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+#
+# Leave blank if the repo is public — no token needed.
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"   # reads from env if already exported
+
 # ── Config — edit these if they change ──────────────────────────────────────
-GITHUB_REPO="https://github.com/prabhuvictor85/ml-stock-predictor.git"
+GITHUB_USER="prabhuvictor85"
+GITHUB_REPO_NAME="ml-stock-predictor"
 GIT_BRANCH="master"
 PROJECT_DIR="/root/ml-stock-predictor"
 VOLUME_DEVICE="/dev/sdb"
 MOUNT_POINT="/mnt/data"
+
+# Build clone URL — uses token if set, plain HTTPS otherwise
+if [ -n "${GITHUB_TOKEN}" ]; then
+    GITHUB_REPO="https://${GITHUB_TOKEN}@github.com/${GITHUB_USER}/${GITHUB_REPO_NAME}.git"
+    GITHUB_REPO_DISPLAY="https://***@github.com/${GITHUB_USER}/${GITHUB_REPO_NAME}.git"
+else
+    GITHUB_REPO="https://github.com/${GITHUB_USER}/${GITHUB_REPO_NAME}.git"
+    GITHUB_REPO_DISPLAY="${GITHUB_REPO}"
+fi
 
 # Paths on the volume (survive server deletion)
 DATA_ROOT="${MOUNT_POINT}/Learning_charts"
@@ -115,7 +136,7 @@ if [ -d "${PROJECT_DIR}/.git" ]; then
     git -C "${PROJECT_DIR}" checkout "${GIT_BRANCH}"
     git -C "${PROJECT_DIR}" pull origin "${GIT_BRANCH}"
 else
-    info "Cloning ${GITHUB_REPO} (branch: ${GIT_BRANCH}) ..."
+    info "Cloning ${GITHUB_REPO_DISPLAY} (branch: ${GIT_BRANCH}) ..."
     git clone --branch "${GIT_BRANCH}" "${GITHUB_REPO}" "${PROJECT_DIR}"
 fi
 

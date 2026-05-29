@@ -272,12 +272,20 @@
           <div class="step-pill"><strong>Step 5 — paths.yaml</strong>Skipped if file already exists</div>
         </div>
 
-        <pre><code><span class="comment"># Fresh server — bootstrap from GitHub directly</span>
+        <pre><code><span class="comment"># Step 0 — export GitHub token FIRST (required if repo is private)</span>
+export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+
+<span class="comment"># Fresh server — bootstrap from GitHub directly</span>
 curl -o setup.sh https://raw.githubusercontent.com/prabhuvictor85/ml-stock-predictor/master/scripts/server_setup.sh
 bash setup.sh
 
 <span class="comment"># Existing server after git pull — re-run safely, skips completed steps</span>
 bash /root/ml-stock-predictor/scripts/server_setup.sh</code></pre>
+        <div class="callout info" style="margin-top:12px;margin-bottom:8px">
+          <span class="callout-icon">🔑</span>
+          <p><strong>Public repo?</strong> Skip the token export entirely — plain HTTPS clone works without authentication.<br/>
+          <strong>Private repo?</strong> Generate a token at <a href="https://github.com/settings/tokens" style="color:var(--accent)">github.com/settings/tokens</a> with <code>repo</code> scope. Export before running setup. The token is never written to disk or logs.</p>
+        </div>
 
         <div class="callout warn" style="margin-top:12px;margin-bottom:8px">
           <span class="callout-icon">⚠️</span>
@@ -428,9 +436,12 @@ git config --global pull.rebase false  <span class="comment"># use merge on pull
           <div class="step-num"></div>
           <div class="step-body">
             <h3>Clone the repo</h3>
-            <pre><code>cd /root
-git clone https://github.com/prabhuvictor85/ml-stock-predictor.git
-cd ml-stock-predictor</code></pre>
+            <pre><code><span class="comment"># Public repo — no token needed</span>
+git clone https://github.com/prabhuvictor85/ml-stock-predictor.git /root/ml-stock-predictor
+
+<span class="comment"># Private repo — export token first, then clone</span>
+export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+git clone https://${GITHUB_TOKEN}@github.com/prabhuvictor85/ml-stock-predictor.git /root/ml-stock-predictor</code></pre>
           </div>
         </div>
 

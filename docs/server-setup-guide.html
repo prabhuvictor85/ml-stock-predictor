@@ -270,10 +270,18 @@
           <div class="step-pill"><strong>Step 3 — Git clone/pull</strong>Clones fresh or pulls if repo exists</div>
           <div class="step-pill"><strong>Step 4 — Python venv</strong>Skipped if <code>/root/venv</code> exists</div>
           <div class="step-pill"><strong>Step 5 — paths.yaml</strong>Skipped if file already exists</div>
+          <div class="step-pill"><strong>Step 6 — HF login</strong>Skipped if <code>HF_TOKEN</code> not set</div>
         </div>
 
-        <pre><code><span class="comment"># Step 0 — export GitHub token FIRST (required if repo is private)</span>
+        <pre><code><span class="comment"># Step 0 — export tokens FIRST (before running setup)</span>
+
+<span class="comment"># GitHub token: required for private repos</span>
+<span class="comment"># Get from: https://github.com/settings/tokens  (repo scope)</span>
 export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+
+<span class="comment"># Hugging Face token: required for uploading models/watchlists to HF Hub</span>
+<span class="comment"># Get from: https://huggingface.co/settings/tokens  (write access)</span>
+export HF_TOKEN="hf_xxxxxxxxxxxxxxxxxxxx"
 
 <span class="comment"># Fresh server — bootstrap from GitHub directly</span>
 curl -o setup.sh https://raw.githubusercontent.com/prabhuvictor85/ml-stock-predictor/master/scripts/server_setup.sh
@@ -283,8 +291,10 @@ bash setup.sh
 bash /root/ml-stock-predictor/scripts/server_setup.sh</code></pre>
         <div class="callout info" style="margin-top:12px;margin-bottom:8px">
           <span class="callout-icon">🔑</span>
-          <p><strong>Public repo?</strong> Skip the token export entirely — plain HTTPS clone works without authentication.<br/>
-          <strong>Private repo?</strong> Generate a token at <a href="https://github.com/settings/tokens" style="color:var(--accent)">github.com/settings/tokens</a> with <code>repo</code> scope. Export before running setup. The token is never written to disk or logs.</p>
+          <p><strong>Public repo?</strong> Skip <code>GITHUB_TOKEN</code> — plain HTTPS clone works without it.<br/>
+          <strong>Private repo?</strong> Generate at <a href="https://github.com/settings/tokens" style="color:var(--accent)">github.com/settings/tokens</a> with <code>repo</code> scope.<br/>
+          <strong>HF Hub?</strong> Generate at <a href="https://huggingface.co/settings/tokens" style="color:var(--accent)">huggingface.co/settings/tokens</a> with <strong>write</strong> access. Skip if you don't upload to HF.<br/>
+          Neither token is ever written to disk or printed in logs.</p>
         </div>
 
         <div class="callout warn" style="margin-top:12px;margin-bottom:8px">

@@ -20,16 +20,21 @@
 
 set -euo pipefail
 
-# ── GitHub token (required for private repos) ────────────────────────────────
-# Option A — export before running (recommended, token never stored in file):
+# ── Tokens — export before running (never store values here) ─────────────────
+# Usage:
 #   export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
+#   export HF_TOKEN="hf_xxxxxxxxxxxxxxxxxxxx"
 #   bash server_setup.sh
 #
-# Option B — set it here (less secure, do not commit this file with token):
-#   GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxx"
-#
-# Leave blank if the repo is public — no token needed.
-GITHUB_TOKEN="${GITHUB_TOKEN:-}"   # reads from env if already exported
+# GitHub token: required for private repos. Get from:
+#   https://github.com/settings/tokens  (repo scope)
+# Leave blank if repo is public.
+GITHUB_TOKEN="${GITHUB_TOKEN:-}"
+
+# HF token: required for uploading/downloading from HF Hub. Get from:
+#   https://huggingface.co/settings/tokens  (write access)
+# Leave blank to skip HF login (you can run 'hf auth login' manually later).
+HF_TOKEN="${HF_TOKEN:-}"
 
 # ── Config — edit these if they change ──────────────────────────────────────
 GITHUB_USER="prabhuvictor85"
@@ -65,7 +70,7 @@ section() { echo -e "\n${GREEN}===== $* =====${NC}"; }
 # =============================================================================
 # 1. MOUNT VOLUME
 # =============================================================================
-section "1/5  Mounting Hetzner Volume"
+section "1/6  Mounting Hetzner Volume"
 
 if mountpoint -q "${MOUNT_POINT}"; then
     info "Volume already mounted at ${MOUNT_POINT} — skipping"
@@ -113,7 +118,7 @@ fi
 # =============================================================================
 # 2. CREATE DIRECTORY STRUCTURE ON VOLUME
 # =============================================================================
-section "2/5  Creating directory structure on volume"
+section "2/6  Creating directory structure on volume"
 
 mkdir -p "${NSE_DATA_DIR}"
 mkdir -p "${US_DATA_DIR}"
@@ -128,7 +133,7 @@ info "  ${ARTEFACTS_ROOT}"
 # =============================================================================
 # 3. CLONE / UPDATE GITHUB REPO
 # =============================================================================
-section "3/5  Cloning / updating repository"
+section "3/6  Cloning / updating repository"
 
 if [ -d "${PROJECT_DIR}/.git" ]; then
     info "Repo already exists — pulling latest ${GIT_BRANCH} ..."
@@ -156,7 +161,7 @@ fi
 # =============================================================================
 # 4. INSTALL PYTHON DEPENDENCIES  (isolated venv — avoids all system-pip issues)
 # =============================================================================
-section "4/5  Installing Python dependencies"
+section "4/6  Installing Python dependencies"
 
 cd "${PROJECT_DIR}"
 
@@ -192,7 +197,7 @@ info "Python dependencies installed into ${VENV_DIR}"
 # =============================================================================
 # 5. WRITE paths.yaml  (only if it does not already exist)
 # =============================================================================
-section "5/5  Writing paths.yaml"
+section "5/6  Writing paths.yaml"
 
 PATHS_YAML="${PROJECT_DIR}/paths.yaml"
 
@@ -224,6 +229,30 @@ artefacts_root: ${ARTEFACTS_ROOT}
 EOF
     info "paths.yaml written to ${PATHS_YAML}"
     cat "${PATHS_YAML}"
+fi
+
+# =============================================================================
+# 6. HF LOGIN  (only if HF_TOKEN is set)
+# =============================================================================
+section "6/6  Hugging Face login"
+
+if [ -n "${HF_TOKEN}" ]; then
+    if command -v hf &>/dev/null; then
+        echo "${HF_TOKEN}" | hf auth login --token-stdin 2>/dev/null \
+            || hf auth login --token "${HF_TOKEN}"
+        info "HF login successful"
+    elif python3 -c "import huggingface_hub" &>/dev/null 2>&1; then
+        python3 -c "
+import huggingface_hub, os
+huggingface_hub.login(token=os.environ['HF_TOKEN'], add_to_git_credential=False)
+print('HF login successful via huggingface_hub')
+"
+    else
+        warn "hf CLI and huggingface_hub not found — skipping HF login"
+        warn "Run 'pip install huggingface_hub && hf auth login' manually"
+    fi
+else
+    warn "HF_TOKEN not set — skipping HF login (run 'hf auth login' manually)"
 fi
 
 # =============================================================================

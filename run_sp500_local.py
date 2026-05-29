@@ -73,12 +73,13 @@ MOMENTUM_ARTEFACTS_DIR = ARTEFACTS_DIR / "momentum"
 REVERSAL_ARTEFACTS_DIR = ARTEFACTS_DIR / "reversal"
 
 # Universe filter thresholds for each mode
-# Momentum: within 15% of 52w high (continuation/breakout plays)
-# momentum:  within 15% of 52w high  (breakout / distribution plays)
-# reversal:  15%+ below 52w high     (SDZ bounce / breakdown plays)
+# momentum:  within 40% of 52w high — catches early-stage breakouts before
+#            they're already near the high. Stocks at 60-85% of 52w high
+#            sitting in SDZ/ICT zones are the highest-quality setups.
+# reversal:  40%+ below 52w high — deep value / demand zone bounces
 # No gap — every stock belongs to exactly one universe
-MOMENTUM_DIST_THRESHOLD = -0.15
-REVERSAL_DIST_THRESHOLD = -0.15
+MOMENTUM_DIST_THRESHOLD = -0.40
+REVERSAL_DIST_THRESHOLD = -0.40
 MIN_TRAIN_ROWS          = 1_000   # guard: refuse to train on a near-empty filtered universe
 
 # ── Performance Timer ────────────────────────────────────────────────────────
@@ -254,8 +255,8 @@ def parse_args() -> argparse.Namespace:
                    help=(
                        "Ranker mode(s) to run. "
                        "'all' trains and scores both momentum and reversal (default). "
-                       "'momentum' = continuation plays, stocks within 15%% of 52w high. "
-                       "'reversal' = demand zone bounce plays, stocks 15%%+ below 52w high. "
+                       "'momentum' = continuation plays, stocks within 40%% of 52w high. "
+                       "'reversal' = demand zone bounce plays, stocks 40%%+ below 52w high. "
                        "'legacy' = original single-ranker (backward compat)."
                    ))
     p.add_argument("--train_start", type=str, default="2010-01-01",
@@ -570,8 +571,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
     mode: "legacy" | "momentum" | "reversal"
       legacy   — original single-ranker, no universe filter
-      momentum — trains only on stocks within 15% of their 52w high
-      reversal — trains only on stocks 15%+ below their 52w high
+      momentum — trains only on stocks within 40% of their 52w high
+      reversal — trains only on stocks 40%+ below their 52w high
     mode_artefacts_dir: where to save mode-specific artefacts (ensemble, ranker, etc.)
       Defaults to ARTEFACTS_DIR for legacy mode.
     """
@@ -650,13 +651,13 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         _mask = panel[_dist_col] > MOMENTUM_DIST_THRESHOLD
         train_panel = panel[_mask].copy()
         n_tickers = train_panel.index.get_level_values("ticker").nunique()
-        print(f"      [mode=momentum] within 15% of 52w high ({_dist_col} > {MOMENTUM_DIST_THRESHOLD}): "
+        print(f"      [mode=momentum] within 40% of 52w high ({_dist_col} > {MOMENTUM_DIST_THRESHOLD}): "
               f"{len(train_panel):,} rows / {n_tickers} tickers kept of {len(panel):,}")
     elif mode == "reversal" and _dist_col in panel.columns:
         _mask = panel[_dist_col] <= REVERSAL_DIST_THRESHOLD
         train_panel = panel[_mask].copy()
         n_tickers = train_panel.index.get_level_values("ticker").nunique()
-        print(f"      [mode=reversal] 15%+ below 52w high ({_dist_col} <= {REVERSAL_DIST_THRESHOLD}): "
+        print(f"      [mode=reversal] 40%+ below 52w high ({_dist_col} <= {REVERSAL_DIST_THRESHOLD}): "
               f"{len(train_panel):,} rows / {n_tickers} tickers kept of {len(panel):,}")
     else:
         train_panel = panel  # legacy: no filter
@@ -1077,8 +1078,8 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
 
     mode controls which stocks are eligible for the watchlist:
       legacy   — all stocks (original behaviour)
-      momentum — only stocks within 15% of their 52w high
-      reversal — only stocks 15%+ below their 52w high
+      momentum — only stocks within 40% of their 52w high
+      reversal — only stocks 40%+ below their 52w high
     All stocks are scored regardless — the filter only affects watchlist selection.
     """
     from pipeline.portfolio.constructor import PortfolioConstructor

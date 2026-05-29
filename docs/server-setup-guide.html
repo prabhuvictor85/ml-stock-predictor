@@ -319,7 +319,7 @@ bash /root/ml-stock-predictor/scripts/server_setup.sh</code></pre>
 
     <section id="server">
       <h2>1. Create Server (Hetzner)</h2>
-      <p>Recommended spec for full training with <strong>n_jobs=4</strong>:</p>
+      <p>Recommended spec for full training (<strong>NSE: n_jobs=4, SP500: n_jobs=2</strong>):</p>
       <table>
         <tr><th>Setting</th><th>Value</th><th>Notes</th></tr>
         <tr><td>Server type</td><td><strong>CCX33</strong></td><td>8 vCPU, 32 GB RAM — minimum for SP500 full run</td></tr>
@@ -744,6 +744,8 @@ python3 run_nse_local.py \
   --as_of 2023-12-08 \
   --n_jobs 4 \
   2>&1 | tee /mnt/data/artefacts/nse_local/run_nse_full.log
+<span class="comment"># --n_folds is auto-computed from date range (2023 - 2010 - 2 warmup = 11 folds)</span>
+<span class="comment"># Do NOT pass --n_folds manually unless you need to override.</span>
 
 <span class="comment"># Expected time breakdown:</span>
 <span class="comment">#   Feature engineering + targets : ~10 min (or instant from checkpoint)</span>
@@ -762,6 +764,9 @@ python3 run_sp500_local.py \
   --as_of 2023-12-08 \
   --n_jobs 2 \
   2>&1 | tee /mnt/data/artefacts/us_local/run_sp500_full.log
+<span class="comment"># --n_folds is auto-computed from date range (2023 - 2010 - 2 warmup = 11 folds)</span>
+<span class="comment"># Do NOT pass --n_folds manually unless you need to override.</span>
+<span class="comment"># --n_jobs 2 for SP500 (large folds — each trial needs 4 LightGBM threads)</span>
 
 <span class="comment"># Expected time breakdown:</span>
 <span class="comment">#   Feature engineering + targets : ~15 min (or instant from checkpoint)</span>

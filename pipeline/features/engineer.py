@@ -259,14 +259,20 @@ class FeatureEngineer:
 
             for ict_col in [
                 # Order Blocks
-                "ict_bob_active",      "ict_bob_dist",       # Bull OB
-                "ict_sob_active",      "ict_sob_dist",       # Short (Bear) OB
+                "ict_bob_active",
+                "ict_bob_atr_dist",    "ict_bob_pct_dist",   # Bull OB distances
+                "ict_sob_active",
+                "ict_sob_atr_dist",    "ict_sob_pct_dist",   # Bear OB distances
                 # Breaker Blocks (highest-priority ICT signal)
-                "ict_bullbb_active",   "ict_bullbb_dist",    # Bull BB
-                "ict_bearbb_active",   "ict_bearbb_dist",    # Bear BB
+                "ict_bullbb_active",
+                "ict_bullbb_atr_dist", "ict_bullbb_pct_dist",
+                "ict_bearbb_active",
+                "ict_bearbb_atr_dist", "ict_bearbb_pct_dist",
                 # Fair Value Gaps
-                "ict_bullfvg_active",  "ict_bullfvg_dist",   # Bull FVG
-                "ict_bearfvg_active",  "ict_bearfvg_dist",   # Bear FVG
+                "ict_bullfvg_active",
+                "ict_bullfvg_atr_dist","ict_bullfvg_pct_dist",
+                "ict_bearfvg_active",
+                "ict_bearfvg_atr_dist","ict_bearfvg_pct_dist",
                 # Liquidity sweeps
                 "ict_bsl_swept",       "ict_ssl_swept",
                 # Zone priority metadata

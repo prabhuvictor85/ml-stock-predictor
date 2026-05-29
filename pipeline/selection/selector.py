@@ -60,19 +60,26 @@ ALWAYS_INCLUDE: set = {
     # — real variance now, FeatureSelector evaluates them on merit.
     # ICT Bull Order Block (OB)
     "features_ict_bob_active",
-    "features_ict_bob_dist",
+    "features_ict_bob_atr_dist",         # ATR-normalised distance from OB midpoint
     # ICT Bear Order Block (SOB — Short Order Block)
-    "features_ict_sob_active",           # was ict_bearob_active (wrong name, now fixed)
-    "features_ict_sob_dist",             # was ict_bearob_dist   (wrong name, now fixed)
+    "features_ict_sob_active",
+    "features_ict_sob_atr_dist",         # ATR-normalised distance from SOB midpoint
     # ICT Breaker Blocks (highest-priority ICT signals)
     "features_ict_bullbb_active",
+    "features_ict_bullbb_atr_dist",
     "features_ict_bearbb_active",
+    "features_ict_bearbb_atr_dist",
     # ICT Fair Value Gaps
     "features_ict_bullfvg_active",
+    "features_ict_bullfvg_atr_dist",
     "features_ict_bearfvg_active",
+    "features_ict_bearfvg_atr_dist",
     # Liquidity sweeps
     "features_ict_bsl_swept",
     "features_ict_ssl_swept",
+    # ICT HTF composite scores
+    "features_ict_bull_htf_score",
+    "features_ict_bear_htf_score",
 }
 
 # Importance multiplier applied to ALWAYS_INCLUDE features during correlation

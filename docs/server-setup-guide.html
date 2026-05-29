@@ -262,24 +262,28 @@
     <section id="quickstart">
       <div class="quickstart">
         <h2>⚡ Quick Start — <code>setup.sh</code></h2>
-        <p class="qs-sub">One command does everything: mounts volume, creates directories, clones repo, installs Python deps, and writes <code>paths.yaml</code>.</p>
+        <p class="qs-sub">One command does everything. <strong>Each step is skipped automatically if already done</strong> — safe to run on a fresh server or an existing one after a git pull.</p>
 
         <div class="steps-inline">
-          <div class="step-pill"><strong>Step 1 — Mount &amp; format</strong>Attaches /dev/sdb → /mnt/data, adds to fstab</div>
-          <div class="step-pill"><strong>Step 2 — Directories</strong>Creates all data + artefacts folders on volume</div>
-          <div class="step-pill"><strong>Step 3 — Git clone/pull</strong>Clones or updates ml-stock-predictor master</div>
-          <div class="step-pill"><strong>Step 4 — Python venv</strong>Creates /root/venv, installs requirements.txt</div>
-          <div class="step-pill"><strong>Step 5 — paths.yaml</strong>Writes machine-specific config automatically</div>
+          <div class="step-pill"><strong>Step 1 — Mount &amp; format</strong>Skipped if already mounted</div>
+          <div class="step-pill"><strong>Step 2 — Directories</strong>Skipped if folders exist (<code>mkdir -p</code>)</div>
+          <div class="step-pill"><strong>Step 3 — Git clone/pull</strong>Clones fresh or pulls if repo exists</div>
+          <div class="step-pill"><strong>Step 4 — Python venv</strong>Skipped if <code>/root/venv</code> exists</div>
+          <div class="step-pill"><strong>Step 5 — paths.yaml</strong>Skipped if file already exists</div>
         </div>
 
-        <pre><code><span class="comment"># On the Hetzner server — run once after every new server creation</span>
+        <pre><code><span class="comment"># Fresh server — bootstrap from GitHub directly</span>
 curl -o setup.sh https://raw.githubusercontent.com/prabhuvictor85/ml-stock-predictor/master/scripts/server_setup.sh
 bash setup.sh
 
-<span class="comment"># Or if you've already cloned the repo:</span>
+<span class="comment"># Existing server after git pull — re-run safely, skips completed steps</span>
 bash /root/ml-stock-predictor/scripts/server_setup.sh</code></pre>
 
-        <div class="callout success" style="margin-top:16px;margin-bottom:0">
+        <div class="callout warn" style="margin-top:12px;margin-bottom:8px">
+          <span class="callout-icon">⚠️</span>
+          <p><strong>paths.yaml is never overwritten</strong> if it already exists. To regenerate it: <code>rm /root/ml-stock-predictor/paths.yaml &amp;&amp; bash setup.sh</code></p>
+        </div>
+        <div class="callout success" style="margin-bottom:0">
           <span class="callout-icon">✅</span>
           <p>When it prints <strong>"Server setup complete!"</strong> — activate the venv and you're ready: <code>source /root/venv/bin/activate</code></p>
         </div>

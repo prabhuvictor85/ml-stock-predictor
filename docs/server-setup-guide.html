@@ -341,9 +341,20 @@ bash /root/ml-stock-predictor/scripts/server_setup.sh</code></pre>
         <div class="step">
           <div class="step-num"></div>
           <div class="step-body">
-            <h3>Format (first time only)</h3>
-            <pre><code><span class="comment"># Only if brand new volume — SKIPS THIS if data already exists!</span>
+            <h3>Format (brand new volume only)</h3>
+            <pre><code><span class="comment"># Run BOTH checks before formatting — skip if either returns data</span>
+
+<span class="comment"># Gate 1: files/folders at mount point? → skip format</span>
+ls -A /mnt/data 2>/dev/null
+<span class="comment"># Gate 2: filesystem already on device? → skip format</span>
+blkid -o value -s TYPE /dev/disk/by-id/scsi-0HC_Volume_XXXXXXXX
+
+<span class="comment"># Only format if BOTH returned empty (truly blank new volume)</span>
 mkfs.ext4 /dev/disk/by-id/scsi-0HC_Volume_XXXXXXXX</code></pre>
+            <div class="callout danger">
+              <span class="callout-icon">🛑</span>
+              <p><strong>Never skip these checks.</strong> Formatting a volume with existing data destroys it permanently. If either command returns output, do NOT format.</p>
+            </div>
           </div>
         </div>
 

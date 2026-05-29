@@ -55,16 +55,30 @@ else
         exit 1
     fi
 
-    # Format only if the device has no filesystem yet
-    FS_TYPE=$(blkid -o value -s TYPE "${VOLUME_DEVICE}" 2>/dev/null || true)
-    if [ -z "${FS_TYPE}" ]; then
-        info "No filesystem detected — formatting ${VOLUME_DEVICE} as ext4 ..."
-        mkfs.ext4 -F "${VOLUME_DEVICE}"
+    mkdir -p "${MOUNT_POINT}"
+
+    # ── Safety gate 1: existing files/folders at mount point → never format ──
+    # This catches cases where the volume was previously mounted and has data.
+    if [ -n "$(ls -A ${MOUNT_POINT} 2>/dev/null)" ]; then
+        warn "Files/folders already exist at ${MOUNT_POINT} — skipping format (data is safe)"
+        SKIP_FORMAT=1
     else
-        info "Existing filesystem (${FS_TYPE}) found — skipping format"
+        SKIP_FORMAT=0
     fi
 
-    mkdir -p "${MOUNT_POINT}"
+    # ── Safety gate 2: existing filesystem on device → never format ──
+    FS_TYPE=$(blkid -o value -s TYPE "${VOLUME_DEVICE}" 2>/dev/null || true)
+    if [ -n "${FS_TYPE}" ]; then
+        info "Existing filesystem (${FS_TYPE}) detected on ${VOLUME_DEVICE} — skipping format"
+        SKIP_FORMAT=1
+    fi
+
+    # ── Format only if both safety gates pass (truly blank new volume) ──
+    if [ "${SKIP_FORMAT}" -eq 0 ]; then
+        info "New blank volume detected — formatting ${VOLUME_DEVICE} as ext4 ..."
+        mkfs.ext4 -F "${VOLUME_DEVICE}"
+    fi
+
     mount "${VOLUME_DEVICE}" "${MOUNT_POINT}"
     info "Mounted ${VOLUME_DEVICE} → ${MOUNT_POINT}"
 

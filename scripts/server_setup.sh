@@ -116,6 +116,34 @@ else
 fi
 
 # =============================================================================
+# 1b. SWAP FILE  (prevents OOM kills on large folds — 8 GB overflow buffer)
+# =============================================================================
+section "1b/6  Configuring swap"
+
+SWAPFILE="/swapfile"
+SWAP_SIZE="8G"
+
+if swapon --show | grep -q "${SWAPFILE}"; then
+    info "Swap already active at ${SWAPFILE} — skipping"
+elif [ -f "${SWAPFILE}" ]; then
+    info "Swap file exists but not active — enabling ..."
+    swapon "${SWAPFILE}"
+    info "Swap enabled: $(free -h | grep Swap)"
+else
+    info "Creating ${SWAP_SIZE} swap file at ${SWAPFILE} ..."
+    fallocate -l "${SWAP_SIZE}" "${SWAPFILE}"
+    chmod 600 "${SWAPFILE}"
+    mkswap "${SWAPFILE}"
+    swapon "${SWAPFILE}"
+    # Persist across reboots
+    if ! grep -q "${SWAPFILE}" /etc/fstab; then
+        echo "${SWAPFILE} none swap sw 0 0" >> /etc/fstab
+        info "Added swap to /etc/fstab (auto-enabled on reboot)"
+    fi
+    info "Swap ready: $(free -h | grep Swap)"
+fi
+
+# =============================================================================
 # 2. CREATE DIRECTORY STRUCTURE ON VOLUME
 # =============================================================================
 section "2/6  Creating directory structure on volume"

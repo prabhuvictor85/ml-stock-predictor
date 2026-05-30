@@ -116,12 +116,12 @@ def compute_fold_metrics(
         if len(exc_rets) > 0:
             hit_values.append((exc_rets < 0).mean() if invert_relevance else (exc_rets > 0).mean())
 
-        # Weekly portfolio return (equal weight)
+        # 20-day portfolio return (equal weight)
         if "future_20d_return" in top_rows.columns:
             port_ret = top_rows["future_20d_return"].dropna().mean()
             cost_bps = commission_bps + slippage_bps
             net_ret = port_ret - 2 * cost_bps / 10000  # 2-way cost estimate
-            weekly_gross_rets.append(port_ret)
+            weekly_gross_rets.append(port_ret)   # named legacy; actually 20d returns
             weekly_net_rets.append(net_ret)
 
         # Benchmark return for this week
@@ -137,12 +137,15 @@ def compute_fold_metrics(
     # Net Sharpe — align lengths before array subtraction to avoid shape mismatch
     # (weekly_net_rets and weekly_bm_rets can differ if some group_dates are
     #  missing from the benchmark index)
+    # Returns are 20-day (monthly) periods — annualisation factor = 12 (months/year)
+    # group_date fires ~monthly (every 20 trading days), so ~12 periods per year.
+    _PERIODS_PER_YEAR = 12
     if len(weekly_net_rets) > 1:
         n_aligned   = min(len(weekly_net_rets), len(weekly_bm_rets))
         net_arr     = np.array(weekly_net_rets[:n_aligned])
         bm_arr      = np.array(weekly_bm_rets[:n_aligned]) if n_aligned > 0 else np.zeros(n_aligned)
         excess_net  = net_arr - bm_arr
-        net_sharpe  = float(np.mean(excess_net) / (np.std(excess_net) + 1e-10) * np.sqrt(52))
+        net_sharpe  = float(np.mean(excess_net) / (np.std(excess_net) + 1e-10) * np.sqrt(_PERIODS_PER_YEAR))
         max_dd      = _max_drawdown(np.cumprod(1 + np.array(weekly_net_rets)))
     else:
         net_sharpe = 0.0
@@ -156,7 +159,7 @@ def compute_fold_metrics(
     if len(weekly_gross_rets) > 0 and len(weekly_bm_rets) > 0:
         n = min(len(weekly_gross_rets), len(weekly_bm_rets))
         exc = np.array(weekly_gross_rets[:n]) - np.array(weekly_bm_rets[:n])
-        top_decile_exc = float(np.mean(exc) * 52)  # annualized
+        top_decile_exc = float(np.mean(exc) * _PERIODS_PER_YEAR)  # annualized (12 × 20d periods)
         if invert_relevance:
             top_decile_exc = -top_decile_exc  # positive = stocks declined more than benchmark
 

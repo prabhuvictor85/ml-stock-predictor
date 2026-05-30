@@ -724,7 +724,9 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 print(f"        [warn] Could not save fold {fold_id} cache: {e}", flush=True)
 
         import gc as _gc
+        fold_spec_map: dict = {}   # fold_id -> FoldSpec, used by objective() to load from disk
         for spec, tr_idx, te_idx in cv.split(train_panel):
+            fold_spec_map[spec.fold_id] = spec
             # ── Try loading from disk first ───────────────────────────────
             disk_hit = _load_fold_cache(spec.fold_id, spec)
             if disk_hit is not None:
@@ -826,7 +828,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             ndcg_vals, top_dec_vals = [], []
 
             for fold_id in valid_fold_ids:
-                cached = _load_fold_cache(fold_id, fold_specs[fold_id - 1])
+                cached = _load_fold_cache(fold_id, fold_spec_map[fold_id])
                 if cached is None:
                     continue
 

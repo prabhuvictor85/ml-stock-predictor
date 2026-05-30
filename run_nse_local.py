@@ -723,17 +723,20 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             except Exception as e:
                 print(f"        [warn] Could not save fold {fold_id} cache: {e}", flush=True)
 
+        import gc as _gc
         for spec, tr_idx, te_idx in cv.split(train_panel):
             # ── Try loading from disk first ───────────────────────────────
             disk_hit = _load_fold_cache(spec.fold_id, spec)
             if disk_hit is not None:
-                fold_cache[spec.fold_id] = disk_hit
+                fold_cache[spec.fold_id] = True   # marker only — data stays on disk
                 print(
                     f"        Fold {spec.fold_id}: loaded from disk  "
                     f"train={len(disk_hit['tr_grp']):,}rows/{len(disk_hit['tr_groups'])}groups "
                     f"test={len(disk_hit['te_univ']):,}",
                     flush=True,
                 )
+                del disk_hit
+                _gc.collect()
                 continue
 
             # ── Compute and save ──────────────────────────────────────────
@@ -745,6 +748,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             fold_cutoff = train_panel.index.get_level_values("date")[tr_idx].max()
             tr = fe.recompute_fold_features(tr, cutoff_date=fold_cutoff)
             tr_grp, tr_groups = cv.build_group_array(tr, min_group_size=5)
+            del tr
+            _gc.collect()
 
             if len(tr_grp) == 0:
                 fold_cache[spec.fold_id] = None
@@ -759,6 +764,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             te_panel = train_panel.iloc[te_idx]
             te_panel = fe.recompute_fold_features(te_panel, cutoff_date=spec.test_end)
             te_univ  = te_panel[te_panel["in_universe"] == True]
+            del te_panel
+            _gc.collect()
 
             if len(te_univ) < 5:
                 fold_cache[spec.fold_id] = None
@@ -770,16 +777,16 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 "tr_groups": tr_groups,
                 "te_univ":   te_univ,
             }
-            fold_cache[spec.fold_id] = fold_data
             _save_fold_cache(spec.fold_id, spec, fold_data)
+            fold_cache[spec.fold_id] = True   # marker only — data saved to disk, free RAM
+            del fold_data, tr_grp, tr_groups, te_univ
+            _gc.collect()
             print(
-                f"        Fold {spec.fold_id}: cached "
-                f"train={len(tr_grp):,}rows/{len(tr_groups)}groups "
-                f"test={len(te_univ):,}",
+                f"        Fold {spec.fold_id}: cached to disk",
                 flush=True,
             )
 
-        valid_fold_ids = [fid for fid, v in fold_cache.items() if v is not None]
+        valid_fold_ids = [fid for fid, v in fold_cache.items() if v is True]
         print(
             f"      Fold cache built: {len(valid_fold_ids)}/{len(fold_cache)} valid folds "
             f"in {_time.time()-t_cache:.0f}s",

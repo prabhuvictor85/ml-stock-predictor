@@ -826,7 +826,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             ndcg_vals, top_dec_vals = [], []
 
             for fold_id in valid_fold_ids:
-                cached = _load_fold_cache(fold_id, cv.fold_specs[fold_id - 1])
+                cached = _load_fold_cache(fold_id, fold_specs[fold_id - 1])
                 if cached is None:
                     continue
 

@@ -31,11 +31,12 @@ _ICT_HTF_RESAMPLE = {"1wk": "W-FRI", "1mo": "ME", "3mo": "QE", "1y": "YE"}
 # Zone expiry in bars per timeframe — stale zones deactivate after this many bars.
 # daily=63 (~3mo), weekly=26 (~6mo), monthly=12 (1yr), quarterly=8 (2yr), yearly=3 (3yr)
 _ICT_ZONE_EXPIRY = {"1d": 63, "1wk": 26, "1mo": 12, "3mo": 8, "1y": 3}
-# Displacement-gate ATR multiple per timeframe. HTFs have very few bars, so a
-# fixed 3.0x yields ~0 triggers there (a yearly series is ~14 bars). Relaxing on
-# higher timeframes lets OB/BB/FVG zones actually form where they carry the most
-# composite weight; daily stays strict (3.0x) where over-firing was the problem.
-_ICT_DISP_MULT   = {"1d": 3.0, "1wk": 2.5, "1mo": 2.0, "3mo": 1.5, "1y": 1.5}
+# Optional displacement-gate ATR multiple per timeframe. The reference Pine
+# indicator qualifies OB/FVG structurally (no absolute ATR gate), so the gate is
+# DISABLED (0.0) by default to preserve fidelity — a non-structural 3.0x gate had
+# annihilated 100% of Order Blocks. Set a positive value per timeframe only to
+# experiment with an extra institutional-displacement filter.
+_ICT_DISP_MULT   = {"1d": 0.0, "1wk": 0.0, "1mo": 0.0, "3mo": 0.0, "1y": 0.0}
 _ICT_HTF_W        = {"1d": 1, "1wk": 2, "1mo": 3, "3mo": 4, "1y": 5}
 _ICT_SIGNAL_MAX   = float(sum(_ICT_HTF_W.values()))   # 15.0
 _ICT_PRIORITY_MAX = 3.0   # max ZonePriority value (BB = 3)

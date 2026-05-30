@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from pipeline.features.ict_features import _wilder_atr, ICTFeatureEngine
-from pipeline.features.engineer import _ICT_HTF_RESAMPLE
+from pipeline.features.engineer import _ICT_HTF_RESAMPLE, _ICT_DISP_MULT
 
 
 def _ob_then_violation_path() -> pd.DataFrame:
@@ -125,3 +125,54 @@ def test_disp_mult_param_threads_through():
     n_strict = int(strict[[c for c in strict.columns if c.endswith("_active")]].sum().sum())
     n_loose = int(loose[[c for c in loose.columns if c.endswith("_active")]].sum().sum())
     assert n_loose >= n_strict
+
+
+def _modest_ob_path() -> pd.DataFrame:
+    """
+    A bullish Order Block whose rally body clears the 1.2x prior-body rule but is
+    SMALLER than 3x ATR (high-wick warmup inflates ATR). The reference Pine
+    indicator forms this OB; a 3x-ATR displacement gate would wrongly reject it.
+    """
+    o, h, l, c = [], [], [], []
+
+    def bar(op, cl, hi, lo):
+        o.append(op); c.append(cl); h.append(hi); l.append(lo)
+
+    for _ in range(20):                       # warmup: tiny body, wide range -> high ATR
+        bar(100.0, 100.2, 102.5, 97.5)
+    bar(100.0, 98.0, 100.0, 97.5)             # bar20: bearish (prev red), body 2
+    bar(99.0, 104.0, 104.0, 99.0)             # bar21: rally, body 5 (>1.2x2) but <3xATR
+    for _ in range(8):                        # hold above the OB
+        bar(c[-1], c[-1] + 0.3, c[-1] + 0.5, c[-1] - 0.2)
+
+    df = pd.DataFrame(
+        {"open": o, "high": h, "low": l, "close": c},
+        index=pd.date_range("2021-01-01", periods=len(o), freq="B"),
+    )
+    df["atr_14"] = _wilder_atr(df["high"].values, df["low"].values, df["close"].values, 14)
+    return df
+
+
+def test_order_block_fires_without_displacement_gate():
+    """
+    Fidelity to the Pine indicator: an OB qualified purely by structure + the
+    1.2x relative-body rule must form under the DEFAULT engine (gate off), and
+    that same OB must be (wrongly) rejected by a strict absolute ATR gate.
+    Guards against re-introducing the 3x gate that annihilated all Order Blocks.
+    """
+    df = _modest_ob_path()
+    # Default engine: displacement gate OFF -> OB forms.
+    default = ICTFeatureEngine().compute(df.copy())
+    assert default["ict_bob_active"].sum() > 0, "OB must form under the structural (Pine) rule"
+    # Strict absolute ATR gate would reject this modest-body OB.
+    gated = ICTFeatureEngine().compute(df.copy(), disp_mult=3.0)
+    assert gated["ict_bob_active"].sum() == 0, "3x ATR gate wrongly kills the OB"
+
+
+def test_default_disp_mult_is_gate_off():
+    """The engine default and the engineer per-timeframe map must keep the gate
+    disabled (0.0) so OB/FVG match the reference indicator out of the box."""
+    import inspect
+    sig = inspect.signature(ICTFeatureEngine.compute)
+    assert sig.parameters["disp_mult"].default == 0.0
+    assert all(v == 0.0 for v in _ICT_DISP_MULT.values())

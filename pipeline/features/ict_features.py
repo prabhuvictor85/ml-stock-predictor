@@ -62,7 +62,7 @@ class ICTFeatureEngine:
         htf_bias: int = 0,
         eq_thresh_atr: float = 0.1,
         zone_expiry_bars: int = 63,
-        disp_mult: float = 3.0,
+        disp_mult: float = 0.0,
     ) -> pd.DataFrame:
         """
         Parameters
@@ -83,8 +83,13 @@ class ICTFeatureEngine:
         atr = grp["atr_14"].values.astype(float)
         n   = len(c)
 
-        # Mask invalid ATRs → NaN distances instead of explosions
-        safe_atr = np.where((atr > 0) & ~np.isnan(atr), atr, np.nan)
+        # Mask invalid ATRs and floor the denominator at 5 bps of price. On
+        # illiquid/penny names ATR can collapse to ~1e-6, and dividing a zone
+        # distance by it explodes the *_atr_dist features. A sub-5bps daily
+        # range is noise, not signal; flooring keeps the feature finite.
+        atr_floor = np.abs(c) * 5e-4
+        safe_atr = np.where(np.isnan(atr) | (atr <= 0), np.nan,
+                            np.where(atr > atr_floor, atr, atr_floor))
         mult = 1.0 + pct_more / 100.0
 
         # ── 1. Boundary-Safe Shift (fixes num=0 edge case) ────────────────────
@@ -146,18 +151,25 @@ class ICTFeatureEngine:
         r_blen     = np.abs(c  - o)
         d_blen     = np.abs(c1 - o1)
 
-        # ── ATR Displacement Gates ─────────────────────────────────────────────
-        # Require genuine institutional displacement — body > disp_mult × ATR.
-        # 1.5× was too loose: on NSE daily it fired on 50-60% of bars, making
-        # ict_bob_active near-constant and SHAP importance near-zero. Daily uses
-        # 3.0× (strict). Higher timeframes pass a smaller multiple because they
-        # have very few bars (a yearly series is ~14 bars) and a fixed 3.0× yields
-        # ~0 triggers there — see engineer._ICT_DISP_MULT.
+        # ── ATR Displacement Gate (OPTIONAL — OFF by default) ──────────────────
+        # The reference Pine indicator (Smart-Money-Trading-Complete) qualifies an
+        # OB purely structurally: prev red + rally + close>prev-body-top + rally
+        # body >= (1+pctMore%) * prev body. It has NO absolute ATR displacement
+        # gate. An earlier 3.0× ATR gate was bolted on here to tame active-flag
+        # saturation, but it annihilated 100% of Order Blocks (6678→0) and 99% of
+        # FVGs — breaking fidelity to the source indicator. We therefore drop it
+        # from the creation rules. disp_mult is kept as an OPTIONAL extra filter
+        # (default disabled: a value <= 0 means "no gate") for experimentation.
         _DISP_MULT = disp_mult
-        has_displacement  = r_blen > (_DISP_MULT * safe_atr)          # current bar
-        has_displacement1 = d_blen > (_DISP_MULT * shift(safe_atr, 1))# previous bar (FVG)
+        if _DISP_MULT and _DISP_MULT > 0:
+            has_displacement  = r_blen > (_DISP_MULT * safe_atr)
+            has_displacement1 = d_blen > (_DISP_MULT * shift(safe_atr, 1))
+        else:
+            has_displacement  = np.ones(n, dtype=bool)
+            has_displacement1 = np.ones(n, dtype=bool)
 
-        # Order Blocks — now gated by displacement on the signal candle
+        # Order Blocks — structural definition, matching the Pine indicator.
+        #   prevWasRed & isRally & close>dBodyMax & rBLen >= mult*dBLen
         is_bob = ((c1 < o1) & (c > o) & (o > c1) &
                   (c > d_body_max) & (r_blen >= mult * d_blen) &
                   has_displacement)
@@ -172,10 +184,12 @@ class ICTFeatureEngine:
         is_bull_bb = (c1 < o1) & is_swing_low  & ssl_swept & (c > d_body_max)
         is_bear_bb = (c1 > o1) & is_swing_high & bsl_swept & (c < d_body_min)
 
-        # Fair Value Gaps — gated by displacement on the candle that created the gap
-        # (candle i-1 must be a strong displacement candle for the gap to be institutional)
-        is_bull_fvg = (l > h2) & has_displacement1   # gap: h2→l, displacement on bar i-1
-        is_bear_fvg = (h < l2) & has_displacement1   # gap: h→l2, displacement on bar i-1
+        # Fair Value Gaps — structural definition, matching the Pine indicator:
+        # a 3-bar gap (low[i] > high[i+2] bull / high[i] < low[i+2] bear). The
+        # source indicator applies no displacement gate; has_displacement1 is the
+        # identity (all-True) unless the optional gate is explicitly enabled.
+        is_bull_fvg = (l > h2) & has_displacement1   # gap: h2→l
+        is_bear_fvg = (h < l2) & has_displacement1   # gap: h→l2
 
         # ── 5. HTF Bias Filter ────────────────────────────────────────────────
         if htf_bias == 1:             # Bull bias → suppress bear signals
@@ -274,7 +288,9 @@ class ICTFeatureEngine:
                 pct_dist = -pct_dist
 
             # ── ATR-normalized distance (ML cross-asset comparability) ───────────────
-            atr_dist = (price - mid) / safe_atr
+            # Clip to ±20 ATR: beyond that the distance is saturated/meaningless
+            # and a defensive cap against any residual tiny-ATR explosion.
+            atr_dist = np.clip((price - mid) / safe_atr, -20.0, 20.0)
             if flip_sign:
                 atr_dist = -atr_dist
 

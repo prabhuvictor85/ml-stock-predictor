@@ -125,7 +125,13 @@ def compute_zone_features(
     l = df["low"].values.astype(float)
     c = df["close"].values.astype(float)
     atr = _wilder_atr(h, l, c, 14)
-    safe_atr = np.where((atr > 0) & np.isfinite(atr), atr, np.nan)
+    # Floor the ATR denominator at 5 bps of price. On illiquid/penny names ATR
+    # can collapse to ~1e-6 (flat/untraded), and dividing a zone distance by it
+    # explodes the feature (std in the hundreds) — destabilising tree splits and
+    # any downstream scaling. A sub-5bps daily range is noise, not signal.
+    atr_floor = np.abs(c) * 5e-4
+    safe_atr = np.where(np.isfinite(atr) & (atr > atr_floor), atr, atr_floor)
+    safe_atr = np.where(safe_atr > 0, safe_atr, np.nan)
 
     proximal_1d = pd.Series(np.nan, index=daily_index)
 
@@ -198,6 +204,9 @@ def compute_zone_features(
             dist_arr[i] = (c[i] - prox_arr[i]) / safe_atr[i]
         elif zt in ("SZ", "SSZ"):
             dist_arr[i] = (prox_arr[i] - c[i]) / safe_atr[i]
-    result["zone_dist_atr_1d"] = dist_arr
+    # Defensive cap: beyond ±20 ATR the "distance" is saturated and meaningless
+    # to the model; clipping is standard winsorisation and a hard safety net so
+    # no future tiny-ATR edge case can re-introduce an exploding feature.
+    result["zone_dist_atr_1d"] = np.clip(dist_arr, -20.0, 20.0)
 
     return result

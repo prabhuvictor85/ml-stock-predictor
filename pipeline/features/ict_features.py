@@ -145,10 +145,12 @@ class ICTFeatureEngine:
         d_blen     = np.abs(c1 - o1)
 
         # ── ATR Displacement Gates ─────────────────────────────────────────────
-        # Require the signal candle (current bar) to show genuine institutional
-        # momentum — body > 1.5× ATR. Filters weak/drifting candles that
-        # technically meet OB/FVG geometry but lack displacement conviction.
-        _DISP_MULT = 1.5
+        # Require genuine institutional displacement — body > 3.0× ATR.
+        # 1.5× was too loose: on NSE stocks it fired on 50-60% of bars, making
+        # ict_bob_active near-constant (always 1) and SHAP importance near-zero.
+        # 3.0× targets only the rare high-conviction displacement candles that
+        # actually represent institutional order flow (~5-10% of bars target).
+        _DISP_MULT = 3.0
         has_displacement  = r_blen > (_DISP_MULT * safe_atr)          # current bar
         has_displacement1 = d_blen > (_DISP_MULT * shift(safe_atr, 1))# previous bar (FVG)
 
@@ -212,6 +214,12 @@ class ICTFeatureEngine:
         is_bear_fvg = is_bear_fvg & (bear_priority == ZonePriority.FVG)
 
         # ── 7. Unified Zone Forward-Fill ──────────────────────────────────────
+        # Zone expiry: a zone older than ZONE_EXPIRY_BARS without a price
+        # reaction is considered stale and marked inactive.
+        # 63 bars ≈ 3 months of daily data — enough for institutional memory
+        # but prevents zones from 2010 staying "active" in 2023.
+        ZONE_EXPIRY_BARS = 63
+
         def _ffill_zone(
                 trigger: np.ndarray,
                 zh: np.ndarray,
@@ -227,12 +235,23 @@ class ICTFeatureEngine:
             ff_l = pd.Series(al).ffill().values
             mid = (ff_h + ff_l) / 2.0
 
+            # Track age of current zone (bars since last trigger)
+            trigger_idx = np.where(trigger)[0]
+            age = np.full(n, np.inf)
+            if len(trigger_idx) > 0:
+                # For each bar, find the most recent trigger and compute age
+                last_trigger = np.searchsorted(trigger_idx, np.arange(n), side='right') - 1
+                valid_trigger = last_trigger >= 0
+                age[valid_trigger] = np.arange(n)[valid_trigger] - trigger_idx[last_trigger[valid_trigger]]
+
+            not_expired = age <= ZONE_EXPIRY_BARS
+
             if mid_cancel:
                 still = (price >= mid) if is_bull else (price <= mid)
             else:
                 still = (price >= ff_l) if is_bull else (price <= ff_h)
 
-            active = (~np.isnan(ff_h) & still).astype(float)
+            active = (~np.isnan(ff_h) & still & not_expired).astype(float)
 
             # ── Raw % distance from zone mid (SMC-faithful) ──────────────────────────
             pct_dist = np.where(mid != 0, (price - mid) / mid * 100, 0.0)

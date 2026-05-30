@@ -62,6 +62,7 @@ class ICTFeatureEngine:
         htf_bias: int = 0,
         eq_thresh_atr: float = 0.1,
         zone_expiry_bars: int = 63,
+        disp_mult: float = 3.0,
     ) -> pd.DataFrame:
         """
         Parameters
@@ -146,12 +147,13 @@ class ICTFeatureEngine:
         d_blen     = np.abs(c1 - o1)
 
         # ── ATR Displacement Gates ─────────────────────────────────────────────
-        # Require genuine institutional displacement — body > 3.0× ATR.
-        # 1.5× was too loose: on NSE stocks it fired on 50-60% of bars, making
-        # ict_bob_active near-constant (always 1) and SHAP importance near-zero.
-        # 3.0× targets only the rare high-conviction displacement candles that
-        # actually represent institutional order flow (~5-10% of bars target).
-        _DISP_MULT = 3.0
+        # Require genuine institutional displacement — body > disp_mult × ATR.
+        # 1.5× was too loose: on NSE daily it fired on 50-60% of bars, making
+        # ict_bob_active near-constant and SHAP importance near-zero. Daily uses
+        # 3.0× (strict). Higher timeframes pass a smaller multiple because they
+        # have very few bars (a yearly series is ~14 bars) and a fixed 3.0× yields
+        # ~0 triggers there — see engineer._ICT_DISP_MULT.
+        _DISP_MULT = disp_mult
         has_displacement  = r_blen > (_DISP_MULT * safe_atr)          # current bar
         has_displacement1 = d_blen > (_DISP_MULT * shift(safe_atr, 1))# previous bar (FVG)
 
@@ -253,7 +255,18 @@ class ICTFeatureEngine:
             else:
                 still = (price >= ff_l) if is_bull else (price <= ff_h)
 
-            active = (~np.isnan(ff_h) & still & not_expired).astype(float)
+            # One-way mitigation latch: once a zone is violated it stays dead
+            # until a NEW trigger overwrites it. Without this, a zone resurrects
+            # whenever price re-crosses the (still forward-filled) boundary —
+            # contradicting ICT semantics (a mitigated zone is dead) and making
+            # `active` flicker, which corrupts the distance features and SHAP.
+            # cumsum(trigger) gives a per-zone segment id; cummax within each
+            # segment makes the violation sticky until the next trigger resets it.
+            seg      = np.cumsum(trigger)
+            violated = (pd.Series((~still).astype(int))
+                        .groupby(seg).cummax().values.astype(bool))
+
+            active = (~np.isnan(ff_h) & ~violated & not_expired).astype(float)
 
             # ── Raw % distance from zone mid (SMC-faithful) ──────────────────────────
             pct_dist = np.where(mid != 0, (price - mid) / mid * 100, 0.0)
@@ -301,9 +314,24 @@ class ICTFeatureEngine:
         grp["ict_bsl_swept"] = bsl_swept.astype(float)
         grp["ict_ssl_swept"] = ssl_swept.astype(float)
 
-        # ── 9. Zone Priority Metadata ─────────────────────────────────────────
-        grp["ict_bull_zone_priority"] = bull_priority.astype(float)
-        grp["ict_bear_zone_priority"] = bear_priority.astype(float)
+        # ── 9. Zone Priority Metadata (PERSISTENT — derived from active flags) ─
+        # Export the priority of the highest-priority CURRENTLY-LIVE zone, taken
+        # from the forward-filled `active` flags rather than the trigger-instant
+        # `bull_priority`/`bear_priority` (which are kept above only for signal
+        # dedup). A trigger-instant export is nonzero on ~1 candle per zone, so on
+        # higher timeframes (few bars) it is ~0 everywhere and collapses the MTF
+        # composite (which weights HTF most) to zero. Deriving from active flags
+        # makes the feature persist for the life of the zone.
+        grp["ict_bull_zone_priority"] = np.maximum.reduce([
+            grp["ict_bullbb_active"].values  * int(ZonePriority.BB),
+            grp["ict_bob_active"].values     * int(ZonePriority.OB),
+            grp["ict_bullfvg_active"].values * int(ZonePriority.FVG),
+        ]).astype(float)
+        grp["ict_bear_zone_priority"] = np.maximum.reduce([
+            grp["ict_bearbb_active"].values  * int(ZonePriority.BB),
+            grp["ict_sob_active"].values     * int(ZonePriority.OB),
+            grp["ict_bearfvg_active"].values * int(ZonePriority.FVG),
+        ]).astype(float)
 
         # Restore original index (reset_index(drop=True) at the start replaced it
         # with integers; we must put the date index back so engineer.py can re-attach

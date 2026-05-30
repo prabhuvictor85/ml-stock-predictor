@@ -26,11 +26,16 @@ log = get_logger(__name__)
 FEATURE_PREFIX = "features_"
 
 # ── Multi-timeframe ICT constants ─────────────────────────────────────────────
-_ICT_HTF_RESAMPLE = {"1wk": "W-FRI", "1mo": "MS", "3mo": "QS", "1y": "YS"}
+_ICT_HTF_RESAMPLE = {"1wk": "W-FRI", "1mo": "ME", "3mo": "QE", "1y": "YE"}
 
 # Zone expiry in bars per timeframe — stale zones deactivate after this many bars.
 # daily=63 (~3mo), weekly=26 (~6mo), monthly=12 (1yr), quarterly=8 (2yr), yearly=3 (3yr)
 _ICT_ZONE_EXPIRY = {"1d": 63, "1wk": 26, "1mo": 12, "3mo": 8, "1y": 3}
+# Displacement-gate ATR multiple per timeframe. HTFs have very few bars, so a
+# fixed 3.0x yields ~0 triggers there (a yearly series is ~14 bars). Relaxing on
+# higher timeframes lets OB/BB/FVG zones actually form where they carry the most
+# composite weight; daily stays strict (3.0x) where over-firing was the problem.
+_ICT_DISP_MULT   = {"1d": 3.0, "1wk": 2.5, "1mo": 2.0, "3mo": 1.5, "1y": 1.5}
 _ICT_HTF_W        = {"1d": 1, "1wk": 2, "1mo": 3, "3mo": 4, "1y": 5}
 _ICT_SIGNAL_MAX   = float(sum(_ICT_HTF_W.values()))   # 15.0
 _ICT_PRIORITY_MAX = 3.0   # max ZonePriority value (BB = 3)
@@ -239,7 +244,7 @@ class FeatureEngineer:
             grp[f"{FEATURE_PREFIX}rolling_beta_60d"] = beta.values
 
             # ── ICT features ──────────────────────────────────────────────
-            grp = self._ict.compute(grp)
+            grp = self._ict.compute(grp, disp_mult=_ICT_DISP_MULT["1d"])
 
             # ── ICT signal counts (debug logging) ────────────────────────
             _n_bob     = int(grp.get("ict_bob_active",     pd.Series(0)).sum())
@@ -324,8 +329,12 @@ class FeatureEngineer:
                             htf["close"].values.astype(float), 14,
                         )
 
-                        # Run ICT engine on HTF bars with timeframe-appropriate zone expiry
-                        htf_ict = self._ict.compute(htf, zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label])
+                        # Run ICT engine on HTF bars with timeframe-appropriate zone expiry + displacement gate
+                        htf_ict = self._ict.compute(
+                            htf,
+                            zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label],
+                            disp_mult=_ICT_DISP_MULT[tf_label],
+                        )
 
                         # Carry active cols back to daily via merge_asof (backward fill)
                         htf_reset = htf_ict.reset_index()
@@ -634,7 +643,7 @@ class FeatureEngineer:
             # atr_14 already present from engineer.build() — no recompute needed.
             if len(grp_cut) >= 10:
                 try:
-                    ict_result   = self._ict.compute(grp_cut)
+                    ict_result   = self._ict.compute(grp_cut, disp_mult=_ICT_DISP_MULT["1d"])
                     raw_ict_cols = [c for c in ict_result.columns if c.startswith("ict_")]
                     for raw_col in raw_ict_cols:
                         feat_col = f"{FEATURE_PREFIX}{raw_col}"
@@ -681,7 +690,11 @@ class FeatureEngineer:
                             htf["close"].values.astype(float), 14,
                         )
 
-                        htf_ict   = self._ict.compute(htf, zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label])
+                        htf_ict   = self._ict.compute(
+                            htf,
+                            zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label],
+                            disp_mult=_ICT_DISP_MULT[tf_label],
+                        )
                         htf_reset = htf_ict.reset_index()
                         date_col  = htf_reset.columns[0]
                         htf_reset = (htf_reset

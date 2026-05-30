@@ -31,9 +31,14 @@ _analyzer = ZoneAnalyzer()
 _HTF_RESAMPLE = {
     "1d":  None,
     "1wk": "W-FRI",
-    "1mo": "MS",
-    "3mo": "QS",
-    "1y":  "YS",
+    # Period-END anchored (right-labelled). A period-START rule (MS/QS/YS) labels
+    # the bar on its first day, so the cutoff filter `index <= cutoff_date` lets a
+    # still-incomplete period (whose aggregate includes data PAST the cutoff) into
+    # the training window — defeating the cutoff guard. ME/QE/YE label on the last
+    # day, so an incomplete current period is correctly excluded until it closes.
+    "1mo": "ME",
+    "3mo": "QE",
+    "1y":  "YE",
 }
 _MIN_BARS = {"1d": 30, "1wk": 10, "1mo": 6, "3mo": 4, "1y": 2}
 _ZONE_COLS = [

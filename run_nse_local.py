@@ -786,6 +786,13 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             flush=True,
         )
 
+        # Free in-memory fold data — trials will load from disk on demand.
+        # This prevents all folds sitting in RAM simultaneously (~10-15 GB saved).
+        import gc
+        fold_cache.clear()
+        gc.collect()
+        print("      Fold data cleared from RAM — trials will load per-fold from disk.")
+
         def objective(trial):
             top_k    = trial.suggest_categorical("feature_top_K", [20, 30, 40, 50])
             sf_trial = pre_selected[:top_k]
@@ -811,7 +818,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             t_trial_start = _time.time()
             ndcg_vals, top_dec_vals = [], []
 
-            for fold_id, cached in fold_cache.items():
+            for fold_id in valid_fold_ids:
+                cached = _load_fold_cache(fold_id, cv.fold_specs[fold_id - 1])
                 if cached is None:
                     continue
 
@@ -876,6 +884,10 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                     f"| fold_time={_time.time()-t_fold:.0f}s",
                     flush=True,
                 )
+
+                # Free fold data immediately after use — prevents accumulation across folds
+                del cached, tr_grp, tr_groups, te_univ
+                gc.collect()
 
                 trial.report(fold_ndcg, step=fold_id)
                 if trial.should_prune():

@@ -27,6 +27,10 @@ FEATURE_PREFIX = "features_"
 
 # ── Multi-timeframe ICT constants ─────────────────────────────────────────────
 _ICT_HTF_RESAMPLE = {"1wk": "W-FRI", "1mo": "MS", "3mo": "QS", "1y": "YS"}
+
+# Zone expiry in bars per timeframe — stale zones deactivate after this many bars.
+# daily=63 (~3mo), weekly=26 (~6mo), monthly=12 (1yr), quarterly=8 (2yr), yearly=3 (3yr)
+_ICT_ZONE_EXPIRY = {"1d": 63, "1wk": 26, "1mo": 12, "3mo": 8, "1y": 3}
 _ICT_HTF_W        = {"1d": 1, "1wk": 2, "1mo": 3, "3mo": 4, "1y": 5}
 _ICT_SIGNAL_MAX   = float(sum(_ICT_HTF_W.values()))   # 15.0
 _ICT_PRIORITY_MAX = 3.0   # max ZonePriority value (BB = 3)
@@ -320,8 +324,8 @@ class FeatureEngineer:
                             htf["close"].values.astype(float), 14,
                         )
 
-                        # Run ICT engine on HTF bars
-                        htf_ict = self._ict.compute(htf)
+                        # Run ICT engine on HTF bars with timeframe-appropriate zone expiry
+                        htf_ict = self._ict.compute(htf, zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label])
 
                         # Carry active cols back to daily via merge_asof (backward fill)
                         htf_reset = htf_ict.reset_index()
@@ -677,7 +681,7 @@ class FeatureEngineer:
                             htf["close"].values.astype(float), 14,
                         )
 
-                        htf_ict   = self._ict.compute(htf)
+                        htf_ict   = self._ict.compute(htf, zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label])
                         htf_reset = htf_ict.reset_index()
                         date_col  = htf_reset.columns[0]
                         htf_reset = (htf_reset

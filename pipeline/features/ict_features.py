@@ -61,6 +61,7 @@ class ICTFeatureEngine:
         pct_more: float = 20.0,
         htf_bias: int = 0,
         eq_thresh_atr: float = 0.1,
+        zone_expiry_bars: int = 63,
     ) -> pd.DataFrame:
         """
         Parameters
@@ -214,11 +215,12 @@ class ICTFeatureEngine:
         is_bear_fvg = is_bear_fvg & (bear_priority == ZonePriority.FVG)
 
         # ── 7. Unified Zone Forward-Fill ──────────────────────────────────────
-        # Zone expiry: a zone older than ZONE_EXPIRY_BARS without a price
+        # Zone expiry: a zone older than zone_expiry_bars without a price
         # reaction is considered stale and marked inactive.
-        # 63 bars ≈ 3 months of daily data — enough for institutional memory
-        # but prevents zones from 2010 staying "active" in 2023.
-        ZONE_EXPIRY_BARS = 63
+        # Default 63 bars = ~3 months on daily. Caller should pass
+        # timeframe-appropriate values for HTF resampled data:
+        #   daily=63, weekly=26, monthly=12, quarterly=8, yearly=3
+        ZONE_EXPIRY_BARS = zone_expiry_bars
 
         def _ffill_zone(
                 trigger: np.ndarray,

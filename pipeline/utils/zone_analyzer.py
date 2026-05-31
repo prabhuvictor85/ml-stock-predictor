@@ -9,14 +9,16 @@ Identifies the full zone hierarchy:
   SDZ — Swap Demand Zone     (SZ broken upward — former supply becomes demand)
   SSZ — Swap Supply Zone     (DZ broken downward — former demand becomes supply)
 
-Pipeline (matches analyze_zones from market-vision):
+Pipeline (matches analyze_zones from market-vision
+zone_identifier_service.py — base_eliminator runs LAST):
   1. identify_rally_candles   → candle that closes above prior high
   2. identify_drop_candles    → candle that closes below prior low
   3. identify_base_candles    → small consolidation inside prior range
   4. identify_zones           → group consecutive bases, pattern-match RBR/DBD/DBR/RBD
-  5. identify_swap_zones      → SDZ: SZ broken up cleanly
-  6. identify_swap_supply     → SSZ: DZ broken down cleanly
-  7. base_eliminator          → invalidate bases whose range is later violated
+  5. Zone="Valid"             → matched pattern labels promoted to Valid
+  6. identify_swap_zones      → SDZ: SZ broken up cleanly
+  7. identify_swap_supply     → SSZ: DZ broken down cleanly
+  8. base_eliminator          → invalidate bases whose range is later violated (LAST)
 
 No external dependencies beyond numpy and pandas.
 """
@@ -260,17 +262,23 @@ def _identify_swap_demand_zones(df: pd.DataFrame) -> pd.DataFrame:
             continue
 
         # Convert to SDZ: Distal = candle low, Proximal = candle high
-        df.iat[i, df.columns.get_loc("ZoneType")] = "SDZ"
-        df.iat[i, df.columns.get_loc("Distal")]   = low_arr[i]
-        df.iat[i, df.columns.get_loc("Proximal")] = high_arr[i]
+        df.iat[i, df.columns.get_loc("ZoneType")]         = "SDZ"
+        df.iat[i, df.columns.get_loc("Distal")]           = low_arr[i]
+        df.iat[i, df.columns.get_loc("Proximal")]         = high_arr[i]
+        df.iat[i, df.columns.get_loc("BreakoutDate")]     = df["Date"].iat[brk_idx]
+        # BreakoutProximal for SDZ = breakout candle High.  The proximity gate
+        # checks that current price hasn't moved more than X% above this level.
+        df.iat[i, df.columns.get_loc("BreakoutProximal")] = high_arr[brk_idx]
 
         # Breach check: if price later drops below SDZ low → invalidate
         sdz_low = float(low_arr[i])
         if np.isfinite(sdz_low):
             future = np.concatenate([close_arr[brk_idx + 1:], open_arr[brk_idx + 1:]])
             if (future < sdz_low).any():
-                df.iat[i, df.columns.get_loc("ZoneType")] = "SZ"
-                df.iat[i, df.columns.get_loc("Zone")]     = "Invalid"
+                df.iat[i, df.columns.get_loc("ZoneType")]         = "SZ"
+                df.iat[i, df.columns.get_loc("Zone")]             = "Invalid"
+                df.iat[i, df.columns.get_loc("BreakoutDate")]     = pd.NaT
+                df.iat[i, df.columns.get_loc("BreakoutProximal")] = np.nan
 
     return df
 
@@ -349,17 +357,23 @@ def _identify_swap_supply_zones(df: pd.DataFrame) -> pd.DataFrame:
             continue
 
         # Convert to SSZ: Distal = candle high (top), Proximal = candle low (bottom)
-        df.iat[i, df.columns.get_loc("ZoneType")] = "SSZ"
-        df.iat[i, df.columns.get_loc("Distal")]   = high_arr[i]
-        df.iat[i, df.columns.get_loc("Proximal")] = low_arr[i]
+        df.iat[i, df.columns.get_loc("ZoneType")]         = "SSZ"
+        df.iat[i, df.columns.get_loc("Distal")]           = high_arr[i]
+        df.iat[i, df.columns.get_loc("Proximal")]         = low_arr[i]
+        df.iat[i, df.columns.get_loc("BreakoutDate")]     = df["Date"].iat[brk_idx]
+        # BreakoutProximal for SSZ = breakout candle Low.  The proximity gate
+        # checks that current price hasn't fallen more than X% below this level.
+        df.iat[i, df.columns.get_loc("BreakoutProximal")] = low_arr[brk_idx]
 
         # Breach check: if price later rallies above SSZ high → invalidate
         ssz_high = float(high_arr[i])
         if np.isfinite(ssz_high):
             future = np.concatenate([close_arr[brk_idx + 1:], open_arr[brk_idx + 1:]])
             if (future > ssz_high).any():
-                df.iat[i, df.columns.get_loc("ZoneType")] = "DZ"
-                df.iat[i, df.columns.get_loc("Zone")]     = "Invalid"
+                df.iat[i, df.columns.get_loc("ZoneType")]         = "DZ"
+                df.iat[i, df.columns.get_loc("Zone")]             = "Invalid"
+                df.iat[i, df.columns.get_loc("BreakoutDate")]     = pd.NaT
+                df.iat[i, df.columns.get_loc("BreakoutProximal")] = np.nan
 
     return df
 
@@ -371,8 +385,18 @@ def _identify_swap_supply_zones(df: pd.DataFrame) -> pd.DataFrame:
 def _base_eliminator(df: pd.DataFrame) -> pd.DataFrame:
     """
     Invalidate base zones whose [Distal, Proximal] range overlaps with any
-    future candle range or future zone range.  Ported from base_eliminator.py.
-    Only operates on non-swap (DZ/SZ) zones with SubType == Base.
+    future candle range or future zone range.  Matches market-vision
+    base_eliminator.BaseEliminator.
+
+    Called LAST in analyze_zones (after swap detection), matching the
+    market-vision zone_identifier_service order:
+      identify_zones → Valid → IdentifySwapZones → IdentifySwapSupplyZones →
+      BaseEliminator (final).
+
+    Candidate selection mirrors market-vision check_forward_intersections:
+      Zone != "0", SubType==Base, not SDZ/SSZ.
+    SDZ/SSZ are excluded because they have already passed swap promotion and
+    represent confirmed structural zones.
     """
     work = df.reset_index(drop=True).copy()
     n    = len(work)
@@ -384,6 +408,9 @@ def _base_eliminator(df: pd.DataFrame) -> pd.DataFrame:
     distals   = pd.to_numeric(work["Distal"],   errors="coerce").to_numpy()
     proximals = pd.to_numeric(work["Proximal"], errors="coerce").to_numpy()
 
+    # By the time this runs (after Valid conversion + swap detection), Zone
+    # values are "Valid" / "Invalid" / "0". `!= "0"` selects the active zone
+    # rows, mirroring market-vision's `Zone != 0` candidate filter.
     candidate_mask = (
         (work["Zone"] != "0")
         & (work["SubType"] == BASE)
@@ -421,18 +448,26 @@ class ZoneAnalyzer:
     """
     Self-contained supply/demand zone analyser.
 
-    Usage
-    -----
-    analyzer = ZoneAnalyzer()
-    zone_data = analyzer.analyze_zones(ohlcv_df)
+    Pipeline matches market-vision zone_identifier_service.analyze_zones:
+      1. RallyIdentifier   → Rally candles
+      2. DropIdentifier    → Drop candles
+      3. BaseCandleIdentifier → Base candles (Rally-Base / Drop-Base)
+      4. identifyZones     → RBR/DBD/DBR/RBD pattern matching, Distal/Proximal assigned
+      5. Zone="Valid"      → matched pattern labels converted to Valid
+      6. IdentifySwapZones → SZ with clean upward breakout → SDZ
+      7. IdentifySwapSupplyZones → DZ with clean downward breakout → SSZ
+      8. BaseEliminator    → invalidate zones whose range overlaps future price/zone (LAST)
+
+    base_eliminator runs LAST, exactly as in market-vision; SDZ/SSZ promoted
+    in steps 6-7 are excluded from elimination.
 
     Input DataFrame columns (case-sensitive):
         Date, Open, High, Low, Close, Volume  (Volume optional)
 
     Output DataFrame (indexed by Date):
         All input columns  +  Type, SubType, ZoneType, Zone, Distal, Proximal
-        ZoneType ∈ {DZ, SZ, SDZ, SSZ, None, 'helo'}  (non-zone rows kept as context)
-        Zone     ∈ {RBR, DBD, DBR, RBD, Valid, Invalid, 0}
+        ZoneType ∈ {DZ, SZ, SDZ, SSZ, NONE}
+        Zone     ∈ {Valid, Invalid, 0}
     """
 
     def analyze_zones(self, data: pd.DataFrame) -> pd.DataFrame:
@@ -465,20 +500,37 @@ class ZoneAnalyzer:
         df = _identify_base_candles(df)
 
         # ── Step 4: zone pattern matching ────────────────────────────────
+        # Zone column = "RBR"/"DBD"/"DBR"/"RBD" (matched) or "0" (no match)
         zone_df = _identify_zones(df)
-        zone_df["Zone"] = zone_df["Zone"].replace("0", "0")  # keep non-zones as "0"
-        # Mark actual zone rows as Valid (non-zones stay "0")
+
+        # ── Valid conversion ─────────────────────────────────────────────
+        # market-vision blanket-assigns Zone="Valid" to ALL rows here. We
+        # convert only the matched pattern labels (RBR/DBD/DBR/RBD) so that
+        # non-zone rows keep Zone="0"; the Layer-2 _zones_to_daily adaptation
+        # in zone_features.py filters on Zone=="VALID" and would otherwise
+        # carry forward spurious non-zone rows.
         zone_df.loc[zone_df["Zone"].isin(["RBR", "DBD", "DBR", "RBD"]), "Zone"] = "Valid"
         zone_df = zone_df.sort_values("Date").reset_index(drop=True)
 
         # ── Steps 5-6: swap zone detection ───────────────────────────────
+        # BreakoutDate     : date of the candle that confirmed the swap.
+        # BreakoutProximal : price edge of the breakout candle used for the
+        #   proximity gate (how far price has moved since the swap was confirmed).
+        #   SDZ → breakout candle High  (price must stay within X% above this)
+        #   SSZ → breakout candle Low   (price must stay within X% below this)
+        zone_df["BreakoutDate"]     = pd.NaT
+        zone_df["BreakoutProximal"] = np.nan
+        # Only "Valid" DZ/SZ rows are candidates for SDZ/SSZ promotion.
         t_swap = time.time()
         zone_df = _identify_swap_demand_zones(zone_df)
         zone_df = _identify_swap_supply_zones(zone_df)
         logger.debug("Swap step %.4fs", time.time() - t_swap)
 
-        # ── Step 7: base elimination ─────────────────────────────────────
-        zone_df = _base_eliminator(zone_df)
+        # ── Step 7: base elimination — runs LAST ─────────────────────────
+        # Matches market-vision zone_identifier_service.analyze_zones, where
+        # base_eliminator.BaseEliminator(zone_data) is the final call. SDZ/SSZ
+        # zones (already promoted above) are excluded from elimination.
+        zone_df = _base_eliminator(zone_df)   # → Date-indexed output
 
         logger.debug("analyze_zones total %.4fs", time.time() - t0)
         return zone_df

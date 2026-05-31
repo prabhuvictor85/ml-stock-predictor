@@ -2,7 +2,6 @@
 backtest_run.py — Walk-forward backtest entry point.
 
 Usage:
-    python backtest_run.py --market sp500
     python backtest_run.py --market nse --start 2018-01-01 --weighting inverse_vol
 
 Outputs:
@@ -28,8 +27,8 @@ warnings.filterwarnings("ignore")
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="ML Stock Predictor — Backtest Runner")
     p.add_argument("--market", required=True, choices=["nse", "sp500", "nasdaq"])
-    p.add_argument("--start", default=None, help="Backtest start date (default: full panel)")
-    p.add_argument("--end", default=None, help="Backtest end date (default: latest in panel)")
+    p.add_argument("--start", default=None, help="Backtest start date (format: YYYY-MM-DD)")
+    p.add_argument("--end", default=None, help="Backtest end date (format: YYYY-MM-DD)")
     p.add_argument("--top_n", type=int, default=10)
     p.add_argument("--weighting", choices=["equal", "inverse_vol"], default="equal")
     p.add_argument("--initial_nav", type=float, default=1_000_000)
@@ -47,7 +46,7 @@ def main() -> None:
     from pipeline.config import get_config
     from pipeline.data.fetcher import DataFetcher
     from pipeline.data.panel import PanelConstructor
-    from pipeline.features.engineer import FeatureEngineer, FEATURE_PREFIX
+    from pipeline.features.engineer import FeatureEngineer
     from pipeline.targets.builder import TargetBuilder
     from pipeline.backtest.engine import BacktestEngine
     from pipeline.backtest.execution import ExecutionModel
@@ -62,7 +61,7 @@ def main() -> None:
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # ── Load artefacts ─────────────────────────────────────────────────────
+    # ── 1. LOAD ARTEFACTS ──────────────────────────────────────────────────
     def _load(name: str) -> Any:
         path = artefacts_dir / name
         if not path.exists():
@@ -72,43 +71,96 @@ def main() -> None:
 
     ensemble = _load("ensemble.pkl")
     selected_features = (artefacts_dir / "selected_features.txt").read_text().strip().split("\n")
+    expected_features = set(selected_features)
 
-    # ── Load panel ─────────────────────────────────────────────────────────
+    # ── 2. VALIDATE MODEL BINARY FEATURES VS selected_features.txt ────────
+    base_model = ensemble.lgbm if hasattr(ensemble, "lgbm") else ensemble
+    if hasattr(base_model, "feature_name"):
+        model_expected_features = base_model.feature_name()
+        if model_expected_features != selected_features:
+            mismatch_selected = set(selected_features) - set(model_expected_features)
+            mismatch_model = set(model_expected_features) - set(selected_features)
+            raise ValueError(
+                f"CRITICAL: Alignment Mismatch! The feature mapping array does not match the model requirements.\n"
+                f"In selected_features.txt but missing from model layout: {mismatch_selected}\n"
+                f"In model layout but missing from selected_features.txt: {mismatch_model}"
+            )
+        log.info("✅ Model feature vector structural validation passed.")
+
+    # ── 3. LOAD COMPREHENSIVE PANEL & CHECK METADATA VERSIONS ─────────────
     panel_dir = Path(args.panel_dir) / args.market
-    log.info(f"Loading panel from {panel_dir}")
+    log.info(f"Loading panel matrix from {panel_dir}")
     panel = PanelConstructor.load(panel_dir)
 
-    # Filter date range if specified
-    dates = panel.index.get_level_values("date")
-    if args.start:
-        panel = panel[dates >= pd.Timestamp(args.start)]
-    if args.end:
-        panel = panel[dates <= pd.Timestamp(args.end)]
-    log.info(f"Panel after date filter: {len(panel)} rows")
+    expected_version = getattr(ensemble, "feature_version", "v1.0.0")
+    current_panel_version = panel.attrs.get("version", "v1.0.0")
+    if expected_version != current_panel_version:
+        log.warning(
+            f"⚠️ VERSION MISMATCH: Ensemble built for feature version [{expected_version}], "
+            f"but loaded data panel is version [{current_panel_version}]."
+        )
 
-    # ── Fetch benchmark ────────────────────────────────────────────────────
-    all_dates = panel.index.get_level_values("date")
-    start_str = all_dates.min().strftime("%Y-%m-%d")
-    end_str = all_dates.max().strftime("%Y-%m-%d")
+    # Cache boundaries
+    initial_dates = panel.index.get_level_values("date")
+    start_str = initial_dates.min().strftime("%Y-%m-%d")
+    end_str = initial_dates.max().strftime("%Y-%m-%d")
 
+    # Fetch baseline benchmark series
     fetcher = DataFetcher(cfg, polygon_api_key=args.polygon_key, tiingo_api_key=args.tiingo_key)
     bm_raw = fetcher.fetch_benchmark(start_str, end_str)
     benchmark_close = bm_raw["close"].rename("benchmark_close")
 
-    # ── Feature engineering (if not already done) ─────────────────────────
-    feat_cols_existing = [c for c in panel.columns if c.startswith(FEATURE_PREFIX)]
-    if not feat_cols_existing:
-        log.info("Running feature engineering on panel...")
+    # ── 4. FEATURE & TARGET VALIDATION ────────────────────────────────────
+    missing_features = expected_features - set(panel.columns)
+    if missing_features:
+        log.warning(f"Missing {len(missing_features)} expected features in panel schema. Re-building...")
         feat_eng = FeatureEngineer(cfg, benchmark_close)
         panel = feat_eng.build(panel)
+        if expected_features - set(panel.columns):
+            raise ValueError("Critical Error: Core features missing after explicit calculation loop.")
+    else:
+        log.info("✅ Feature validation passed. All selected features present in panel matrix.")
 
-    # ── Target building (if not already done) ─────────────────────────────
-    if "cs_rank_20d" not in panel.columns:
-        log.info("Building targets on panel...")
+    required_targets = {"cs_rank_20d", "cs_rank_40d", "cs_rank_60d"}
+    missing_targets = required_targets - set(panel.columns)
+    if missing_targets:
+        log.info(f"Target columns {missing_targets} missing. Generating target matrices...")
         target_builder = TargetBuilder(cfg)
         panel = target_builder.build(panel, benchmark_close)
+        if required_targets - set(panel.columns):
+            raise ValueError("Critical Error: Target building failed to materialize expected columns.")
+    else:
+        log.info("✅ Target validation passed. All forward horizons present.")
 
-    # ── Run backtest ───────────────────────────────────────────────────────
+    # ── 5. TEMPORAL SLICING ────────────────────────────────────────────────
+    panel_dates = panel.index.get_level_values("date")
+    if args.start:
+        panel = panel[panel_dates >= pd.Timestamp(args.start)]
+        panel_dates = panel.index.get_level_values("date")
+    if args.end:
+        panel = panel[panel_dates <= pd.Timestamp(args.end)]
+        panel_dates = panel.index.get_level_values("date")
+
+    if panel.empty:
+        raise ValueError(
+            f"CRITICAL: Panel is empty after date filters. "
+            f"Requested: {args.start} to {args.end}. "
+            f"Available: {initial_dates.min().strftime('%Y-%m-%d')} to {initial_dates.max().strftime('%Y-%m-%d')}"
+        )
+    log.info(f"Panel after date filter: {len(panel)} rows.")
+
+    # ── 6. BENCHMARK ALIGNMENT ─────────────────────────────────────────────
+    unique_backtest_dates = panel_dates.unique().sort_values()
+    sliced_bm = benchmark_close.reindex(unique_backtest_dates)
+    missing_proportion = sliced_bm.isna().sum() / len(sliced_bm)
+    if missing_proportion > 0.05:
+        raise ValueError(
+            f"CRITICAL: Benchmark series contains {missing_proportion:.2%} missing rows."
+        )
+    benchmark_close = sliced_bm.ffill()
+    log.info(f"Aligned benchmark to {len(benchmark_close)} dates.")
+
+    # ── 7. RUN BACKTEST ENGINE ─────────────────────────────────────────────
     execution = ExecutionModel(cfg)
     port_ctor = PortfolioConstructor(cfg, top_n=args.top_n, weighting=args.weighting)
 
@@ -122,26 +174,25 @@ def main() -> None:
         initial_nav=args.initial_nav,
     )
 
-    log.info("Running backtest...")
+    log.info("Running backtest simulation engine...")
     report = engine.run(panel, benchmark_close)
 
-    # ── SHAP global for latest test fold ──────────────────────────────────
+    # ── 8. SHAP GLOBAL SNAPSHOT ────────────────────────────────────────────
     shap_img = output_dir / f"shap_global_{args.market}.png"
     try:
-        latest_date = panel.index.get_level_values("date").max()
-        lookback_start = latest_date - pd.Timedelta(days=252)
-        recent = panel[panel.index.get_level_values("date") >= lookback_start]
-        recent_univ = recent[recent["in_universe"] == True]
+        latest_date = panel_dates.max()
+        recent_univ = panel[(panel_dates == latest_date) & (panel["in_universe"] == True)]
         avail = [f for f in selected_features if f in recent_univ.columns]
-        if avail and len(recent_univ) > 50:
-            X_shap = recent_univ[avail].fillna(0).sample(min(2000, len(recent_univ)), random_state=42)
-            shap_exp = SHAPExplainer(ensemble.lgbm)
+        if avail and len(recent_univ) > 5:
+            X_shap = recent_univ[avail]
+            shap_exp = SHAPExplainer(base_model)
             shap_exp.plot_global(X_shap, output_path=shap_img)
+            log.info(f"SHAP chart generated: {shap_img}")
     except Exception as e:
-        log.warning(f"SHAP plot failed: {e}")
+        log.warning(f"SHAP plot skipped: {e}")
         shap_img = None
 
-    # ── Generate HTML report ───────────────────────────────────────────────
+    # ── 9. SAVE OUTPUTS ────────────────────────────────────────────────────
     rg = ReportGenerator(
         report=report,
         market_id=cfg.market_id,
@@ -149,39 +200,32 @@ def main() -> None:
     )
     html_path = rg.generate(output_dir / f"report_{args.market}.html")
 
-    # ── Save equity curves to parquet ──────────────────────────────────────
     eq_df = pd.DataFrame({
         "equity_gross": report.equity_curve_gross,
-        "equity_net": report.equity_curve_net,
-        "benchmark": report.benchmark_curve,
+        "equity_net":   report.equity_curve_net,
+        "benchmark":    report.benchmark_curve,
     })
-    eq_path = output_dir / f"equity_curve_{args.market}.parquet"
-    eq_df.to_parquet(eq_path)
-    log.info(f"Equity curve saved: {eq_path}")
+    eq_df.to_parquet(output_dir / f"equity_curve_{args.market}.parquet")
 
-    # ── Save performance tables to JSON ───────────────────────────────────
     perf_dict = {
-        "market": cfg.market_id,
-        "gross_annual_return": report.gross_annual_return,
-        "net_annual_return": report.net_annual_return,
-        "gross_sharpe": report.gross_sharpe,
-        "net_sharpe": report.net_sharpe,
-        "max_drawdown": report.max_drawdown,
-        "calmar_ratio": report.calmar_ratio,
-        "hit_ratio": report.hit_ratio,
-        "top_decile_excess_return": report.top_decile_excess_return,
-        "mean_weekly_turnover": report.mean_weekly_turnover,
-        "annualized_turnover": report.annualized_turnover,
-        "sector_attribution": report.sector_attribution,
+        "market":                  cfg.market_id,
+        "gross_annual_return":     report.gross_annual_return,
+        "net_annual_return":       report.net_annual_return,
+        "gross_sharpe":            report.gross_sharpe,
+        "net_sharpe":              report.net_sharpe,
+        "max_drawdown":            report.max_drawdown,
+        "calmar_ratio":            report.calmar_ratio,
+        "hit_ratio":               report.hit_ratio,
+        "top_decile_excess_return":report.top_decile_excess_return,
+        "mean_weekly_turnover":    report.mean_weekly_turnover,
+        "annualized_turnover":     report.annualized_turnover,
+        "sector_attribution":      report.sector_attribution,
     }
-    perf_path = output_dir / f"performance_tables_{args.market}.json"
-    with open(perf_path, "w") as f:
+    with open(output_dir / f"performance_tables_{args.market}.json", "w") as f:
         json.dump(perf_dict, f, indent=2)
-    log.info(f"Performance tables saved: {perf_path}")
 
-    log.info(f"✅ Backtest complete. HTML report: {html_path}")
+    log.info(f"✅ Backtest complete. Report: {html_path}")
 
 
 if __name__ == "__main__":
     main()
-

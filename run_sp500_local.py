@@ -992,37 +992,62 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     gc.collect()
     print(f"      RAM freed after HPO. Starting final training ...")
 
+    # NOTE: the stage() context manager must wrap ALL of the work below
+    # (build_group_array + FeatureSelector + final_ranker.fit) — NOT just the
+    # print. Previously it closed after the print, so [5/6] always reported
+    # "0m 00s" while the real ~minutes of training ran untimed afterwards.
     with _train_perf.stage("[5/6] Final model training"):
         print(f"[5/6] Training final LightGBM ranker [{mode}] ...")
-    full_grp, full_groups = cv.build_group_array(train_panel, min_group_size=5)
-    avail    = [f for f in feat_cols if f in full_grp.columns]
-    # Downcast to float32 to halve memory usage on large panels
-    X_full   = full_grp[avail].astype(np.float32)
-    _rank_raw = full_grp["cs_rank_composite"].fillna(0)
-    # Reversal mode trains a bear ranker: invert rank so stocks expected to
-    # decline most get the highest label, mirroring how the bull ranker works.
-    y_full_r  = 1.0 - _rank_raw if mode == "reversal" else _rank_raw
+        full_grp, full_groups = cv.build_group_array(train_panel, min_group_size=5)
+        avail    = [f for f in feat_cols if f in full_grp.columns]
+        # Downcast to float32 to halve memory usage on large panels
+        X_full   = full_grp[avail].astype(np.float32)
+        _rank_raw = full_grp["cs_rank_composite"].fillna(0)
+        # Reversal mode trains a bear ranker: invert rank so stocks expected to
+        # decline most get the highest label, mirroring how the bull ranker works.
+        y_full_r  = 1.0 - _rank_raw if mode == "reversal" else _rank_raw
 
-    # FeatureSelector uses top_quintile (bull) or bot_quintile (reversal) as a
-    # binary proxy. Reversal mode inverts so the selector learns features that
-    # predict declines, not advances.
-    _cls_col  = "bot_quintile" if mode == "reversal" else "top_quintile"
-    cls_mask     = full_grp[_cls_col].notna()
-    X_full_cls   = full_grp.loc[cls_mask, avail]
-    y_full_c_cls = full_grp.loc[cls_mask, _cls_col].astype(int)
-    if int(y_full_c_cls.sum()) == 0:
-        raise RuntimeError(
-            f"{_cls_col} has zero positive labels. Check targets were built correctly "
-            "and the panel covers at least 20+ trading days before the most recent date."
+        # FeatureSelector uses top_quintile (bull) or bot_quintile (reversal) as a
+        # binary proxy. Reversal mode inverts so the selector learns features that
+        # predict declines, not advances.
+        _cls_col  = "bot_quintile" if mode == "reversal" else "top_quintile"
+        cls_mask     = full_grp[_cls_col].notna()
+        X_full_cls   = full_grp.loc[cls_mask, avail]
+        y_full_c_cls = full_grp.loc[cls_mask, _cls_col].astype(int)
+        if int(y_full_c_cls.sum()) == 0:
+            raise RuntimeError(
+                f"{_cls_col} has zero positive labels. Check targets were built correctly "
+                "and the panel covers at least 20+ trading days before the most recent date."
+            )
+
+        sel = FeatureSelector(seed=cfg.random_seed)
+        final_features = sel.select(X_full_cls, y_full_c_cls, top_k=best_k)
+        print(f"      Selected {len(final_features)} features")
+
+        X_fin = X_full[final_features].fillna(0)
+
+        # ── AUDIT: prove exactly what the deployed model trains on ────────
+        # The CV-fold logs above only show VALIDATION spans (they end early by
+        # design). This is the PRODUCTION model — it trains on the full panel
+        # up to as_of, minus the rows whose forward-return label cannot exist
+        # yet (last ~20 trading days). Log the real span so every run is
+        # self-documenting and the "does it train through as_of?" question is
+        # answerable from the log alone.
+        _train_dates    = full_grp["group_date"]
+        _labelled_mask  = full_grp["cs_rank_composite"].notna()
+        _labelled_dates = full_grp.loc[_labelled_mask, "group_date"]
+        print(
+            f"      [PRODUCTION TRAIN] {len(X_fin):,} rows | "
+            f"{full_grp.index.get_level_values('ticker').nunique()} tickers | "
+            f"feature span {pd.Timestamp(_train_dates.min()).date()} -> "
+            f"{pd.Timestamp(_train_dates.max()).date()} | "
+            f"labelled (learnable) span {pd.Timestamp(_labelled_dates.min()).date()} -> "
+            f"{pd.Timestamp(_labelled_dates.max()).date()} "
+            f"({int(_labelled_mask.sum()):,} of {len(full_grp):,} rows carry a target)"
         )
 
-    sel = FeatureSelector(seed=cfg.random_seed)
-    final_features = sel.select(X_full_cls, y_full_c_cls, top_k=best_k)
-    print(f"      Selected {len(final_features)} features")
-
-    X_fin = X_full[final_features].fillna(0)
-    final_ranker = LGBMRanker(best_params, seed=cfg.random_seed, num_threads=-1)  # final model uses all cores
-    final_ranker.fit(X_fin, y_full_r, full_groups)
+        final_ranker = LGBMRanker(best_params, seed=cfg.random_seed, num_threads=-1)  # final model uses all cores
+        final_ranker.fit(X_fin, y_full_r, full_groups)
 
     ensemble = EnsembleRanker(final_ranker)
 

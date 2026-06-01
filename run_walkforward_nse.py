@@ -1,0 +1,536 @@
+#!/usr/bin/env python3
+"""
+run_walkforward_nse.py — Automated walk-forward production simulation for NSE.
+
+WHAT IT DOES
+────────────
+Starting from an already-trained NSE model (frozen at its last train date),
+this orchestrator walks forward in time on a fixed cadence:
+
+    for each scheduled date D:
+        1. Incrementally download price data up to D       (download_nse_data.py)
+        2. INFERENCE-ONLY: score & pick stocks, no training (run_nse_local.py --skip_train --as_of D)
+        3. Read the drift monitor's PSI output for date D
+        4. If drift breaches the retrain threshold  ->  FULL RETRAIN now, then continue
+        5. At the quarter-end date                  ->  FULL RETRAIN (scheduled)
+
+This is a *point-in-time* simulation: at every step the model only ever sees
+data up to D, so it faithfully reproduces how the system would have behaved in
+live production over that window — and measures how fast the model decays
+between retrains.
+
+DEFAULT SCHEDULE  (matches the Jan–Mar 2024 example)
+────────────────
+    2024-01-13  inference        2024-02-24  inference
+    2024-01-27  inference        2024-03-09  inference
+    2024-02-10  inference        2024-03-23  inference
+                                 2024-03-31  FULL RETRAIN  (quarter end)
+
+LAUNCH
+──────
+    # one-time: model must already be trained, e.g.
+    #   python3 run_nse_local.py --train_start 2010-01-01 --as_of 2023-12-08
+
+    export NTFY_TOPIC="hetzner-victor-ml"       # optional phone alerts
+    nohup python3 run_walkforward_nse.py \
+        --train_start 2010-01-01 \
+        --start 2024-01-13 \
+        --end   2024-03-31 \
+        --cadence_days 14 \
+        > /mnt/data/artefacts/nse_local/walkforward.log 2>&1 &
+    echo "Walk-forward PID: $!"
+
+    # preview the schedule without running anything:
+    python3 run_walkforward_nse.py --dry_run
+
+RESUMABILITY
+────────────
+Progress is written to a JSON state file (--state_file). Re-launching with the
+same arguments skips dates already completed, so a crash/restart resumes cleanly.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import platform
+import shutil
+import subprocess
+import sys
+import urllib.request
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple
+
+import pandas as pd
+
+# ── Memory-safety env defaults ───────────────────────────────────────────────
+# Child processes (run_nse_local.py) inherit these. Keeping joblib in-process
+# prevents loky from forking one worker (and one panel copy) per CPU core — the
+# exact pattern that OOM-killed earlier runs on the 30 GB box.
+for _k, _v in {
+    "JOBLIB_MULTIPROCESSING": "0",
+    "LOKY_MAX_CPU_COUNT": "2",
+    "OMP_NUM_THREADS": "4",
+    "OPENBLAS_NUM_THREADS": "4",
+}.items():
+    os.environ.setdefault(_k, _v)
+
+# ── Project layout ──────────────────────────────────────────────────────────
+PROJECT_DIR   = Path(__file__).resolve().parent
+DOWNLOADER    = PROJECT_DIR / "scripts" / "data" / "download_nse_data.py"
+RUNNER        = PROJECT_DIR / "run_nse_local.py"
+MONITORING_DIR = PROJECT_DIR / "monitoring"
+
+# Matches RETRAIN_FEATURE_FRACTION in pipeline/monitoring/drift_monitor.py:
+#   a retrain fires when > this fraction of monitored features breach the PSI
+#   retrain threshold.
+DEFAULT_RETRAIN_FRACTION = 0.20
+
+PY = sys.executable or "python3"
+
+# Filled in from CLI in main(); read by run_cmd() for OOM self-healing.
+_OOM_CFG = {"swap_gb": 40, "swapfile": "/swapfile", "max_retries": 1, "ntfy": ""}
+
+
+# ── CLI ──────────────────────────────────────────────────────────────────────
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="Automated walk-forward inference + drift-triggered retrain for NSE.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    p.add_argument("--start", default="2024-01-13",
+                   help="First inference date (YYYY-MM-DD).")
+    p.add_argument("--end", default="2024-03-31",
+                   help="Quarter-end date — a FULL RETRAIN always runs here.")
+    p.add_argument("--cadence_days", type=int, default=14,
+                   help="Days between inference runs (14 = bi-weekly).")
+    p.add_argument("--train_start", default="2010-01-01",
+                   help="Earliest date in the training panel for (re)training.")
+    p.add_argument("--mode", default="all",
+                   choices=["all", "momentum", "reversal", "legacy"],
+                   help="Ranker mode(s) passed through to run_nse_local.py.")
+    p.add_argument("--retrain_fraction", type=float, default=DEFAULT_RETRAIN_FRACTION,
+                   help="Drift retrain trigger: fraction of features breaching PSI retrain "
+                        "threshold that forces an early retrain.")
+    p.add_argument("--n_jobs", type=int, default=1,
+                   help="Passed through to run_nse_local.py.")
+    p.add_argument("--no_drift_retrain", action="store_true",
+                   help="Disable mid-quarter drift-triggered retrains "
+                        "(only the scheduled quarter-end retrain runs).")
+    p.add_argument("--swap_gb", type=int, default=40,
+                   help="On an OOM-killed step, ensure at least this much swap (GB), then rerun.")
+    p.add_argument("--swapfile", default="/swapfile",
+                   help="Swap file path to provision/extend when handling OOM.")
+    p.add_argument("--oom_retries", type=int, default=1,
+                   help="How many times to rerun a step after provisioning swap (0 disables).")
+    p.add_argument("--min_free_gb", type=int, default=15,
+                   help="Abort a step before it writes if free disk drops below this (GB). "
+                        "A cleanup of regenerable caches is attempted first.")
+    p.add_argument("--artefacts_dir", default=None,
+                   help="Where regenerable caches live for cleanup (default: --log_dir).")
+    p.add_argument("--state_file", default=None,
+                   help="Resumability state JSON (default: <log_dir>/walkforward_state.json).")
+    p.add_argument("--log_dir", default="/mnt/data/artefacts/nse_local",
+                   help="Where per-step logs and state are written.")
+    p.add_argument("--ntfy_topic", default=os.environ.get("NTFY_TOPIC", ""),
+                   help="ntfy.sh topic for phone alerts (or set $NTFY_TOPIC).")
+    p.add_argument("--dry_run", action="store_true",
+                   help="Print the schedule and the exact commands, then exit.")
+    return p.parse_args()
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def log(msg: str) -> None:
+    print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}", flush=True)
+
+
+def notify(topic: str, title: str, body: str, tags: str = "") -> None:
+    """Best-effort ntfy.sh push. Never raises."""
+    if not topic:
+        return
+    try:
+        req = urllib.request.Request(
+            f"https://ntfy.sh/{topic}",
+            data=body.encode("utf-8"),
+            headers={"Title": title, "Tags": tags},
+        )
+        urllib.request.urlopen(req, timeout=10)
+    except Exception:
+        pass
+
+
+def build_schedule(start: str, end: str, cadence_days: int) -> List[Tuple[pd.Timestamp, str]]:
+    """Bi-weekly inference dates strictly before `end`, then a retrain at `end`."""
+    start_ts = pd.Timestamp(start)
+    end_ts   = pd.Timestamp(end)
+    if end_ts <= start_ts:
+        raise ValueError(f"--end ({end}) must be after --start ({start}).")
+
+    sched: List[Tuple[pd.Timestamp, str]] = []
+    d = start_ts
+    while d < end_ts:
+        sched.append((d, "infer"))
+        d += timedelta(days=cadence_days)
+    sched.append((end_ts, "retrain"))          # quarter-end: always a full retrain
+    return sched
+
+
+def current_swap_gb() -> float:
+    """Total system swap in GB (Linux). Returns 0.0 if unknown."""
+    try:
+        for line in Path("/proc/meminfo").read_text().splitlines():
+            if line.startswith("SwapTotal:"):
+                return int(line.split()[1]) / 1024 / 1024   # kB -> GB
+    except Exception:
+        pass
+    return 0.0
+
+
+def ensure_swap(target_gb: int, swapfile: str) -> None:
+    """Provision/extend a swap file to at least target_gb (Linux only, idempotent)."""
+    if not platform.system().lower().startswith("linux"):
+        log(f"  (ensure_swap skipped — not Linux: {platform.system()})")
+        return
+    cur = current_swap_gb()
+    if cur >= target_gb * 0.95:
+        log(f"  Swap already {cur:.1f} GB (>= {target_gb} GB) — no change.")
+        return
+
+    sudo = [] if (hasattr(os, "geteuid") and os.geteuid() == 0) else ["sudo"]
+    log(f"  Swap is {cur:.1f} GB; provisioning {target_gb} GB at {swapfile} ...")
+
+    def _run(parts: List[str]) -> int:
+        return subprocess.run(sudo + parts, check=False,
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode
+
+    _run(["swapoff", swapfile])                              # ignore if not on
+    if _run(["fallocate", "-l", f"{target_gb}G", swapfile]) != 0:
+        # fallocate can fail on some filesystems — fall back to dd
+        _run(["dd", "if=/dev/zero", f"of={swapfile}", "bs=1M", f"count={target_gb * 1024}"])
+    _run(["chmod", "600", swapfile])
+    _run(["mkswap", swapfile])
+    if _run(["swapon", swapfile]) != 0:
+        log("  WARNING: swapon failed — check permissions / disk space.")
+    log(f"  Swap now: {current_swap_gb():.1f} GB")
+
+
+def free_gb(path: Path) -> float:
+    """Free space (GB) on the filesystem holding `path`. Returns large value if unknown."""
+    try:
+        return shutil.disk_usage(str(path)).free / (1024 ** 3)
+    except Exception:
+        return 1e9   # unknown — don't block
+
+
+def clean_regenerable(artefacts_dir: Path) -> float:
+    """Delete regenerable caches under artefacts_dir. Returns GB freed.
+
+    Safe to call between steps: panel checkpoints and fold caches are recomputed
+    on the next run; only watchlist outputs, drift records, and trained model
+    artefacts are kept.
+    """
+    freed = 0
+    targets: List[Path] = []
+    ck = artefacts_dir / "checkpoints"
+    targets += [ck / "panel_features.pkl", ck / "panel_targets.pkl", ck / "feat_cols.txt"]
+    targets += list(artefacts_dir.glob("*/fold_cache/*.pkl"))   # momentum/ + reversal/ fold caches
+    for p in targets:
+        try:
+            if p.exists():
+                freed += p.stat().st_size
+                p.unlink()
+        except Exception:
+            pass
+    return freed / (1024 ** 3)
+
+
+def ensure_disk(check_path: Path, min_gb: int, artefacts_dir: Path, ntfy: str) -> bool:
+    """Guarantee at least min_gb free before a step writes. Cleans caches if low.
+
+    Returns True if free space is OK (possibly after cleanup), False if it
+    remains below min_gb (caller should abort rather than crash mid-write).
+    """
+    fg = free_gb(check_path)
+    log(f"  Disk free on {check_path}: {fg:.1f} GB (min {min_gb} GB)")
+    if fg >= min_gb:
+        return True
+    log(f"  LOW DISK ({fg:.1f} GB < {min_gb} GB) — cleaning regenerable caches ...")
+    notify(ntfy, "Low disk -> cleanup",
+           f"Only {fg:.1f} GB free on {check_path}. Cleaning regenerable caches.", "warning")
+    freed = clean_regenerable(artefacts_dir)
+    fg = free_gb(check_path)
+    log(f"  Freed ~{freed:.1f} GB; now {fg:.1f} GB free.")
+    return fg >= min_gb
+
+
+def _looks_like_oom(rc: int, step_log: Path) -> bool:
+    """Heuristic: was this step killed by the OOM killer?"""
+    if rc in (-9, 137):          # SIGKILL (137 = 128 + 9) — classic OOM kill
+        return True
+    try:
+        txt = step_log.read_text(errors="ignore")[-30000:]
+        markers = ("MemoryError", "Out of memory", "Killed process",
+                   "Cannot allocate memory", "leaked semaphore", "resource_tracker")
+        return any(m in txt for m in markers)
+    except Exception:
+        return False
+
+
+def _run_once(cmd: List[str], step_log: Path) -> int:
+    """Run a subprocess once, tee-ing combined output to step_log. Returns exit code."""
+    log(f"$ {' '.join(str(c) for c in cmd)}")
+    step_log.parent.mkdir(parents=True, exist_ok=True)
+    with open(step_log, "w", encoding="utf-8") as lf:
+        proc = subprocess.Popen(
+            [str(c) for c in cmd],
+            cwd=str(PROJECT_DIR),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            lf.write(line)
+            lf.flush()
+        proc.wait()
+    return proc.returncode
+
+
+def run_cmd(cmd: List[str], step_log: Path) -> int:
+    """Run a step; on OOM kill, provision swap (_OOM_CFG) and rerun up to max_retries."""
+    attempt = 0
+    while True:
+        rc = _run_once(cmd, step_log)
+        if rc == 0 or not _looks_like_oom(rc, step_log):
+            return rc
+        if attempt >= _OOM_CFG["max_retries"]:
+            log(f"  OOM persists after {attempt} retr{'y' if attempt == 1 else 'ies'} "
+                f"(rc={rc}) — giving up on this step.")
+            return rc
+        attempt += 1
+        log(f"  OOM DETECTED (rc={rc}). Provisioning {_OOM_CFG['swap_gb']} GB swap "
+            f"and rerunning (attempt {attempt}/{_OOM_CFG['max_retries']}) ...")
+        notify(_OOM_CFG["ntfy"], "OOM -> adding swap + retry",
+               f"Step OOM-killed (rc={rc}). Ensuring {_OOM_CFG['swap_gb']} GB swap and rerunning.",
+               "warning")
+        ensure_swap(_OOM_CFG["swap_gb"], _OOM_CFG["swapfile"])
+
+
+def download_until(as_of: pd.Timestamp, step_log: Path) -> int:
+    """Incrementally extend local CSVs up to and including `as_of`.
+
+    yfinance treats --end as EXCLUSIVE, so pass as_of + 1 day to include the
+    as_of bar itself (or the latest trading day on/just before it).
+    """
+    end_excl = (as_of + timedelta(days=1)).strftime("%Y-%m-%d")
+    cmd = [PY, str(DOWNLOADER), "--end", end_excl]
+    return run_cmd(cmd, step_log)
+
+
+def run_inference(as_of: pd.Timestamp, mode: str, n_jobs: int, step_log: Path) -> int:
+    cmd = [PY, str(RUNNER),
+           "--skip_train",
+           "--as_of", as_of.strftime("%Y-%m-%d"),
+           "--mode", mode,
+           "--n_jobs", str(n_jobs)]
+    return run_cmd(cmd, step_log)
+
+
+def run_retrain(as_of: pd.Timestamp, train_start: str, mode: str,
+                n_jobs: int, step_log: Path) -> int:
+    cmd = [PY, str(RUNNER),
+           "--train_start", train_start,
+           "--as_of", as_of.strftime("%Y-%m-%d"),
+           "--mode", mode,
+           "--n_jobs", str(n_jobs)]
+    return run_cmd(cmd, step_log)
+
+
+def check_drift(mode: str) -> Dict[str, float]:
+    """Read the latest drift snapshot per sub-mode and return {submode: breach_fraction}.
+
+    The drift monitor writes monitoring/<submode>/feature_drift.parquet with one
+    row per (date, feature) carrying a boolean `retrain_flag`. We read the most
+    recent date's rows and compute the fraction of features flagged for retrain.
+    """
+    submodes = {"all": ["momentum", "reversal"]}.get(mode, [mode])
+    fractions: Dict[str, float] = {}
+    for sm in submodes:
+        path = MONITORING_DIR / sm / "feature_drift.parquet"
+        if not path.exists():
+            fractions[sm] = 0.0
+            continue
+        try:
+            df = pd.read_parquet(path)
+            if df.empty or "retrain_flag" not in df.columns:
+                fractions[sm] = 0.0
+                continue
+            latest = df["date"].max()
+            snap = df[df["date"] == latest]
+            fractions[sm] = float(snap["retrain_flag"].mean()) if len(snap) else 0.0
+        except Exception as e:
+            log(f"  drift read failed for '{sm}': {e}")
+            fractions[sm] = 0.0
+    return fractions
+
+
+# ── State (resumability) ──────────────────────────────────────────────────────
+def load_state(path: Path) -> dict:
+    if path.exists():
+        try:
+            return json.loads(path.read_text())
+        except Exception:
+            pass
+    return {"completed": [], "model_trained_through": None, "events": []}
+
+
+def save_state(path: Path, state: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(state, indent=2))
+
+
+# ── Main ────────────────────────────────────────────────────────────────────
+def main() -> None:
+    args = parse_args()
+    log_dir = Path(args.log_dir)
+    state_file = Path(args.state_file) if args.state_file else (log_dir / "walkforward_state.json")
+
+    # OOM self-healing config (read by run_cmd)
+    _OOM_CFG["swap_gb"]     = args.swap_gb
+    _OOM_CFG["swapfile"]    = args.swapfile
+    _OOM_CFG["max_retries"] = args.oom_retries
+    _OOM_CFG["ntfy"]        = args.ntfy_topic
+
+    artefacts_dir = Path(args.artefacts_dir) if args.artefacts_dir else log_dir
+    log_dir.mkdir(parents=True, exist_ok=True)
+
+    schedule = build_schedule(args.start, args.end, args.cadence_days)
+
+    # ── Dry run: show the plan and exit ────────────────────────────────────
+    print("=" * 64)
+    print("  NSE WALK-FORWARD SCHEDULE")
+    print("=" * 64)
+    for d, action in schedule:
+        label = "FULL RETRAIN (quarter end)" if action == "retrain" else "inference (--skip_train)"
+        print(f"  {d.date()}  {'[' + d.strftime('%a') + ']':>5}   {label}")
+    print(f"\n  cadence       : every {args.cadence_days} days")
+    print(f"  mode          : {args.mode}")
+    print(f"  drift retrain : {'DISABLED' if args.no_drift_retrain else f'frac > {args.retrain_fraction:.0%}'}")
+    print(f"  OOM handling  : {'DISABLED' if args.oom_retries == 0 else f'ensure {args.swap_gb} GB swap @ {args.swapfile}, rerun x{args.oom_retries}'}")
+    print(f"  disk guard    : abort if < {args.min_free_gb} GB free on {log_dir} (auto-clean caches first); now {free_gb(log_dir):.1f} GB free")
+    print(f"  state file    : {state_file}")
+    print(f"  per-step logs : {log_dir}")
+    print("=" * 64)
+    if args.dry_run:
+        print("\n[--dry_run] No commands executed.")
+        return
+
+    if not DOWNLOADER.exists():
+        sys.exit(f"Downloader not found: {DOWNLOADER}")
+    if not RUNNER.exists():
+        sys.exit(f"Runner not found: {RUNNER}")
+
+    state = load_state(state_file)
+    completed = set(state.get("completed", []))
+
+    notify(args.ntfy_topic, "Walk-forward started",
+           f"NSE walk-forward {args.start} -> {args.end}, {len(schedule)} steps.", "rocket")
+
+    for d, action in schedule:
+        dkey = d.strftime("%Y-%m-%d")
+        if dkey in completed:
+            log(f"SKIP {dkey} — already completed (resumed from state).")
+            continue
+
+        log("=" * 60)
+        log(f"STEP {dkey} [{d.strftime('%a')}] — planned action: {action}")
+
+        # 0. Disk guard — never start a step that could crash mid-write on a full disk
+        if not ensure_disk(log_dir, args.min_free_gb, artefacts_dir, args.ntfy_topic):
+            msg = (f"Insufficient disk at {dkey}: still < {args.min_free_gb} GB free "
+                   f"after cleanup. Aborting before write to avoid corruption.")
+            log("X  " + msg)
+            notify(args.ntfy_topic, "Walk-forward HALTED (disk)", msg, "x,rotating_light")
+            state.setdefault("events", []).append({"date": dkey, "event": "disk_abort"})
+            save_state(state_file, state)
+            sys.exit(1)
+
+        # 1. Incremental data download up to this date
+        rc = download_until(d, log_dir / f"wf_{dkey}_download.log")
+        if rc != 0:
+            msg = f"Data download FAILED at {dkey} (exit {rc})."
+            log("X  " + msg)
+            notify(args.ntfy_topic, "Walk-forward FAILED", msg, "x,rotating_light")
+            state.setdefault("events", []).append({"date": dkey, "event": "download_failed", "rc": rc})
+            save_state(state_file, state)
+            sys.exit(rc)
+
+        did_retrain = False
+
+        if action == "retrain":
+            # 2a. Scheduled quarter-end full retrain (also scores & picks stocks)
+            log(f"FULL RETRAIN (scheduled quarter end) at {dkey} ...")
+            rc = run_retrain(d, args.train_start, args.mode, args.n_jobs,
+                             log_dir / f"wf_{dkey}_retrain.log")
+            did_retrain = True
+        else:
+            # 2b. Inference-only — model frozen
+            log(f"INFERENCE (model frozen) at {dkey} ...")
+            rc = run_inference(d, args.mode, args.n_jobs,
+                               log_dir / f"wf_{dkey}_infer.log")
+            if rc != 0:
+                msg = f"Inference FAILED at {dkey} (exit {rc})."
+                log("X  " + msg)
+                notify(args.ntfy_topic, "Walk-forward FAILED", msg, "x,rotating_light")
+                state.setdefault("events", []).append({"date": dkey, "event": "infer_failed", "rc": rc})
+                save_state(state_file, state)
+                sys.exit(rc)
+
+            # 3. Drift gate
+            fractions = check_drift(args.mode)
+            frac_str = ", ".join(f"{k}={v:.0%}" for k, v in fractions.items())
+            log(f"  Drift breach fractions: {frac_str}")
+            breached = (not args.no_drift_retrain) and any(
+                v > args.retrain_fraction for v in fractions.values()
+            )
+            state.setdefault("events", []).append(
+                {"date": dkey, "event": "drift_check", "fractions": fractions, "breached": breached}
+            )
+
+            if breached:
+                # 4. Drift-triggered early retrain, then continue serving from new model
+                log(f"  DRIFT TRIGGER at {dkey} ({frac_str}) — running EARLY full retrain ...")
+                notify(args.ntfy_topic, "Drift -> early retrain",
+                       f"{dkey}: drift breached ({frac_str}). Retraining now.", "warning")
+                rc = run_retrain(d, args.train_start, args.mode, args.n_jobs,
+                                 log_dir / f"wf_{dkey}_drift_retrain.log")
+                did_retrain = True
+
+        if rc != 0:
+            msg = f"Retrain FAILED at {dkey} (exit {rc})."
+            log("X  " + msg)
+            notify(args.ntfy_topic, "Walk-forward FAILED", msg, "x,rotating_light")
+            state.setdefault("events", []).append({"date": dkey, "event": "retrain_failed", "rc": rc})
+            save_state(state_file, state)
+            sys.exit(rc)
+
+        if did_retrain:
+            state["model_trained_through"] = dkey
+        completed.add(dkey)
+        state["completed"] = sorted(completed)
+        save_state(state_file, state)
+        log(f"OK  {dkey} done"
+            + (" (model retrained)" if did_retrain else " (inference)"))
+
+    log("=" * 60)
+    log("ALL WALK-FORWARD STEPS COMPLETE.")
+    log(f"  Model now trained through: {state.get('model_trained_through')}")
+    log(f"  Watchlists + drift records under: {PROJECT_DIR} (output/ and monitoring/)")
+    notify(args.ntfy_topic, "Walk-forward DONE",
+           f"NSE walk-forward complete through {args.end}.", "tada,white_check_mark")
+
+
+if __name__ == "__main__":
+    main()

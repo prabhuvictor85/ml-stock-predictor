@@ -116,29 +116,64 @@ def stop_run(cfg: dict):
 
 # ── Data helpers ──────────────────────────────────────────────────────────────
 
-def latest_watchlists(cfg: dict) -> tuple[str, dict[str, pd.DataFrame]]:
+import re as _re
+_DATE_RE = _re.compile(r"\d{4}-\d{2}-\d{2}$")
+
+
+def _watchlist_dir(cfg: dict, date_str: str) -> Path:
+    """
+    Return the directory that holds watchlist CSVs for a given date.
+    Supports two layouts:
+      • Flat:   output/us_local/watchlist_*_YYYY-MM-DD.csv
+      • Nested: output/us_local/YYYY-MM-DD/output/watchlist_*_YYYY-MM-DD.csv
+    """
+    output_dir = cfg["output"]
+    nested = output_dir / date_str / "output"
+    if nested.exists():
+        return nested
+    return output_dir
+
+
+def available_run_dates(cfg: dict) -> list[str]:
+    """
+    Scan the output directory and return all scoring dates found, newest first.
+    Looks for both flat CSV files and date-named sub-folders.
+    """
     output_dir = cfg["output"]
     prefix     = cfg["watchlist_prefix"]
-    files = sorted(output_dir.glob(f"{prefix}*.csv"),
-                   key=lambda x: x.stat().st_mtime, reverse=True)
-    if not files:
-        return "", {}
-    # Exclude per-tier files (e.g. watchlist_momentum_bull_large_*.csv) when
-    # detecting the scoring date — only main files have a plain YYYY-MM-DD stem.
     _TIER_KEYS = ("large_", "mid_", "small_", "micro_")
-    main_files = [f for f in files
-                  if not any(f.stem.replace(prefix, "").startswith(t)
-                             for t in _TIER_KEYS)]
-    if not main_files:
-        return "", {}
-    date_str = main_files[0].stem.replace(prefix, "")
+    dates: set[str] = set()
+
+    # Flat files in output_dir itself
+    for f in output_dir.glob(f"{prefix}*.csv"):
+        stem_suffix = f.stem.replace(prefix, "")
+        if not any(stem_suffix.startswith(t) for t in _TIER_KEYS):
+            if _DATE_RE.match(stem_suffix):
+                dates.add(stem_suffix)
+
+    # Nested: output_dir/<date>/output/watchlist_*.csv
+    for sub in output_dir.iterdir():
+        if sub.is_dir() and _DATE_RE.match(sub.name):
+            nested = sub / "output"
+            search_dir = nested if nested.exists() else sub
+            for f in search_dir.glob(f"{prefix}*.csv"):
+                stem_suffix = f.stem.replace(prefix, "")
+                if not any(stem_suffix.startswith(t) for t in _TIER_KEYS):
+                    if _DATE_RE.match(stem_suffix):
+                        dates.add(stem_suffix)
+
+    return sorted(dates, reverse=True)   # newest first
+
+
+def load_watchlists_for_date(cfg: dict, date_str: str) -> dict[str, pd.DataFrame]:
+    """Load all watchlist CSVs for a specific date string."""
+    wl_dir = _watchlist_dir(cfg, date_str)
     result: dict[str, pd.DataFrame] = {}
     for label, pattern in [
         ("Momentum Bull",       f"watchlist_momentum_bull_{date_str}.csv"),
         ("Momentum Bear",       f"watchlist_momentum_bear_{date_str}.csv"),
         ("Reversal Bull",       f"watchlist_reversal_bull_{date_str}.csv"),
         ("Reversal Bear",       f"watchlist_reversal_bear_{date_str}.csv"),
-        # Per-cap-tier top-10 (generated when cap_tier_map provided)
         ("Momentum Bull large", f"watchlist_momentum_bull_large_{date_str}.csv"),
         ("Momentum Bull mid",   f"watchlist_momentum_bull_mid_{date_str}.csv"),
         ("Momentum Bull small", f"watchlist_momentum_bull_small_{date_str}.csv"),
@@ -156,10 +191,19 @@ def latest_watchlists(cfg: dict) -> tuple[str, dict[str, pd.DataFrame]]:
         ("Reversal Bear small", f"watchlist_reversal_bear_small_{date_str}.csv"),
         ("Reversal Bear micro", f"watchlist_reversal_bear_micro_{date_str}.csv"),
     ]:
-        p = output_dir / pattern
+        p = wl_dir / pattern
         if p.exists():
             result[label] = pd.read_csv(p)
-    return date_str, result
+    return result
+
+
+def latest_watchlists(cfg: dict) -> tuple[str, dict[str, pd.DataFrame]]:
+    """Backward-compat wrapper: returns the most recent date and its watchlists."""
+    dates = available_run_dates(cfg)
+    if not dates:
+        return "", {}
+    date_str = dates[0]
+    return date_str, load_watchlists_for_date(cfg, date_str)
 
 
 def active_log_path(cfg: dict) -> Path | None:
@@ -432,6 +476,33 @@ with st.sidebar:
     auto = st.toggle("Live updates (20 min)", value=running)
 
     st.divider()
+
+    # ── Date selector ──────────────────────────────────────────────────────
+    st.subheader("📅 Run Date")
+    _run_dates = available_run_dates(cfg)
+    if _run_dates:
+        # Key includes market so switching market resets the picker
+        _date_key = f"selected_date_{st.session_state['market']}"
+        if _date_key not in st.session_state or st.session_state[_date_key] not in _run_dates:
+            st.session_state[_date_key] = _run_dates[0]
+
+        # Radio list — newest first, most recent pre-selected
+        _chosen = st.radio(
+            "Select a scoring date",
+            options=_run_dates,
+            index=_run_dates.index(st.session_state[_date_key]),
+            label_visibility="collapsed",
+            key=f"date_radio_{st.session_state['market']}",
+        )
+        if _chosen != st.session_state[_date_key]:
+            st.session_state[_date_key] = _chosen
+            st.rerun()
+    else:
+        st.caption("No run dates found yet.")
+        _date_key = f"selected_date_{st.session_state['market']}"
+        st.session_state.setdefault(_date_key, "")
+
+    st.divider()
     log_dir = cfg["log_dir"]
     if log_dir.exists():
         logs = sorted(log_dir.glob("*.log"), key=lambda x: x.stat().st_mtime, reverse=True)
@@ -454,7 +525,13 @@ tab_watch, tab_log, tab_shap, tab_drift = st.tabs(
 
 # ── Tab: Watchlists ───────────────────────────────────────────────────────────
 with tab_watch:
-    date_str, watchlists = latest_watchlists(cfg)
+    _date_key  = f"selected_date_{st.session_state['market']}"
+    _sel_date  = st.session_state.get(_date_key, "")
+    if _sel_date:
+        date_str   = _sel_date
+        watchlists = load_watchlists_for_date(cfg, date_str)
+    else:
+        date_str, watchlists = latest_watchlists(cfg)
 
     if not watchlists:
         st.info(f"No watchlists found for {market_label}. Run a scoring pass first.")
@@ -504,12 +581,14 @@ with tab_watch:
             (wt4, "Reversal Bear", "reversal",  "bear"),
         ]
 
+        _scores_dir = str(_watchlist_dir(cfg, date_str))
+
         for tab_obj, label, model_name, side in TAB_META:
             with tab_obj:
                 # Always fetch Pure ML and Blend sets for cross-highlighting
-                df_ml = rescore_tickers(str(cfg["output"]), date_str,
+                df_ml = rescore_tickers(_scores_dir, date_str,
                                         model_name, side, 1.00, 0.00, int(top_n))
-                df_bl = rescore_tickers(str(cfg["output"]), date_str,
+                df_bl = rescore_tickers(_scores_dir, date_str,
                                         model_name, side, 0.85, 0.15, int(top_n))
                 ml_set = set(df_ml["ticker"]) if not df_ml.empty else set()
                 bl_set = set(df_bl["ticker"]) if not df_bl.empty else set()
@@ -537,7 +616,7 @@ with tab_watch:
                     return [f"background-color: {c}; color: #e8e8e8"] * len(row)
 
                 if rank_method == "Original (70/30)":
-                    df = watchlists.get(label, pd.DataFrame())
+                    df = watchlists.get(label, pd.DataFrame())  # noqa: F841 (label used below)
                     if df.empty:
                         st.info(f"No {label} watchlist found.")
                         continue
@@ -569,7 +648,7 @@ with tab_watch:
                     )
 
                 else:
-                    df = rescore_tickers(str(cfg["output"]), date_str,
+                    df = rescore_tickers(_scores_dir, date_str,
                                          model_name, side, mw, cw, int(top_n))
                     if df.empty:
                         st.warning(f"No scores_detail data for {label}.")
@@ -651,7 +730,7 @@ with tab_watch:
                     _tier_map = load_cap_tier_map(market_label)
                     if _tier_map:
                         _df_full = rescore_tickers(
-                            str(cfg["output"]), date_str,
+                            _scores_dir, date_str,
                             model_name, side, mw, cw, top_n=20_000,
                         )
                         if not _df_full.empty:
@@ -690,7 +769,7 @@ with tab_watch:
         st.divider()
         st.subheader("🔍 Explain a Ticker")
 
-        scores_all = load_scores_detail(str(cfg["output"]), date_str)
+        scores_all = load_scores_detail(_scores_dir, date_str)
 
         # Watchlist tickers first, then all scored tickers
         wl_tickers = sorted({

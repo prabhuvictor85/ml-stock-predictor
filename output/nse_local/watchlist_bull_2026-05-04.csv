@@ -1,0 +1,2 @@
+rank,side,ticker,weight_pct,score,date,adx_14,return_20d,vol_contraction,sector_rs_20d,rolling_beta_60d,regime_bull,regime_bear,sdz_htf_score,ssz_htf_score,zone_htf_confluence,projected_20d_pct,projected_40d_pct,projected_60d_pct
+1,BULL,TCS.NS,100.0,1.0,2026-05-04,20.3832,-0.318,0.6975,0.0,,0.0,0.0,0.0,0.6667,-0.6667,16.35,25.43,33.71

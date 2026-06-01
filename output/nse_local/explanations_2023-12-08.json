@@ -1,0 +1,705 @@
+[
+  {
+    "ticker": "ATGL.NS",
+    "side": "bull",
+    "rank": 1,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_sector_rs_20d",
+        0.54
+      ],
+      [
+        "features_price_vs_sma50",
+        0.5365
+      ],
+      [
+        "features_low_52w_dist",
+        0.4739
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bull_htf_score",
+        -0.8798
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "CIEINDIA.NS",
+    "side": "bull",
+    "rank": 2,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bullbb_dist",
+        0.4098
+      ],
+      [
+        "features_zone_htf_confluence",
+        0.3186
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.4014
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.3867
+      ],
+      [
+        "features_ict_bearfvg_active_1mo",
+        -0.2794
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "SAREGAMA.NS",
+    "side": "bull",
+    "rank": 3,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_sz_3mo",
+        0.841
+      ],
+      [
+        "features_sz_raw_score",
+        0.766
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.3418
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.3369
+      ],
+      [
+        "features_market_breadth",
+        -0.3294
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TANLA.NS",
+    "side": "bull",
+    "rank": 4,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_sz_3mo",
+        0.6489
+      ],
+      [
+        "features_sz_raw_score",
+        0.3884
+      ],
+      [
+        "features_sma200_slope_10",
+        0.3331
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.585
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.4147
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "DEEPAKFERT.NS",
+    "side": "bull",
+    "rank": 5,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_sz_3mo",
+        0.7705
+      ],
+      [
+        "features_ict_bullbb_dist",
+        0.6318
+      ],
+      [
+        "features_price_vs_sma200",
+        0.4636
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bull_htf_score",
+        -0.5236
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.3241
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TTML.NS",
+    "side": "bull",
+    "rank": 6,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_price_vs_sma200",
+        0.5882
+      ],
+      [
+        "features_low_52w_dist",
+        0.3499
+      ],
+      [
+        "features_sma200_slope_10",
+        0.2465
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.4296
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.383
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "BIOCON.NS",
+    "side": "bull",
+    "rank": 7,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        0.8125
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.6534
+      ],
+      [
+        "features_high_52w_dist",
+        0.2888
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_market_breadth",
+        -0.2306
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "ADANIGREEN.NS",
+    "side": "bull",
+    "rank": 8,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_low_52w_dist",
+        0.726
+      ],
+      [
+        "features_hist_vol_20d",
+        0.4915
+      ],
+      [
+        "features_price_vs_sma50",
+        0.4769
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TRIDENT.NS",
+    "side": "bull",
+    "rank": 9,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_price_vs_sma200",
+        0.4782
+      ],
+      [
+        "features_high_52w_dist",
+        0.287
+      ],
+      [
+        "features_sz_raw_score",
+        0.2446
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.3107
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "AMBUJACEM.NS",
+    "side": "bull",
+    "rank": 10,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_price_vs_sma200",
+        0.5441
+      ],
+      [
+        "features_price_vs_sma50",
+        0.4234
+      ],
+      [
+        "features_sma200_slope_10",
+        0.2482
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.454
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.2846
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "THERMAX.NS",
+    "side": "bull",
+    "rank": 11,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_zone_htf_confluence",
+        0.2523
+      ],
+      [
+        "features_high_52w_dist",
+        0.2333
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.4109
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.37
+      ],
+      [
+        "features_ict_bearfvg_active_1mo",
+        -0.2468
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "HFCL.NS",
+    "side": "bull",
+    "rank": 12,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        0.1828
+      ],
+      [
+        "features_ict_bull_htf_score",
+        0.1797
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.2828
+      ],
+      [
+        "features_ict_bob_active_1mo",
+        -0.1935
+      ],
+      [
+        "features_ict_bear_htf_score",
+        -0.1605
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "DEVYANI.NS",
+    "side": "bear",
+    "rank": 1,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.3112
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.2936
+      ],
+      [
+        "features_ict_bull_htf_score",
+        -0.264
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sma200_slope_10",
+        0.176
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "MMTC.NS",
+    "side": "bear",
+    "rank": 2,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_htf_score",
+        -0.7283
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.3843
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.3745
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_price_vs_sma200",
+        0.6541
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "CHOLAHLDNG.NS",
+    "side": "bear",
+    "rank": 3,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_htf_score",
+        -0.6919
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.3806
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.3385
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_price_vs_sma200",
+        0.4399
+      ],
+      [
+        "features_sma200_slope_10",
+        0.262
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "JUBLINGREA.NS",
+    "side": "bear",
+    "rank": 4,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.2825
+      ],
+      [
+        "features_ict_bearfvg_active_1mo",
+        -0.2189
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.2125
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bull_htf_score",
+        0.1545
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TRIVENI.NS",
+    "side": "bear",
+    "rank": 5,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_htf_score",
+        -0.5738
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.3675
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.316
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bear_htf_score",
+        0.3861
+      ],
+      [
+        "features_sma200_slope_10",
+        0.2247
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "RENUKA.NS",
+    "side": "bear",
+    "rank": 6,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.2882
+      ],
+      [
+        "features_low_52w_dist",
+        -0.237
+      ],
+      [
+        "features_market_breadth",
+        -0.1904
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bob_active_1mo",
+        0.1785
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "CUB.NS",
+    "side": "bear",
+    "rank": 7,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_htf_score",
+        -0.7218
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.2979
+      ],
+      [
+        "features_dz_raw_score",
+        -0.2813
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_price_vs_sma200",
+        0.6227
+      ],
+      [
+        "features_price_vs_sma50",
+        0.3928
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "RADICO.NS",
+    "side": "bear",
+    "rank": 8,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_htf_score",
+        -0.7664
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.3988
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.316
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_price_vs_sma200",
+        0.5101
+      ],
+      [
+        "features_price_vs_sma50",
+        0.3704
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "RAYMOND.NS",
+    "side": "bear",
+    "rank": 9,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_htf_score",
+        -0.5776
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.2841
+      ],
+      [
+        "features_dz_raw_score",
+        -0.2368
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        0.235
+      ],
+      [
+        "features_low_52w_dist",
+        0.2276
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "UCOBANK.NS",
+    "side": "bear",
+    "rank": 10,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_htf_score",
+        -0.499
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.3489
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.3476
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_price_vs_sma200",
+        0.555
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "ACC.NS",
+    "side": "bear",
+    "rank": 11,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_htf_score",
+        -0.4771
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.2901
+      ],
+      [
+        "features_dz_raw_score",
+        -0.2811
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_price_vs_sma200",
+        0.6009
+      ],
+      [
+        "features_price_vs_sma50",
+        0.3705
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "CROMPTON.NS",
+    "side": "bear",
+    "rank": 12,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.3047
+      ],
+      [
+        "features_dz_raw_score",
+        -0.2706
+      ],
+      [
+        "features_ict_bear_htf_score",
+        -0.1476
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_price_vs_sma200",
+        0.2201
+      ],
+      [
+        "features_ict_bull_htf_score",
+        0.1679
+      ]
+    ],
+    "regime": "choppy"
+  }
+]

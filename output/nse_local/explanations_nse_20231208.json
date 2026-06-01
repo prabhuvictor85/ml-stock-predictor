@@ -1,0 +1,199 @@
+[
+  {
+    "ticker": "HINDPETRO.NS",
+    "rank": 1,
+    "rank_score": 0.125,
+    "top_positive_features": [
+      [
+        "features_adx_14",
+        0.8064
+      ],
+      [
+        "features_price_vs_sma200",
+        0.6186
+      ],
+      [
+        "features_return_60d",
+        0.6096
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy",
+    "similar_setups": {
+      "note": "insufficient_history"
+    }
+  },
+  {
+    "ticker": "NIACL.NS",
+    "rank": 2,
+    "rank_score": 0.125,
+    "top_positive_features": [
+      [
+        "features_adx_14",
+        1.1223
+      ],
+      [
+        "features_sma200_slope_10",
+        0.605
+      ],
+      [
+        "features_sma20_slope_5",
+        0.6004
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy",
+    "similar_setups": {
+      "note": "insufficient_history"
+    }
+  },
+  {
+    "ticker": "RATNAMANI.NS",
+    "rank": 3,
+    "rank_score": 0.125,
+    "top_positive_features": [
+      [
+        "features_rolling_beta_60d",
+        1.3319
+      ],
+      [
+        "features_adx_14",
+        1.0948
+      ],
+      [
+        "features_sma200_slope_10",
+        0.3864
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy",
+    "similar_setups": {
+      "note": "insufficient_history"
+    }
+  },
+  {
+    "ticker": "MCX.NS",
+    "rank": 4,
+    "rank_score": 0.125,
+    "top_positive_features": [
+      [
+        "features_rolling_beta_60d",
+        1.0481
+      ],
+      [
+        "features_adx_14",
+        0.5307
+      ],
+      [
+        "features_sma200_slope_10",
+        0.4772
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy",
+    "similar_setups": {
+      "note": "insufficient_history"
+    }
+  },
+  {
+    "ticker": "PCBL.NS",
+    "rank": 5,
+    "rank_score": 0.125,
+    "top_positive_features": [
+      [
+        "features_return_60d",
+        0.5459
+      ],
+      [
+        "features_adx_14",
+        0.4684
+      ],
+      [
+        "features_sma20_slope_5",
+        0.3475
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy",
+    "similar_setups": {
+      "note": "insufficient_history"
+    }
+  },
+  {
+    "ticker": "CESC.NS",
+    "rank": 6,
+    "rank_score": 0.125,
+    "top_positive_features": [
+      [
+        "features_return_60d",
+        0.9478
+      ],
+      [
+        "features_sma20_slope_5",
+        0.4824
+      ],
+      [
+        "features_adx_14",
+        0.3243
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy",
+    "similar_setups": {
+      "note": "insufficient_history"
+    }
+  },
+  {
+    "ticker": "RTNINDIA.NS",
+    "rank": 7,
+    "rank_score": 0.125,
+    "top_positive_features": [
+      [
+        "features_adx_14",
+        0.5608
+      ],
+      [
+        "features_price_vs_sma200",
+        0.3977
+      ],
+      [
+        "features_return_60d",
+        0.3744
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy",
+    "similar_setups": {
+      "note": "insufficient_history"
+    }
+  },
+  {
+    "ticker": "ANANDRATHI.NS",
+    "rank": 8,
+    "rank_score": 0.125,
+    "top_positive_features": [
+      [
+        "features_rolling_beta_60d",
+        0.8749
+      ],
+      [
+        "features_sma200_slope_10",
+        0.8243
+      ],
+      [
+        "features_price_vs_sma200",
+        0.2707
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_return_60d",
+        -0.2501
+      ]
+    ],
+    "regime": "choppy",
+    "similar_setups": {
+      "note": "insufficient_history"
+    }
+  }
+]

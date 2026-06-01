@@ -1,0 +1,56 @@
+[
+  {
+    "ticker": "TCS.NS",
+    "side": "bull",
+    "rank": 1,
+    "rank_score": 1.0,
+    "top_positive_features": [
+      [
+        "features_market_breadth",
+        0.1075
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        -0.2175
+      ],
+      [
+        "features_dz_1mo",
+        -0.1505
+      ],
+      [
+        "features_dz_raw_score",
+        -0.124
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TCS.NS",
+    "side": "bear",
+    "rank": 1,
+    "rank_score": 1.0,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        -0.2175
+      ],
+      [
+        "features_dz_1mo",
+        -0.1505
+      ],
+      [
+        "features_dz_raw_score",
+        -0.124
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_market_breadth",
+        0.1075
+      ]
+    ],
+    "regime": "choppy"
+  }
+]

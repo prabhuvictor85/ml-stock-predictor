@@ -668,7 +668,12 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         _pre_sel = FeatureSelector(seed=cfg.random_seed)
         pre_selected = _pre_sel.select(X_hpo_cls, y_hpo_cls, top_k=50)  # generous pool
         print(f"      Pre-selected {len(pre_selected)} features for HPO")
-        del full_grp_hpo, X_hpo_cls, y_hpo_cls  # free RAM
+        del full_grp_hpo, X_hpo_cls, y_hpo_cls, _pre_sel  # free selector + inputs
+        import gc as _gc2; _gc2.collect()
+        try:  # return freed pages to the OS — gc.collect() alone doesn't do this on Linux
+            import ctypes; ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
 
         MIN_VALID_FOLDS = 3   # Fix 3: need at least this many real folds per trial
 
@@ -800,6 +805,10 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         import gc
         fold_cache.clear()
         gc.collect()
+        try:  # return freed fold pages to OS before HPO allocations begin
+            import ctypes; ctypes.CDLL("libc.so.6").malloc_trim(0)
+        except Exception:
+            pass
         print("      Fold data cleared from RAM — trials will load per-fold from disk.")
 
         def objective(trial):

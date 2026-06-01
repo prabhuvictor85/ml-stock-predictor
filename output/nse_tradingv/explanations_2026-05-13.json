@@ -1,0 +1,692 @@
+[
+  {
+    "ticker": "TATVA",
+    "side": "bull",
+    "rank": 1,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_low_52w_dist",
+        0.5127
+      ],
+      [
+        "features_dz_raw_score",
+        0.4476
+      ],
+      [
+        "features_sz_1wk",
+        0.3431
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.4727
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.4374
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "UNIVCABLES",
+    "side": "bull",
+    "rank": 2,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_low_52w_dist",
+        0.7301
+      ],
+      [
+        "features_sector_rs_20d",
+        0.592
+      ],
+      [
+        "features_atr_pct_rank_252",
+        0.3939
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bull_zone_priority_3mo",
+        -1.0076
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.7072
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "CIPLA",
+    "side": "bull",
+    "rank": 3,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        0.4502
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        0.279
+      ],
+      [
+        "features_atr_pct_rank_252",
+        0.2175
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_low_52w_dist",
+        -0.4667
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.3661
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "SHIGAN",
+    "side": "bull",
+    "rank": 4,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_sector_rs_20d",
+        1.0234
+      ],
+      [
+        "features_low_52w_dist",
+        0.6521
+      ],
+      [
+        "features_ict_bearfvg_active_3mo",
+        0.4514
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.7776
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "ARIHANT",
+    "side": "bull",
+    "rank": 5,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_low_52w_dist",
+        1.408
+      ],
+      [
+        "features_price_vs_sma200",
+        0.9163
+      ],
+      [
+        "features_sector_rs_20d",
+        0.7848
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.5697
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "ARISTO",
+    "side": "bull",
+    "rank": 6,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_sector_rs_20d",
+        1.3036
+      ],
+      [
+        "features_dz_raw_score",
+        0.4623
+      ],
+      [
+        "features_price_vs_sma20",
+        0.4195
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.6252
+      ],
+      [
+        "features_ict_bearfvg_active_1mo",
+        -0.339
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "SADHNANIQ",
+    "side": "bull",
+    "rank": 7,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_sector_rs_20d",
+        0.7646
+      ],
+      [
+        "features_low_52w_dist",
+        0.7626
+      ],
+      [
+        "features_price_vs_sma200",
+        0.4947
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bull_zone_priority_3mo",
+        -1.0275
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.7642
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "EMAMIREAL",
+    "side": "bull",
+    "rank": 8,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_sector_rs_20d",
+        1.004
+      ],
+      [
+        "features_low_52w_dist",
+        0.8847
+      ],
+      [
+        "features_hist_vol_20d",
+        0.7392
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bull_zone_priority_3mo",
+        -0.9676
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.6144
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "ROCKINGDCE",
+    "side": "bull",
+    "rank": 9,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_sector_rs_20d",
+        0.7376
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        0.6757
+      ],
+      [
+        "features_dz_raw_score",
+        0.4891
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bearfvg_active_1mo",
+        -0.3316
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "ELGIRUBCO",
+    "side": "bull",
+    "rank": 10,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        0.5429
+      ],
+      [
+        "features_sector_rs_20d",
+        0.5167
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        0.4888
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "CHEMBOND",
+    "side": "bull",
+    "rank": 11,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bearfvg_active_1mo",
+        0.4734
+      ],
+      [
+        "features_sector_rs_20d",
+        0.4296
+      ],
+      [
+        "features_low_52w_dist",
+        0.3971
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.7002
+      ],
+      [
+        "features_dz_raw_score",
+        -0.3712
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "SPARC",
+    "side": "bull",
+    "rank": 12,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bearfvg_active_1mo",
+        0.4839
+      ],
+      [
+        "features_low_52w_dist",
+        0.4611
+      ],
+      [
+        "features_price_vs_sma200",
+        0.3629
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bull_zone_priority_3mo",
+        -1.0772
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.7073
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "BPCL",
+    "side": "bear",
+    "rank": 1,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.3866
+      ],
+      [
+        "features_low_52w_dist",
+        -0.3497
+      ],
+      [
+        "features_dz_raw_score",
+        -0.3491
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        0.2318
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "FINEORG",
+    "side": "bear",
+    "rank": 2,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_zone_priority_3mo",
+        -1.1698
+      ],
+      [
+        "features_low_52w_dist",
+        -0.5034
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        0.3186
+      ],
+      [
+        "features_sz_1wk",
+        0.2959
+      ],
+      [
+        "features_zone_htf_confluence",
+        0.2175
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "EICHERMOT",
+    "side": "bear",
+    "rank": 3,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.4297
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.3247
+      ],
+      [
+        "features_dz_raw_score",
+        -0.3117
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sma200_slope_10",
+        0.1777
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "UPL",
+    "side": "bear",
+    "rank": 4,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.4242
+      ],
+      [
+        "features_low_52w_dist",
+        -0.3658
+      ],
+      [
+        "features_ict_bob_active_3mo",
+        -0.2226
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        0.2391
+      ],
+      [
+        "features_sz_1wk",
+        0.2048
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "ANDHRAPAP",
+    "side": "bear",
+    "rank": 5,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_low_52w_dist",
+        -0.5219
+      ],
+      [
+        "features_ict_bob_active_3mo",
+        -0.2315
+      ],
+      [
+        "features_dz_raw_score",
+        -0.204
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_3mo",
+        0.2312
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        0.229
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "VISAKAIND",
+    "side": "bear",
+    "rank": 6,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_zone_priority_3mo",
+        -1.1635
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.4747
+      ],
+      [
+        "features_ict_bearfvg_active_1mo",
+        -0.4408
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sector_rs_20d",
+        0.3054
+      ],
+      [
+        "features_price_vs_sma50",
+        0.2139
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "RKFORGE",
+    "side": "bear",
+    "rank": 7,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_zone_priority_3mo",
+        -1.1728
+      ],
+      [
+        "features_low_52w_dist",
+        -0.4861
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.4778
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_1wk",
+        0.2611
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "NBCC",
+    "side": "bear",
+    "rank": 8,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3325
+      ],
+      [
+        "features_low_52w_dist",
+        -0.3031
+      ],
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.2909
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TNPL",
+    "side": "bear",
+    "rank": 9,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_zone_priority_3mo",
+        -1.223
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.4988
+      ],
+      [
+        "features_low_52w_dist",
+        -0.4877
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        0.3104
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "SOMANYCERA",
+    "side": "bear",
+    "rank": 10,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bull_zone_priority_3mo",
+        -1.2708
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.4503
+      ],
+      [
+        "features_ict_bob_active_3mo",
+        -0.2969
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.3044
+      ],
+      [
+        "features_dz_raw_score",
+        0.2816
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TIRUMALCHM",
+    "side": "bear",
+    "rank": 11,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3832
+      ],
+      [
+        "features_low_52w_dist",
+        -0.2923
+      ],
+      [
+        "features_ict_bullfvg_active_1mo",
+        -0.2571
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_3mo",
+        0.2267
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "3MINDIA",
+    "side": "bear",
+    "rank": 12,
+    "rank_score": 0.0833,
+    "top_positive_features": [
+      [
+        "features_ict_bullfvg_active_3mo",
+        -0.4044
+      ],
+      [
+        "features_low_52w_dist",
+        -0.3598
+      ],
+      [
+        "features_dz_raw_score",
+        -0.3391
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bullfvg_active_1mo",
+        0.2161
+      ]
+    ],
+    "regime": "choppy"
+  }
+]

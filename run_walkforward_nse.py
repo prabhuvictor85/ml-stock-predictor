@@ -57,6 +57,7 @@ import platform
 import shutil
 import subprocess
 import sys
+import threading
 import urllib.request
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -91,6 +92,46 @@ PY = sys.executable or "python3"
 
 # Filled in from CLI in main(); read by run_cmd() for OOM self-healing.
 _OOM_CFG = {"swap_gb": 40, "swapfile": "/swapfile", "max_retries": 1, "ntfy": ""}
+
+# ── Heartbeat (progress ping every 15 min) ───────────────────────────────────
+_STATUS: dict = {
+    "market":       "",       # set in main() — "NSE" or "SP500"
+    "step":         "",       # current as_of date string e.g. "2024-02-10"
+    "action":       "idle",   # "download" | "infer" | "retrain"
+    "action_start": None,     # datetime of when current action began
+    "step_idx":     0,        # 1-based index into schedule
+    "total_steps":  0,        # len(schedule)
+}
+
+
+class HeartbeatThread(threading.Thread):
+    """Daemon thread — fires a push notification every `interval` seconds."""
+
+    def __init__(self, interval: int = 900):
+        super().__init__(daemon=True, name="heartbeat")
+        self._stop = threading.Event()
+        self.interval = interval
+
+    def stop(self) -> None:
+        self._stop.set()
+
+    def run(self) -> None:
+        while not self._stop.wait(self.interval):
+            self._ping()
+
+    def _ping(self) -> None:
+        topic = _OOM_CFG["ntfy"]
+        if not topic:
+            return
+        s = _STATUS
+        elapsed = ""
+        if s["action_start"]:
+            secs = int((datetime.now() - s["action_start"]).total_seconds())
+            elapsed = f" — {secs // 60}m {secs % 60:02d}s elapsed"
+        title = f"⏱ {s['market']} wf {s['step_idx']}/{s['total_steps']} — {s['action']}"
+        body  = (f"Step {s['step_idx']} of {s['total_steps']}: {s['step']}\n"
+                 f"Action: {s['action']}{elapsed}")
+        notify(topic, title, body, "hourglass_flowing_sand")
 
 
 # ── CLI ──────────────────────────────────────────────────────────────────────
@@ -438,8 +479,15 @@ def main() -> None:
     notify(args.ntfy_topic, "Walk-forward started",
            f"NSE walk-forward {args.start} -> {args.end}, {len(schedule)} steps.", "rocket")
 
-    for d, action in schedule:
+    _STATUS["market"]      = "NSE"
+    _STATUS["total_steps"] = len(schedule)
+    heartbeat = HeartbeatThread(interval=900)
+    heartbeat.start()
+
+    for idx, (d, action) in enumerate(schedule):
         dkey = d.strftime("%Y-%m-%d")
+        _STATUS["step"]     = dkey
+        _STATUS["step_idx"] = idx + 1
         if dkey in completed:
             log(f"SKIP {dkey} — already completed (resumed from state).")
             continue
@@ -458,6 +506,7 @@ def main() -> None:
             sys.exit(1)
 
         # 1. Incremental data download up to this date
+        _STATUS["action"] = "download"; _STATUS["action_start"] = datetime.now()
         rc = download_until(d, log_dir / f"wf_{dkey}_download.log")
         if rc != 0:
             msg = f"Data download FAILED at {dkey} (exit {rc})."
@@ -472,12 +521,14 @@ def main() -> None:
         if action == "retrain":
             # 2a. Scheduled quarter-end full retrain (also scores & picks stocks)
             log(f"FULL RETRAIN (scheduled quarter end) at {dkey} ...")
+            _STATUS["action"] = "retrain"; _STATUS["action_start"] = datetime.now()
             rc = run_retrain(d, args.train_start, args.mode, args.n_jobs,
                              log_dir / f"wf_{dkey}_retrain.log")
             did_retrain = True
         else:
             # 2b. Inference-only — model frozen
             log(f"INFERENCE (model frozen) at {dkey} ...")
+            _STATUS["action"] = "infer"; _STATUS["action_start"] = datetime.now()
             rc = run_inference(d, args.mode, args.n_jobs,
                                log_dir / f"wf_{dkey}_infer.log")
             if rc != 0:
@@ -504,6 +555,7 @@ def main() -> None:
                 log(f"  DRIFT TRIGGER at {dkey} ({frac_str}) — running EARLY full retrain ...")
                 notify(args.ntfy_topic, "Drift -> early retrain",
                        f"{dkey}: drift breached ({frac_str}). Retraining now.", "warning")
+                _STATUS["action"] = "retrain"; _STATUS["action_start"] = datetime.now()
                 rc = run_retrain(d, args.train_start, args.mode, args.n_jobs,
                                  log_dir / f"wf_{dkey}_drift_retrain.log")
                 did_retrain = True
@@ -524,6 +576,7 @@ def main() -> None:
         log(f"OK  {dkey} done"
             + (" (model retrained)" if did_retrain else " (inference)"))
 
+    heartbeat.stop()
     log("=" * 60)
     log("ALL WALK-FORWARD STEPS COMPLETE.")
     log(f"  Model now trained through: {state.get('model_trained_through')}")

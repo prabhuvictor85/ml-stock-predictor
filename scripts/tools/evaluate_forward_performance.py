@@ -155,7 +155,8 @@ def load_watchlist_scores(output_dir: Path, base_date: datetime.date) -> pd.Data
 
 # ── Main ───────────────────────────────────────────────────────────────────────
 
-def run(market: str, base_date: datetime.date, forward_date: datetime.date):
+def run(market: str, base_date: datetime.date, forward_date: datetime.date,
+        custom_tickers: list[str] | None = None):
     cfg        = MARKET_CONFIG[market]
     data_dir   = cfg["data_dir"]
     output_dir = cfg["output_dir"]
@@ -168,16 +169,19 @@ def run(market: str, base_date: datetime.date, forward_date: datetime.date):
     print("=" * 60)
 
     # ── Load ticker list ───────────────────────────────────────────────────
-    list_file = cfg["list_file"]
-    if not list_file.exists():
-        print(f"ERROR: {list_file} not found")
-        return
-
-    df_list  = pd.read_csv(list_file)
-    sym_col  = next((c for c in df_list.columns if c.lower() in ("symbol", "ticker")), None)
-    tickers  = df_list[sym_col].dropna().str.strip().tolist()
-    tickers  = [t for t in tickers if t and not t.startswith("^")]
-    print(f"\nLoaded {len(tickers)} tickers from {list_file.name}")
+    if custom_tickers:
+        tickers = custom_tickers
+        print(f"\nUsing {len(tickers)} tickers from --tickers argument")
+    else:
+        list_file = cfg["list_file"]
+        if not list_file.exists():
+            print(f"ERROR: {list_file} not found")
+            return
+        df_list  = pd.read_csv(list_file)
+        sym_col  = next((c for c in df_list.columns if c.lower() in ("symbol", "ticker")), None)
+        tickers  = df_list[sym_col].dropna().str.strip().tolist()
+        tickers  = [t for t in tickers if t and not t.startswith("^")]
+        print(f"\nLoaded {len(tickers)} tickers from {list_file.name}")
 
     # ── Load watchlist scores for ranking context ──────────────────────────
     scores_df = load_watchlist_scores(output_dir, base_date)
@@ -187,42 +191,33 @@ def run(market: str, base_date: datetime.date, forward_date: datetime.date):
         print(f"  Loaded {len(scores_df)} watchlist entries for {base_date}")
 
     # ── Build evaluation rows ──────────────────────────────────────────────
+    # NOTE: Local NSE CSVs store normalized/adjusted prices in ML training
+    # format — not real market prices.  We use yfinance for BOTH dates so
+    # that base and forward prices are always in the same currency/scale.
     results = []
     total   = len(tickers)
 
     for i, ticker in enumerate(tickers, 1):
-        csv_path = data_dir / f"{ticker}-1d.csv"
-        if not csv_path.exists():
-            continue
-
-        try:
-            df_stock = pd.read_csv(csv_path)
-        except Exception:
-            continue
-
-        base_ohlc = get_ohlc_on_date(df_stock, base_date)
-        if base_ohlc is None:
-            continue
-
-        # Fetch forward price live from yfinance (not stored anywhere)
-        fwd_ohlc = fetch_forward_ohlc(ticker, forward_date)
+        base_ohlc = fetch_forward_ohlc(ticker, base_date)
+        fwd_ohlc  = fetch_forward_ohlc(ticker, forward_date)
 
         pct_change = None
-        if fwd_ohlc and base_ohlc["close"] and base_ohlc["close"] != 0:
+        if (base_ohlc and fwd_ohlc
+                and base_ohlc["close"] and base_ohlc["close"] != 0):
             pct_change = round(
                 (fwd_ohlc["close"] - base_ohlc["close"]) / base_ohlc["close"] * 100, 2
             )
 
         row = {
             "ticker":              ticker,
-            # Base date OHLC
-            "base_date":           base_ohlc["date"],
-            "base_open":           base_ohlc["open"],
-            "base_high":           base_ohlc["high"],
-            "base_low":            base_ohlc["low"],
-            "base_close":          base_ohlc["close"],
-            "base_volume":         base_ohlc["volume"],
-            # Forward date OHLC
+            # Base date OHLC (from yfinance)
+            "base_date":           base_ohlc["date"]   if base_ohlc else None,
+            "base_open":           base_ohlc["open"]   if base_ohlc else None,
+            "base_high":           base_ohlc["high"]   if base_ohlc else None,
+            "base_low":            base_ohlc["low"]    if base_ohlc else None,
+            "base_close":          base_ohlc["close"]  if base_ohlc else None,
+            "base_volume":         base_ohlc["volume"] if base_ohlc else None,
+            # Forward date OHLC (from yfinance)
             "fwd_date":            fwd_ohlc["date"]   if fwd_ohlc else None,
             "fwd_open":            fwd_ohlc["open"]   if fwd_ohlc else None,
             "fwd_high":            fwd_ohlc["high"]   if fwd_ohlc else None,
@@ -234,9 +229,12 @@ def run(market: str, base_date: datetime.date, forward_date: datetime.date):
         }
         results.append(row)
 
-        if i % 100 == 0 or i == total:
+        status = f"{pct_change:+.1f}%" if pct_change is not None else "no data"
+        print(f"  [{i:>2}/{total}] {ticker:<20} {status}")
+
+        if i % 20 == 0:
             fetched = sum(1 for r in results if r["fwd_close"] is not None)
-            print(f"  Progress: {i}/{total} | fetched forward prices: {fetched}")
+            print(f"         — {fetched} forward prices fetched so far")
 
     if not results:
         print("No results generated.")
@@ -327,6 +325,9 @@ def parse_args():
                    help="Forward evaluation date (overrides --months)")
     p.add_argument("--months",       type=int, default=6,
                    help="Months ahead for forward date (default: 6)")
+    p.add_argument("--tickers",      default=None,
+                   help="Comma-separated ticker list, e.g. ABBOTINDIA.NS,GLAXO.NS  "
+                        "(overrides the full market list)")
     return p.parse_args()
 
 
@@ -368,4 +369,9 @@ if __name__ == "__main__":
         forward_date = base_date.replace(year=year, month=month)
         print(f"Forward date (+{args.months} months): {forward_date}")
 
-    run(args.market, base_date, forward_date)
+    custom_tickers = None
+    if args.tickers:
+        custom_tickers = [t.strip() for t in args.tickers.split(",") if t.strip()]
+        print(f"Custom ticker list: {len(custom_tickers)} tickers")
+
+    run(args.market, base_date, forward_date, custom_tickers=custom_tickers)

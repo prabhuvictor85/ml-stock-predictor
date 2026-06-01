@@ -52,6 +52,12 @@ bull:
   sdz_3mo:        3.0   # Quarterly SDZ active
   sdz_1y:         3.5   # Yearly SDZ active  (strongest institutional demand)
 
+  # ── Sector ETF zone signal ────────────────────────────────────────────────
+  # Bull score of the stock's sector ETF (SOXX for semis, XLK for other IT, etc.)
+  # 0.0 = ETF in no demand zone  →  1.0 = ETF has strong multi-TF SDZ confluence
+  # Weight 1.0 = context filter: amplifies stocks whose sector is also in demand.
+  sector_etf_bull_score: 1.0
+
 
 # ── BEAR signals ──────────────────────────────────────────────────────────────
 # SSZ (Swap Supply Zone) signals only.
@@ -65,3 +71,7 @@ bear:
   ssz_1mo:        2.5   # Monthly SSZ active
   ssz_3mo:        3.0   # Quarterly SSZ active
   ssz_1y:         3.5   # Yearly SSZ active  (strongest institutional supply)
+
+  # ── Sector ETF zone signal ────────────────────────────────────────────────
+  # Bear score of the stock's sector ETF (supply zone on the ETF = sector weak)
+  sector_etf_bear_score: 1.0

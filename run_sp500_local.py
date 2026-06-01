@@ -1173,6 +1173,23 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
     model_scores = ensemble.score(X_inf, vol_series)
     model_series = pd.Series(model_scores, index=cross.index)
 
+    # ── Sector ETF zone signal ─────────────────────────────────────────────
+    # Adds features_sector_etf_bull_score / features_sector_etf_bear_score
+    # to cross so signal_weights.yaml can reference them via sector_etf_bull_score
+    # and sector_etf_bear_score.  Failure is non-fatal — scores default to 0.
+    try:
+        from pipeline.features.sector_features import attach_sector_etf_scores
+        from pipeline.config.paths import PATHS as _PATHS
+        _sector_cache = Path(__file__).parent / "artefacts" / "us" / "sector_etf_cache"
+        attach_sector_etf_scores(
+            cross,
+            as_of_date   = latest_date,
+            constituent_csv = _PATHS.stock_lists.us_combined,
+            cache_dir    = _sector_cache,
+        )
+    except Exception as _sector_err:
+        print(f"  [sector_etf] WARNING: sector scores skipped ({_sector_err})")
+
     FP = FEATURE_PREFIX   # shorthand
 
     # ── Load signal weights from YAML (editable without code changes) ─────

@@ -155,38 +155,74 @@ def file_needs_update(path: Path, refresh_after_days: int) -> bool:
     return age > timedelta(days=refresh_after_days)
 
 
+def _normalise_us(df: pd.DataFrame) -> pd.DataFrame:
+    """Flatten columns and rename to capitalised OHLCV (Open/High/Low/Close/Volume)."""
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df.columns = [c.strip() for c in df.columns]
+    rename = {}
+    for std in ("open", "high", "low", "close", "volume"):
+        match = next((c for c in df.columns if c.lower() == std), None)
+        if match:
+            rename[match] = std.capitalize() if std != "volume" else "Volume"
+    df = df.rename(columns=rename)
+    df.index.name = "Date"
+    return df
+
+
 def download_ticker(ticker: str, data_dir: Path, start: str,
                     refresh_after_days: int,
                     end: str = None) -> tuple[str, bool, str]:
     """
     Download daily OHLCV for a single ticker and save as {ticker}-1d.csv.
     Returns (ticker, success, message).
+
+    Incremental mode: if the file already exists (and no forced refresh), only
+    bars after the last stored date up to `end` are fetched and appended. This
+    makes repeated `--end <date>` calls cheap and date-based (not mtime-based),
+    which is required for walk-forward backtests that advance the as_of date.
     """
     # yfinance uses - for BRK.B → BRK-B etc. (Wikipedia already normalised above)
     path = data_dir / f"{ticker}-1d.csv"
 
-    if not file_needs_update(path, refresh_after_days):
-        return ticker, True, "skipped (up to date)"
-
     try:
+        # ── Incremental update if file exists ─────────────────────────────
+        if path.exists() and refresh_after_days <= 0:
+            existing = pd.read_csv(path, index_col=0, parse_dates=True)
+            if not existing.empty:
+                last_date = existing.index.max()
+                new_start = (last_date + pd.Timedelta(days=1)).strftime("%Y-%m-%d")
+                # Nothing to fetch if already at/past the requested end date
+                if end and new_start >= end:
+                    return ticker, True, "skipped (up to date)"
+                df_new = yf.download(ticker, start=new_start, end=end,
+                                     auto_adjust=True, progress=False,
+                                     multi_level_index=False)
+                if df_new.empty:
+                    return ticker, True, f"skipped (no new bars after {last_date.date()})"
+                df_new = _normalise_us(df_new)
+                for req in ("Open", "High", "Low", "Close", "Volume"):
+                    if req not in df_new.columns:
+                        return ticker, False, f"missing column {req} in new data"
+                df_new = df_new[["Open", "High", "Low", "Close", "Volume"]]
+                df_new = df_new[df_new["Close"].notna() & (df_new["Close"] > 0)]
+                # Merge and deduplicate
+                df = pd.concat([existing, df_new])
+                df = df[~df.index.duplicated(keep="last")].sort_index()
+                df.index.name = "Date"
+                df.to_csv(path)
+                return ticker, True, f"+{len(df_new)} new rows (total {len(df)})"
+
+        # ── Full download (new file or forced refresh) ─────────────────────
+        if not file_needs_update(path, refresh_after_days):
+            return ticker, True, "skipped (up to date)"
+
         df = yf.download(ticker, start=start, end=end, auto_adjust=True,
                          progress=False, multi_level_index=False)
         if df.empty:
             return ticker, False, "empty response from yfinance"
 
-        # Normalise columns
-        df.columns = [c.strip() for c in df.columns]
-        if isinstance(df.columns, pd.MultiIndex):
-            df.columns = df.columns.get_level_values(0)
-
-        # Ensure standard columns exist
-        col_map = {c.lower(): c for c in df.columns}
-        rename = {}
-        for std in ("open", "high", "low", "close", "volume"):
-            match = next((c for c in df.columns if c.lower() == std), None)
-            if match:
-                rename[match] = std.capitalize() if std != "volume" else "Volume"
-        df = df.rename(columns=rename)
+        df = _normalise_us(df)
 
         for req in ("Open", "High", "Low", "Close", "Volume"):
             if req not in df.columns:

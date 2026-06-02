@@ -78,20 +78,46 @@ class FeatureDriftMonitor:
         self._training_data: Dict[str, np.ndarray] = {}
         self._drift_records: List[dict] = []
 
-    def fit_baseline(self, train_panel: pd.DataFrame) -> None:
+    def fit_baseline(self, train_panel: pd.DataFrame,
+                     baseline_months: int = 12) -> None:
         """
         Compute training-distribution bin edges (equal-frequency, 10 bins)
-        from the training panel for each feature.
+        from the RECENT tail of the training panel.
+
+        Using the full 14-year history as baseline causes permanent PSI alerts
+        during any single market regime (bull/bear) because the recent window
+        always looks different from the long-run average.  Using only the most
+        recent `baseline_months` months keeps the baseline representative of the
+        current regime, so PSI only fires when that regime genuinely shifts.
+
+        Parameters
+        ----------
+        train_panel     : full training panel (used for bin edges on all data)
+        baseline_months : how many months of the most recent data to use as the
+                          reference distribution (default 12 = last 1 year).
         """
         # PSI with 10 bins needs at most ~10k reference points.
-        # Storing the full panel (5M+ rows × 60+ features) causes OOM on large datasets.
         _MAX_DRIFT_SAMPLES = 10_000
         _rng = np.random.default_rng(42)
 
+        # ── Restrict baseline to the most recent `baseline_months` of data ──
+        dates = train_panel.index.get_level_values("date")
+        max_date = dates.max()
+        cutoff = max_date - pd.DateOffset(months=baseline_months)
+        recent_panel = train_panel[dates >= cutoff]
+        n_recent = len(recent_panel)
+        log.info(f"Drift baseline: using {n_recent:,} rows from last {baseline_months} months "
+                 f"({cutoff.date()} → {max_date.date()}) out of {len(train_panel):,} total.")
+
+        if n_recent < 500:
+            # Fallback: not enough recent data — use full panel
+            log.warning("Drift baseline fallback: fewer than 500 recent rows, using full panel.")
+            recent_panel = train_panel
+
         for feat in self.feature_cols:
-            if feat not in train_panel.columns:
+            if feat not in recent_panel.columns:
                 continue
-            values = train_panel[feat].dropna().values
+            values = recent_panel[feat].dropna().values
             if len(values) < 20:
                 continue
             # Equal-frequency bins (computed on full distribution for accuracy)

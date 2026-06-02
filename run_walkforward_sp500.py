@@ -19,12 +19,12 @@ data up to D, so it faithfully reproduces how the system would have behaved in
 live production over that window — and measures how fast the model decays
 between retrains.
 
-DEFAULT SCHEDULE  (matches the Jan–Mar 2024 example)
+DEFAULT SCHEDULE  (full year 2024 — quarterly retrains, bi-weekly inference)
 ────────────────
-    2024-01-13  inference        2024-02-24  inference
-    2024-01-27  inference        2024-03-09  inference
-    2024-02-10  inference        2024-03-23  inference
-                                 2024-03-31  FULL RETRAIN  (quarter end)
+    2024-01-13  inference   ...  2024-03-31  FULL RETRAIN  (Q1)
+    2024-01-27  inference   ...  2024-06-30  FULL RETRAIN  (Q2)
+    2024-02-10  inference   ...  2024-09-30  FULL RETRAIN  (Q3)
+    ...                          2024-12-31  FULL RETRAIN  (Q4)
 
 LAUNCH
 ──────
@@ -35,13 +35,14 @@ LAUNCH
     nohup python3 run_walkforward_sp500.py \
         --train_start 2010-01-01 \
         --start 2024-01-13 \
-        --end   2024-03-31 \
+        --end   2024-12-31 \
+        --quarterly_retrain \
         --cadence_days 14 \
         > /mnt/data/artefacts/us_local/walkforward.log 2>&1 &
     echo "Walk-forward PID: $!"
 
     # preview the schedule without running anything:
-    python3 run_walkforward_sp500.py --dry_run
+    python3 run_walkforward_sp500.py --dry_run --quarterly_retrain
 
 RESUMABILITY
 ────────────
@@ -93,7 +94,7 @@ PY = sys.executable or "python3"
 # Filled in from CLI in main(); read by run_cmd() for OOM self-healing.
 _OOM_CFG = {"swap_gb": 40, "swapfile": "/swapfile", "max_retries": 1, "ntfy": ""}
 
-# ── Heartbeat (progress ping every 15 min) ───────────────────────────────────
+# ── Heartbeat (progress ping, interval set via --heartbeat_mins) ─────────────
 _STATUS: dict = {
     "market":       "",       # set in main() — "NSE" or "SP500"
     "step":         "",       # current as_of date string e.g. "2024-02-10"
@@ -142,8 +143,8 @@ def parse_args() -> argparse.Namespace:
     )
     p.add_argument("--start", default="2024-01-13",
                    help="First inference date (YYYY-MM-DD).")
-    p.add_argument("--end", default="2024-03-31",
-                   help="Quarter-end date — a FULL RETRAIN always runs here.")
+    p.add_argument("--end", default="2024-12-31",
+                   help="Last date in the walk-forward window — a FULL RETRAIN always runs here.")
     p.add_argument("--cadence_days", type=int, default=14,
                    help="Days between inference runs (14 = bi-weekly).")
     p.add_argument("--train_start", default="2010-01-01",
@@ -159,6 +160,14 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--no_drift_retrain", action="store_true",
                    help="Disable mid-quarter drift-triggered retrains "
                         "(only the scheduled quarter-end retrain runs).")
+    p.add_argument("--quarterly_retrain", action="store_true",
+                   help="Insert Q1/Q2/Q3/Q4 quarter-end dates (Mar-31, Jun-30, Sep-30, Dec-31) "
+                        "as full retrain steps in the schedule.")
+    p.add_argument("--retrain_dates", nargs="+", default=[],
+                   help="Additional dates to force a full retrain (YYYY-MM-DD). "
+                        "Combined with --quarterly_retrain if both are given.")
+    p.add_argument("--heartbeat_mins", type=int, default=30,
+                   help="Minutes between heartbeat push notifications.")
     p.add_argument("--swap_gb", type=int, default=40,
                    help="On an OOM-killed step, ensure at least this much swap (GB), then rerun.")
     p.add_argument("--swapfile", default="/swapfile",
@@ -201,19 +210,64 @@ def notify(topic: str, title: str, body: str, tags: str = "") -> None:
         pass
 
 
-def build_schedule(start: str, end: str, cadence_days: int) -> List[Tuple[pd.Timestamp, str]]:
-    """Bi-weekly inference dates strictly before `end`, then a retrain at `end`."""
+def _quarter_ends(start: str, end: str) -> List[pd.Timestamp]:
+    """Return quarter-end dates (Mar-31, Jun-30, Sep-30, Dec-31) within [start, end]."""
+    start_ts = pd.Timestamp(start)
+    end_ts   = pd.Timestamp(end)
+    result: List[pd.Timestamp] = []
+    quarter_month_day = [(3, 31), (6, 30), (9, 30), (12, 31)]
+    year = start_ts.year
+    while True:
+        for m, d in quarter_month_day:
+            ts = pd.Timestamp(year=year, month=m, day=d)
+            if ts < start_ts:
+                continue
+            if ts > end_ts:
+                return result
+            result.append(ts)
+        year += 1
+        if year > end_ts.year + 1:
+            break
+    return result
+
+
+def build_schedule(
+    start: str,
+    end: str,
+    cadence_days: int,
+    retrain_dates: Optional[List[pd.Timestamp]] = None,
+) -> List[Tuple[pd.Timestamp, str]]:
+    """
+    Build a walk-forward schedule from `start` through `end`.
+
+    Generates bi-weekly inference dates on `cadence_days` intervals.
+    Any date in `retrain_dates` (and `end` itself) is marked as a full retrain.
+    Retrain dates that don't fall on the cadence are inserted as extra steps.
+    """
     start_ts = pd.Timestamp(start)
     end_ts   = pd.Timestamp(end)
     if end_ts <= start_ts:
         raise ValueError(f"--end ({end}) must be after --start ({start}).")
 
-    sched: List[Tuple[pd.Timestamp, str]] = []
+    retrain_set: set = set(retrain_dates or [])
+    retrain_set.add(end_ts)   # end is always a full retrain
+
+    # Generate cadence dates from start up to (and including) end
+    all_dates: set = set()
     d = start_ts
-    while d < end_ts:
-        sched.append((d, "infer"))
+    while d <= end_ts:
+        all_dates.add(d)
         d += timedelta(days=cadence_days)
-    sched.append((end_ts, "retrain"))          # quarter-end: always a full retrain
+
+    # Insert any retrain dates that sit between cadence steps
+    for rt in retrain_set:
+        if start_ts <= rt <= end_ts:
+            all_dates.add(rt)
+
+    sched: List[Tuple[pd.Timestamp, str]] = [
+        (ts, "retrain" if ts in retrain_set else "infer")
+        for ts in sorted(all_dates)
+    ]
     return sched
 
 
@@ -447,18 +501,34 @@ def main() -> None:
     artefacts_dir = Path(args.artefacts_dir) if args.artefacts_dir else log_dir
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    schedule = build_schedule(args.start, args.end, args.cadence_days)
+    # Build retrain dates from CLI flags
+    retrain_dates: List[pd.Timestamp] = [pd.Timestamp(dt) for dt in (args.retrain_dates or [])]
+    if args.quarterly_retrain:
+        retrain_dates += _quarter_ends(args.start, args.end)
+
+    schedule = build_schedule(
+        args.start, args.end, args.cadence_days,
+        retrain_dates=retrain_dates if retrain_dates else None,
+    )
 
     # ── Dry run: show the plan and exit ────────────────────────────────────
+    end_ts = pd.Timestamp(args.end)
     print("=" * 64)
     print("  SP500 WALK-FORWARD SCHEDULE")
     print("=" * 64)
     for d, action in schedule:
-        label = "FULL RETRAIN (quarter end)" if action == "retrain" else "inference (--skip_train)"
+        if action == "retrain":
+            label = "FULL RETRAIN (end)" if d == end_ts else "FULL RETRAIN (scheduled)"
+        else:
+            label = "inference (--skip_train)"
         print(f"  {d.date()}  {'[' + d.strftime('%a') + ']':>5}   {label}")
+    n_retrains = sum(1 for _, a in schedule if a == "retrain")
     print(f"\n  cadence       : every {args.cadence_days} days")
+    print(f"  total steps   : {len(schedule)} ({n_retrains} retrain{'s' if n_retrains != 1 else ''}, "
+          f"{len(schedule) - n_retrains} inference)")
     print(f"  mode          : {args.mode}")
     print(f"  drift retrain : {'DISABLED' if args.no_drift_retrain else f'frac > {args.retrain_fraction:.0%}'}")
+    print(f"  heartbeat     : every {args.heartbeat_mins} min")
     print(f"  OOM handling  : {'DISABLED' if args.oom_retries == 0 else f'ensure {args.swap_gb} GB swap @ {args.swapfile}, rerun x{args.oom_retries}'}")
     print(f"  disk guard    : abort if < {args.min_free_gb} GB free on {log_dir} (auto-clean caches first); now {free_gb(log_dir):.1f} GB free")
     print(f"  state file    : {state_file}")
@@ -481,7 +551,7 @@ def main() -> None:
 
     _STATUS["market"]      = "SP500"
     _STATUS["total_steps"] = len(schedule)
-    heartbeat = HeartbeatThread(interval=900)
+    heartbeat = HeartbeatThread(interval=args.heartbeat_mins * 60)
     heartbeat.start()
 
     for idx, (d, action) in enumerate(schedule):

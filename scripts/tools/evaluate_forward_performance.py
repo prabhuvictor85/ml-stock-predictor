@@ -256,7 +256,12 @@ def run(market: str, base_date: datetime.date, forward_date: datetime.date,
 
     # ── Save to Excel ──────────────────────────────────────────────────────
     EVAL_DIR.mkdir(parents=True, exist_ok=True)
-    out_file = EVAL_DIR / f"forward_eval_{market}_{base_date}_{forward_date}.xlsx"
+    suffix   = f"_{custom_tickers[0]}" if custom_tickers and len(custom_tickers) <= 10 else ""
+    out_file = EVAL_DIR / f"forward_eval_{market}_{base_date}_{forward_date}{suffix}.xlsx"
+    # Avoid collision with an already-open file
+    if out_file.exists():
+        import time as _time
+        out_file = EVAL_DIR / f"forward_eval_{market}_{base_date}_{forward_date}_{int(_time.time())}.xlsx"
 
     with pd.ExcelWriter(out_file, engine="openpyxl") as writer:
         df_result.to_excel(writer, sheet_name="All Tickers", index=False)

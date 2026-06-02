@@ -127,11 +127,16 @@ def out_filename(mode: str, side: str, tier: Optional[str]) -> str:
 #  Build staging tree
 # ─────────────────────────────────────────────────────────────────────────────
 
-def build_staging(target_markets: List[str], target_date: Optional[str], stage_dir: Path) -> dict:
+def build_staging(target_markets: List[str], target_date: Optional[str],
+                   stage_dir: Path, all_dates: bool = False) -> dict:
     """
     Populate stage_dir with the file tree the frontend expects:
       stage_dir/manifest.json
       stage_dir/<market>/<date>/<mode>_<side>[_<tier>].json
+
+    When all_dates=True every available date is staged; otherwise only
+    target_date (or latest) is staged, but all date labels are recorded
+    in the manifest so the frontend can show the full history.
 
     Returns the manifest dict.
     """
@@ -150,58 +155,68 @@ def build_staging(target_markets: List[str], target_date: Optional[str], stage_d
             print(f"  [WARN] No watchlists found in {market_dir} - skipping")
             continue
 
-        # Pick the date to use
-        if target_date and target_date in dates_available:
-            date = target_date
+        # Which dates to stage
+        if all_dates:
+            dates_to_stage = dates_available          # all dates, newest first
+        elif target_date and target_date in dates_available:
+            dates_to_stage = [target_date]
         elif target_date:
             print(f"  [WARN] {market_key}: requested date {target_date} not found. "
                   f"Available: {dates_available[:3]} ...")
             continue
         else:
-            date = dates_available[0]   # latest
+            dates_to_stage = [dates_available[0]]     # latest only
 
-        files = list_files_for_date(market_dir, date)
-        if not files:
-            print(f"  [WARN] {market_key} @ {date}: no files matched - skipping")
-            continue
+        tiers_found: set  = {"all"}
+        modes_found: set  = set()
+        sides_found: set  = set()
+        total_written = 0
 
-        out_market_dir = stage_dir / market_key / date
-        out_market_dir.mkdir(parents=True, exist_ok=True)
-
-        tiers_found = set(["all"])
-        modes_found = set()
-        sides_found = set()
-        n_written = 0
-
-        for f in files:
-            m = _WL_RE.match(f.name)
-            if not m:
+        for date in dates_to_stage:
+            files = list_files_for_date(market_dir, date)
+            if not files:
+                print(f"  [WARN] {market_key} @ {date}: no files matched - skipping")
                 continue
-            mode = m.group("mode")
-            side = m.group("side")
-            tier = m.group("tier")  # None for main file
 
-            modes_found.add(mode)
-            sides_found.add(side)
-            if tier:
-                tiers_found.add(tier)
+            out_market_dir = stage_dir / market_key / date
+            out_market_dir.mkdir(parents=True, exist_ok=True)
+            n_written = 0
 
-            records = csv_to_records(f)
-            out_name = out_filename(mode, side, tier)
-            (out_market_dir / out_name).write_text(
-                json.dumps(records, indent=None), encoding="utf-8"
-            )
-            n_written += 1
+            for f in files:
+                m = _WL_RE.match(f.name)
+                if not m:
+                    continue
+                mode = m.group("mode")
+                side = m.group("side")
+                tier = m.group("tier")  # None for main file
+
+                modes_found.add(mode)
+                sides_found.add(side)
+                if tier:
+                    tiers_found.add(tier)
+
+                records = csv_to_records(f)
+                out_name = out_filename(mode, side, tier)
+                (out_market_dir / out_name).write_text(
+                    json.dumps(records, indent=None), encoding="utf-8"
+                )
+                n_written += 1
+                total_written += 1
+
+            print(f"  OK   {market_key} @ {date}: {n_written} files staged")
+
+        if total_written == 0:
+            continue
 
         manifest_markets.append({
             "key":         market_key,
             "label":       meta["label"],
-            "latest_date": date,
+            "latest_date": dates_to_stage[0],         # newest date staged
+            "dates":       dates_to_stage,            # full list for date picker
             "modes":       sorted(modes_found),
             "sides":       sorted(sides_found),
             "tiers":       [t for t in meta["tiers"] if t in tiers_found],
         })
-        print(f"  OK   {market_key} @ {date}: {n_written} files staged")
 
     manifest = {
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -271,6 +286,11 @@ def parse_args() -> argparse.Namespace:
         help="Build the staging tree but don't upload",
     )
     p.add_argument(
+        "--all-dates", action="store_true",
+        help="Stage and upload every available date (not just latest). "
+             "Recommended for the initial push or after backfill runs.",
+    )
+    p.add_argument(
         "--keep-staging", action="store_true",
         help="Keep the staging directory after the run (for inspection)",
     )
@@ -287,6 +307,7 @@ def main() -> int:
     print(f"  Markets    : {target_markets}")
     print(f"  Date       : {args.date or 'latest per market'}")
     print(f"  Space      : {args.space_id}")
+    print(f"  All dates  : {args.all_dates}")
     print(f"  Dry run    : {args.dry_run}")
     print("=" * 66)
 
@@ -297,7 +318,8 @@ def main() -> int:
     stage_root = Path(tempfile.mkdtemp(prefix="ml_wl_sync_"))
     try:
         print(f"\n[1/2] Building staging tree at {stage_root}")
-        manifest = build_staging(target_markets, args.date, stage_root)
+        manifest = build_staging(target_markets, args.date, stage_root,
+                                 all_dates=args.all_dates)
 
         if not manifest["markets"]:
             print("\n✗ No markets with usable data — nothing to upload.")

@@ -40,7 +40,9 @@ CONSTITUENT_CSV = PATHS.stock_lists.us_combined  # constituents_us_combined.csv
 BENCHMARK_TICKERS = ["^GSPC", "^NDX"]   # S&P 500 + NASDAQ 100 indices
 START_DATE        = "2010-01-01"         # history start
 MAX_WORKERS       = 1                    # sequential — avoids rate-limit errors
-RATE_LIMIT_SLEEP  = 0.3                  # 300ms between tickers
+RATE_LIMIT_SLEEP  = 0.5                  # 500ms between tickers (base delay)
+MAX_RETRIES       = 3                    # retries per ticker on rate-limit / transient error
+RETRY_BACKOFF     = 2.0                  # multiply sleep by this factor on each retry
 
 
 def parse_args() -> argparse.Namespace:
@@ -55,6 +57,10 @@ def parse_args() -> argparse.Namespace:
                    help=f"History start date (default: {START_DATE})")
     p.add_argument("--end", default=None,
                    help="History end date e.g. 2023-12-31 (default: today)")
+    p.add_argument("--delay", type=float, default=RATE_LIMIT_SLEEP,
+                   help=f"Seconds to sleep between ticker downloads (default: {RATE_LIMIT_SLEEP}).")
+    p.add_argument("--retries", type=int, default=MAX_RETRIES,
+                   help=f"Max retries per ticker on transient failure (default: {MAX_RETRIES}).")
     return p.parse_args()
 
 
@@ -170,9 +176,39 @@ def _normalise_us(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _yf_download_with_retry(ticker: str, max_retries: int, **kwargs) -> pd.DataFrame:
+    """
+    Wrapper around yf.download with exponential backoff on transient failures.
+
+    Yahoo Finance rate-limits aggressive downloaders and returns empty DataFrames
+    or raises exceptions. We retry up to `max_retries` times with increasing
+    sleep intervals (base_delay * 2^attempt) before giving up.
+    """
+    base_delay = RATE_LIMIT_SLEEP
+    for attempt in range(max_retries + 1):
+        try:
+            df = yf.download(ticker, progress=False, **kwargs)
+            if not df.empty:
+                return df
+            # Empty could be rate-limit or genuinely no data — retry if we have attempts left
+            if attempt < max_retries:
+                sleep_secs = base_delay * (RETRY_BACKOFF ** attempt)
+                time.sleep(sleep_secs)
+            else:
+                return df   # genuinely empty after all retries
+        except Exception as exc:
+            if attempt < max_retries:
+                sleep_secs = base_delay * (RETRY_BACKOFF ** attempt)
+                time.sleep(sleep_secs)
+            else:
+                raise exc
+    return pd.DataFrame()
+
+
 def download_ticker(ticker: str, data_dir: Path, start: str,
                     refresh_after_days: int,
-                    end: str = None) -> tuple[str, bool, str]:
+                    end: str = None,
+                    max_retries: int = MAX_RETRIES) -> tuple[str, bool, str]:
     """
     Download daily OHLCV for a single ticker and save as {ticker}-1d.csv.
     Returns (ticker, success, message).
@@ -181,6 +217,8 @@ def download_ticker(ticker: str, data_dir: Path, start: str,
     bars after the last stored date up to `end` are fetched and appended. This
     makes repeated `--end <date>` calls cheap and date-based (not mtime-based),
     which is required for walk-forward backtests that advance the as_of date.
+
+    Rate-limit resilience: uses _yf_download_with_retry with exponential backoff.
     """
     # yfinance uses - for BRK.B → BRK-B etc. (Wikipedia already normalised above)
     path = data_dir / f"{ticker}-1d.csv"
@@ -195,9 +233,11 @@ def download_ticker(ticker: str, data_dir: Path, start: str,
                 # Nothing to fetch if already at/past the requested end date
                 if end and new_start >= end:
                     return ticker, True, "skipped (up to date)"
-                df_new = yf.download(ticker, start=new_start, end=end,
-                                     auto_adjust=True, progress=False,
-                                     multi_level_index=False)
+                df_new = _yf_download_with_retry(
+                    ticker, max_retries,
+                    start=new_start, end=end,
+                    auto_adjust=True, multi_level_index=False,
+                )
                 if df_new.empty:
                     return ticker, True, f"skipped (no new bars after {last_date.date()})"
                 df_new = _normalise_us(df_new)
@@ -217,8 +257,11 @@ def download_ticker(ticker: str, data_dir: Path, start: str,
         if not file_needs_update(path, refresh_after_days):
             return ticker, True, "skipped (up to date)"
 
-        df = yf.download(ticker, start=start, end=end, auto_adjust=True,
-                         progress=False, multi_level_index=False)
+        df = _yf_download_with_retry(
+            ticker, max_retries,
+            start=start, end=end,
+            auto_adjust=True, multi_level_index=False,
+        )
         if df.empty:
             return ticker, False, "empty response from yfinance"
 
@@ -243,8 +286,16 @@ def download_ticker(ticker: str, data_dir: Path, start: str,
 
 
 def download_all(tickers: List[str], data_dir: Path, start: str,
-                 refresh_after_days: int, end: str = None) -> None:
-    """Download all tickers sequentially with progress reporting."""
+                 refresh_after_days: int, end: str = None,
+                 delay: float = RATE_LIMIT_SLEEP,
+                 max_retries: int = MAX_RETRIES) -> None:
+    """Download all tickers sequentially with progress reporting.
+
+    Parameters
+    ----------
+    delay       : seconds to sleep between tickers (rate-limit guard)
+    max_retries : per-ticker retries with exponential backoff on empty/error
+    """
     data_dir.mkdir(parents=True, exist_ok=True)
 
     total     = len(tickers)
@@ -253,11 +304,14 @@ def download_all(tickers: List[str], data_dir: Path, start: str,
     failed: List[str] = []
 
     print(f"\nDownloading {total} tickers to {data_dir} ...")
+    print(f"  delay={delay}s/ticker  retries={max_retries}")
     print(f"  (existing files {'will be refreshed if older than ' + str(refresh_after_days) + ' days' if refresh_after_days > 0 else 'will be skipped'})\n")
 
+    # MAX_WORKERS=1 keeps downloads sequential, which is the safest approach for
+    # Yahoo Finance's rate limiter. The delay is applied after every ticker.
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as pool:
         futures = {
-            pool.submit(download_ticker, t, data_dir, start, refresh_after_days, end): t
+            pool.submit(download_ticker, t, data_dir, start, refresh_after_days, end, max_retries): t
             for t in tickers
         }
         done = 0
@@ -277,9 +331,7 @@ def download_all(tickers: List[str], data_dir: Path, start: str,
                 print(f"  Progress: {done}/{total}  "
                       f"(ok={succeeded}, skipped={skipped}, failed={len(failed)})")
 
-            # Light rate-limiting — avoid hammering yfinance
-            if done % MAX_WORKERS == 0:
-                time.sleep(RATE_LIMIT_SLEEP)
+            time.sleep(delay)
 
     print(f"\nDownload complete:")
     print(f"  Succeeded : {succeeded}")
@@ -292,12 +344,13 @@ def download_all(tickers: List[str], data_dir: Path, start: str,
 
 
 def download_benchmarks(data_dir: Path, start: str, refresh_after_days: int,
-                        end: str = None) -> None:
+                        end: str = None, max_retries: int = MAX_RETRIES) -> None:
     """Download ^GSPC and ^NDX benchmark files."""
     print(f"\nDownloading benchmark indices ...")
     data_dir.mkdir(parents=True, exist_ok=True)
     for ticker in BENCHMARK_TICKERS:
-        t, ok, msg = download_ticker(ticker, data_dir, start, refresh_after_days, end)
+        t, ok, msg = download_ticker(ticker, data_dir, start, refresh_after_days, end,
+                                     max_retries=max_retries)
         status = "OK" if ok else "FAILED"
         print(f"  [{status}] {ticker}: {msg}")
 
@@ -324,7 +377,8 @@ def main() -> None:
     if args.tickers:
         tickers = [t.strip().upper() for t in args.tickers]
         print(f"\nDownloading {len(tickers)} specified ticker(s)...")
-        download_all(tickers, DATA_DIR, args.start, args.refresh_after, args.end)
+        download_all(tickers, DATA_DIR, args.start, args.refresh_after, args.end,
+                     delay=args.delay, max_retries=args.retries)
         download_benchmarks(DATA_DIR, args.start, args.refresh_after, args.end)
         return
 
@@ -343,7 +397,8 @@ def main() -> None:
     print(f"  Loaded {len(tickers)} tickers")
 
     print(f"\n[2/2] Downloading {len(tickers)} stock files...")
-    download_all(tickers, DATA_DIR, args.start, args.refresh_after, args.end)
+    download_all(tickers, DATA_DIR, args.start, args.refresh_after, args.end,
+                 delay=args.delay, max_retries=args.retries)
 
     print(f"\nDownloading benchmark indices...")
     download_benchmarks(DATA_DIR, args.start, max(1, args.refresh_after), args.end)

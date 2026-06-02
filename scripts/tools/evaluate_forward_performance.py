@@ -333,6 +333,12 @@ def parse_args():
     p.add_argument("--tickers",      default=None,
                    help="Comma-separated ticker list, e.g. ABBOTINDIA.NS,GLAXO.NS  "
                         "(overrides the full market list)")
+    p.add_argument("--watchlist_only", action="store_true",
+                   help="Only evaluate tickers that appear in the watchlist for this date "
+                        "(much faster — skips full 1600-ticker universe fetch).")
+    p.add_argument("--output_dir", default=None,
+                   help="Override watchlist output directory "
+                        "(e.g. /mnt/data/artefacts/us_local/output on Hetzner).")
     return p.parse_args()
 
 
@@ -352,6 +358,11 @@ def detect_latest_base_date(output_dir: Path) -> datetime.date | None:
 if __name__ == "__main__":
     args = parse_args()
     cfg  = MARKET_CONFIG[args.market]
+
+    # Allow --output_dir to override where watchlist CSVs are read from
+    if args.output_dir:
+        cfg = dict(cfg)   # shallow copy so we don't mutate the module-level dict
+        cfg["output_dir"] = Path(args.output_dir)
 
     # Resolve base date
     if args.base_date:
@@ -378,5 +389,18 @@ if __name__ == "__main__":
     if args.tickers:
         custom_tickers = [t.strip() for t in args.tickers.split(",") if t.strip()]
         print(f"Custom ticker list: {len(custom_tickers)} tickers")
+
+    # --watchlist_only: pull tickers from watchlist files for this base_date
+    if args.watchlist_only and custom_tickers is None:
+        scores_df = load_watchlist_scores(cfg["output_dir"], base_date)
+        if scores_df.empty:
+            print(f"ERROR: No watchlist files found for {base_date}. "
+                  f"Cannot use --watchlist_only without watchlist files.")
+            exit(1)
+        ticker_col = next((c for c in scores_df.columns
+                           if c.lower() in ("ticker", "symbol")), None)
+        if ticker_col:
+            custom_tickers = scores_df[ticker_col].dropna().unique().tolist()
+            print(f"--watchlist_only: evaluating {len(custom_tickers)} unique watchlist tickers")
 
     run(args.market, base_date, forward_date, custom_tickers=custom_tickers)

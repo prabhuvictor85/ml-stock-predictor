@@ -233,6 +233,12 @@ def download_ticker(ticker: str, data_dir: Path, start: str,
                 # Nothing to fetch if already at/past the requested end date
                 if end and new_start >= end:
                     return ticker, True, "skipped (up to date)"
+                # Skip if the window contains no trading days (e.g. as_of is a weekend)
+                if end:
+                    bdays = pd.bdate_range(new_start,
+                                           pd.Timestamp(end) - pd.Timedelta(days=1))
+                    if len(bdays) == 0:
+                        return ticker, True, f"skipped (no trading days {new_start} → {end})"
                 df_new = _yf_download_with_retry(
                     ticker, max_retries,
                     start=new_start, end=end,

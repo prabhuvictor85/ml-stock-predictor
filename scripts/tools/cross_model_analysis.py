@@ -154,6 +154,11 @@ def analyse(output_dir: Path, date: str | None, top: int, save: bool) -> None:
 
     df = df.join(meta, how="left")
 
+    # Ensure optional meta columns always exist so downstream selects don't crash
+    for _col in ["sector", "cap_tier"]:
+        if _col not in df.columns:
+            df[_col] = ""
+
     # ── Combined conviction scores ───────────────────────────────────────────
     # Both models independently rank the same stock — average their raw scores.
     # bull conviction: high when BOTH models like it long

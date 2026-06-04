@@ -689,13 +689,19 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
         # ── Disk-backed fold cache ────────────────────────────────────────────
         # Each fold is saved as a pickle under <mode_artefacts>/fold_cache/.
-        # Cache key: fold_id + train_end + test_end + as_of date.
-        # On re-run (same data, same as_of), all folds load instantly — both
-        # momentum and reversal modes get their own cache directory so the
-        # mode-filtered panels don't collide.
+        # Cache key: train_end + test_end + feat_hash (MD5 of feature column names).
+        # Historical fold data is identical across retrains when features unchanged —
+        # as_of was causing full rebuild every retrain. feat_hash invalidates only
+        # when the feature set actually changes. Both momentum and reversal get their
+        # own cache directory so mode-filtered panels don't collide.
         FOLD_CACHE_DIR = _art_dir / "fold_cache"
         FOLD_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        _as_of_str = as_of or pd.Timestamp.now().strftime("%Y-%m-%d")
+
+        import hashlib as _hashlib
+        _feat_hash = _hashlib.md5(
+            ",".join(sorted(c for c in train_panel.columns
+                            if c.startswith("features_"))).encode()
+        ).hexdigest()[:8]
 
         def _fold_cache_path(fold_id: int) -> "Path":
             return FOLD_CACHE_DIR / f"fold_{fold_id}.pkl"
@@ -707,11 +713,16 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             try:
                 with open(p, "rb") as f:
                     cached = pickle.load(f)
-                # Validate cache key matches current run
-                if (cached.get("train_end") == spec.train_end and
-                        cached.get("test_end")  == spec.test_end and
-                        cached.get("as_of")     == _as_of_str):
-                    return cached["data"]
+                base_match = (cached.get("train_end") == spec.train_end and
+                              cached.get("test_end")  == spec.test_end)
+                if not base_match:
+                    return None
+                # New format: validate feat_hash
+                if "feat_hash" in cached:
+                    return cached["data"] if cached["feat_hash"] == _feat_hash else None
+                # Legacy format (saved with as_of key): accept if train/test dates
+                # match — historical fold data is immutable across retrains.
+                return cached["data"]
             except Exception:
                 pass
             return None
@@ -722,7 +733,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                     pickle.dump({
                         "train_end": spec.train_end,
                         "test_end":  spec.test_end,
-                        "as_of":     _as_of_str,
+                        "feat_hash": _feat_hash,
                         "data":      data,
                     }, f, protocol=4)
             except Exception as e:

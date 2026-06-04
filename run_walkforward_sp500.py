@@ -209,10 +209,12 @@ def notify(topic: str, title: str, body: str, tags: str = "") -> None:
     if gap < _NOTIFY_MIN_GAP:
         time.sleep(_NOTIFY_MIN_GAP - gap)
     try:
+        # HTTP headers must be ASCII — replace non-ASCII chars (e.g. em dash) with safe equivalents
+        safe_title = title.encode("ascii", errors="replace").decode("ascii")
         req = urllib.request.Request(
             f"https://ntfy.sh/{topic}",
             data=body.encode("utf-8"),
-            headers={"Title": title, "Tags": tags},
+            headers={"Title": safe_title, "Tags": tags},
         )
         urllib.request.urlopen(req, timeout=10)
         _LAST_NOTIFY_TS = time.time()

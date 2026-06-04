@@ -379,7 +379,7 @@ def compute_zone_features(
         result.get("zone_type_1d", pd.Series("", index=result.index)).values,
         index=daily_index,
     )
-    result["zone_active_1d"] = (zt_1d != "").astype(np.float32)
+    result["zone_active_1d"]   = (zt_1d != "").astype(np.float32)
     result["zone_strength_1d"] = np.where(
         zt_1d.isin(["SDZ", "SSZ"]), 2.0,
         np.where(zt_1d.isin(["DZ", "SZ"]), 1.0, 0.0),

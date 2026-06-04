@@ -33,6 +33,12 @@ from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
 
+# Windows cp1252 terminals choke on emoji — force UTF-8 output
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 import numpy as np
 import pandas as pd
 from scipy import stats
@@ -781,7 +787,11 @@ def run_backtest(market: str, scoring_date_str: str,
     scores_by_model: dict[str, dict] = {}
     all_tickers: set[str] = set()
     for model in ("momentum", "reversal"):
-        path = output_dir / f"scores_detail_{model}_{scoring_date_str}.json"
+        # Try date subdirectory first (e.g. output/us_local/2023-12-07/scores_detail_*.json)
+        # then fall back to flat layout for backwards compatibility
+        path = output_dir / scoring_date_str / f"scores_detail_{model}_{scoring_date_str}.json"
+        if not path.exists():
+            path = output_dir / f"scores_detail_{model}_{scoring_date_str}.json"
         if not path.exists():
             print(f"  WARNING: {path.name} not found — skipping {model}")
             continue

@@ -504,6 +504,20 @@ class FeatureEngineer:
             panel[f"{FEATURE_PREFIX}ssz_htf_score"]
         ).astype(np.float32)
 
+        # ── ICT × trend multiplier (mirrors zone treatment above) ────────────
+        ict_bull = panel.get(f"{FEATURE_PREFIX}ict_bull_htf_score",
+                             pd.Series(0.0, index=panel.index))
+        ict_bear = panel.get(f"{FEATURE_PREFIX}ict_bear_htf_score",
+                             pd.Series(0.0, index=panel.index))
+        panel[f"{FEATURE_PREFIX}ict_bull_htf_score"] = (
+            ict_bull * up_mult).clip(0, 1).astype(np.float32)
+        panel[f"{FEATURE_PREFIX}ict_bear_htf_score"] = (
+            ict_bear * dn_mult).clip(0, 1).astype(np.float32)
+        panel[f"{FEATURE_PREFIX}ict_htf_confluence"] = (
+            panel[f"{FEATURE_PREFIX}ict_bull_htf_score"]
+            - panel[f"{FEATURE_PREFIX}ict_bear_htf_score"]
+        ).astype(np.float32)
+
         # sdz_premium_setup / ssz_premium_setup intentionally removed.
         # The per-TF zone features (sdz_1y, sdz_3mo, sdz_1mo, sdz_1wk) and the
         # trend features (yearly_trend, quarterly_trend, monthly_trend, weekly_trend)
@@ -798,6 +812,26 @@ class FeatureEngineer:
         result[f"{FEATURE_PREFIX}ssz_htf_score"]      = (ssz_r * dn_mult).astype(np.float32)
         result[f"{FEATURE_PREFIX}zone_htf_confluence"] = (
             result[f"{FEATURE_PREFIX}sdz_htf_score"] - result[f"{FEATURE_PREFIX}ssz_htf_score"]
+        ).astype(np.float32)
+
+        # ── ICT × trend multiplier (mirrors zone treatment above) ────────────
+        # ict_bull/bear_htf_score are normalized [0,1] in the ticker loop but
+        # carry no trend context. Apply the same up_mult/dn_mult so bullish ICT
+        # is amplified in uptrends and bearish ICT in downtrends — identical to
+        # how sdz_htf_score and ssz_htf_score are treated.
+        ict_bull_r = result.get(f"{FEATURE_PREFIX}ict_bull_htf_score",
+                                pd.Series(0.0, index=result.index))
+        ict_bear_r = result.get(f"{FEATURE_PREFIX}ict_bear_htf_score",
+                                pd.Series(0.0, index=result.index))
+        result[f"{FEATURE_PREFIX}ict_bull_htf_score"] = (
+            ict_bull_r * up_mult).clip(0, 1).astype(np.float32)
+        result[f"{FEATURE_PREFIX}ict_bear_htf_score"] = (
+            ict_bear_r * dn_mult).clip(0, 1).astype(np.float32)
+        # Signed confluence: positive = bullish ICT dominates, negative = bearish.
+        # Mirrors zone_htf_confluence; gives the model a single sided ICT signal.
+        result[f"{FEATURE_PREFIX}ict_htf_confluence"] = (
+            result[f"{FEATURE_PREFIX}ict_bull_htf_score"]
+            - result[f"{FEATURE_PREFIX}ict_bear_htf_score"]
         ).astype(np.float32)
 
         return result

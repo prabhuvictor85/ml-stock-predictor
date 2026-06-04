@@ -578,7 +578,7 @@ def main() -> None:
         log("=" * 60)
         log(f"STEP {dkey} [{d.strftime('%a')}] — planned action: {action}")
         notify(args.ntfy_topic,
-               f"[{idx+1}/{len(schedule)}] {dkey} — {action}",
+               f"[{idx+1}/{len(schedule)}] {dkey} - {action}",
                f"Starting {'full retrain' if action == 'retrain' else 'inference'} as of {dkey}.",
                "arrow_forward")
 

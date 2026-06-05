@@ -99,10 +99,7 @@ def get_ohlc_on_date(df: pd.DataFrame, target: datetime.date) -> dict | None:
 
 
 def fetch_forward_ohlc(ticker: str, target: datetime.date) -> dict | None:
-    """
-    Fetch OHLC for a single date from yfinance.
-    This data is NEVER stored — purely for evaluation.
-    """
+    """Fetch OHLC for a single ticker/date from yfinance (fallback for stragglers)."""
     try:
         start = target - datetime.timedelta(days=5)
         end   = target + datetime.timedelta(days=5)
@@ -128,6 +125,127 @@ def fetch_forward_ohlc(ticker: str, target: datetime.date) -> dict | None:
         }
     except Exception:
         return None
+
+
+def _read_local_ohlc(ticker: str, target: datetime.date, data_dir: Path) -> dict | None:
+    """Read OHLC for ticker/date from the local stock_data CSV (no network call).
+
+    Returns None if the file doesn't exist or doesn't cover the target date —
+    caller falls back to yfinance in that case.
+    """
+    # Strip .NS / .BO suffix for filename lookup (NSE tickers)
+    file_ticker = ticker.replace(".NS", "").replace(".BO", "")
+    path = data_dir / f"{file_ticker}-1d.csv"
+    if not path.exists():
+        return None
+    try:
+        df = pd.read_csv(path, index_col=0, parse_dates=True)
+        if df.empty:
+            return None
+        df = df.reset_index().rename(columns={"index": "Date", df.index.name or "index": "Date"})
+        if "Date" not in df.columns:
+            df.columns.values[0] = "Date"
+        return get_ohlc_on_date(df, target)
+    except Exception:
+        return None
+
+
+def fetch_batch_ohlc(
+    tickers: list,
+    target: datetime.date,
+    data_dir: Path | None = None,
+    batch_size: int = 100,
+) -> dict:
+    """Fetch OHLC for many tickers on one date — local CSV first, then one batch yfinance call.
+
+    Strategy
+    --------
+    1. For every ticker, check the local stock_data CSV (instant, no network).
+       This covers Hetzner and local runs where CSVs are pre-populated.
+    2. Any ticker not found locally is fetched in a SINGLE batched yf.download()
+       call rather than N individual calls.  One request avoids the rate-limit
+       that kills HF Spaces when 151 separate downloads fire in quick succession.
+
+    Returns
+    -------
+    {ticker: ohlc_dict_or_None}
+    """
+    results: dict = {}
+    need_yf: list = []
+
+    # ── Step 1: local CSV lookup ───────────────────────────────────────────────
+    if data_dir and data_dir.exists():
+        for ticker in tickers:
+            ohlc = _read_local_ohlc(ticker, target, data_dir)
+            results[ticker] = ohlc
+            if ohlc is None:
+                need_yf.append(ticker)
+    else:
+        need_yf = list(tickers)
+
+    if not need_yf:
+        return results
+
+    # ── Step 2: batch yfinance for anything not in local CSVs ─────────────────
+    start = str(target - datetime.timedelta(days=5))
+    end   = str(target + datetime.timedelta(days=5))
+
+    for i in range(0, len(need_yf), batch_size):
+        batch = need_yf[i: i + batch_size]
+        if not batch:
+            continue
+
+        if len(batch) == 1:
+            # yfinance returns different structure for single-ticker — use scalar path
+            results[batch[0]] = fetch_forward_ohlc(batch[0], target)
+            continue
+
+        try:
+            raw = yf.download(
+                batch, start=start, end=end,
+                auto_adjust=True, progress=False,
+                # multi_level_index=True is default for multi-ticker: columns are (Field, Ticker)
+            )
+            if raw.empty:
+                for t in batch:
+                    results[t] = None
+                continue
+
+            raw.index = pd.to_datetime(raw.index).date
+            candidates = [d for d in raw.index if d <= target]
+            if not candidates:
+                for t in batch:
+                    results[t] = None
+                continue
+            nearest = max(candidates)
+            row = raw.loc[nearest]
+
+            for ticker in batch:
+                try:
+                    close_val = row.get(("Close", ticker), float("nan"))
+                    if pd.isna(close_val):
+                        results[ticker] = None
+                        continue
+                    results[ticker] = {
+                        "date":   str(nearest),
+                        "open":   round(float(row.get(("Open",   ticker), 0)), 2),
+                        "high":   round(float(row.get(("High",   ticker), 0)), 2),
+                        "low":    round(float(row.get(("Low",    ticker), 0)), 2),
+                        "close":  round(float(close_val), 2),
+                        "volume": (int(row[("Volume", ticker)])
+                                   if not pd.isna(row.get(("Volume", ticker), float("nan")))
+                                   else None),
+                    }
+                except Exception:
+                    results[ticker] = None
+
+        except Exception:
+            # Batch failed entirely — fall back to per-ticker
+            for ticker in batch:
+                if results.get(ticker) is None:
+                    results[ticker] = fetch_forward_ohlc(ticker, target)
+
+    return results
 
 
 def load_watchlist_scores(output_dir: Path, base_date: datetime.date) -> pd.DataFrame:
@@ -191,15 +309,24 @@ def run(market: str, base_date: datetime.date, forward_date: datetime.date,
         print(f"  Loaded {len(scores_df)} watchlist entries for {base_date}")
 
     # ── Build evaluation rows ──────────────────────────────────────────────
-    # NOTE: Local NSE CSVs store normalized/adjusted prices in ML training
-    # format — not real market prices.  We use yfinance for BOTH dates so
-    # that base and forward prices are always in the same currency/scale.
-    results = []
-    total   = len(tickers)
+    # Prices are fetched in two bulk calls (local CSV first, then one batched
+    # yfinance request for anything not available locally).  This replaces the
+    # old per-ticker yf.download() loop that triggered rate-limits on HF Spaces.
+    total = len(tickers)
+    print(f"\nFetching base-date prices  ({base_date})  for {total} tickers ...")
+    base_ohlc_map = fetch_batch_ohlc(tickers, base_date,    data_dir)
+    base_hit = sum(1 for v in base_ohlc_map.values() if v)
+    print(f"  -> {base_hit}/{total} prices found")
 
+    print(f"Fetching forward-date prices ({forward_date}) for {total} tickers ...")
+    fwd_ohlc_map  = fetch_batch_ohlc(tickers, forward_date, data_dir)
+    fwd_hit = sum(1 for v in fwd_ohlc_map.values() if v)
+    print(f"  -> {fwd_hit}/{total} prices found\n")
+
+    results = []
     for i, ticker in enumerate(tickers, 1):
-        base_ohlc = fetch_forward_ohlc(ticker, base_date)
-        fwd_ohlc  = fetch_forward_ohlc(ticker, forward_date)
+        base_ohlc = base_ohlc_map.get(ticker)
+        fwd_ohlc  = fwd_ohlc_map.get(ticker)
 
         pct_change = None
         if (base_ohlc and fwd_ohlc
@@ -210,14 +337,14 @@ def run(market: str, base_date: datetime.date, forward_date: datetime.date,
 
         row = {
             "ticker":              ticker,
-            # Base date OHLC (from yfinance)
+            # Base date OHLC
             "base_date":           base_ohlc["date"]   if base_ohlc else None,
             "base_open":           base_ohlc["open"]   if base_ohlc else None,
             "base_high":           base_ohlc["high"]   if base_ohlc else None,
             "base_low":            base_ohlc["low"]    if base_ohlc else None,
             "base_close":          base_ohlc["close"]  if base_ohlc else None,
             "base_volume":         base_ohlc["volume"] if base_ohlc else None,
-            # Forward date OHLC (from yfinance)
+            # Forward date OHLC
             "fwd_date":            fwd_ohlc["date"]   if fwd_ohlc else None,
             "fwd_open":            fwd_ohlc["open"]   if fwd_ohlc else None,
             "fwd_high":            fwd_ohlc["high"]   if fwd_ohlc else None,
@@ -230,11 +357,7 @@ def run(market: str, base_date: datetime.date, forward_date: datetime.date,
         results.append(row)
 
         status = f"{pct_change:+.1f}%" if pct_change is not None else "no data"
-        print(f"  [{i:>2}/{total}] {ticker:<20} {status}")
-
-        if i % 20 == 0:
-            fetched = sum(1 for r in results if r["fwd_close"] is not None)
-            print(f"         — {fetched} forward prices fetched so far")
+        print(f"  [{i:>3}/{total}] {ticker:<20} {status}")
 
     if not results:
         print("No results generated.")

@@ -24,6 +24,7 @@ Endpoints
 from __future__ import annotations
 
 import asyncio
+import csv
 import datetime
 import io
 import json
@@ -32,21 +33,22 @@ import sys
 import threading
 import time
 import uuid
+from collections import Counter, defaultdict
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 # ── project path ───────────────────────────────────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 
 # ── import eval logic ──────────────────────────────────────────────────────────
 from scripts.tools.evaluate_forward_performance import (
     EVAL_DIR, MARKET_CONFIG,
-    fetch_forward_ohlc, load_watchlist_scores,
+    fetch_forward_ohlc, fetch_batch_ohlc, load_watchlist_scores,
 )
 import pandas as pd
 
@@ -83,6 +85,49 @@ def _load_universe_tickers(market_key: str) -> list[str]:
     # Remove index symbols (e.g. ^NSEBANK)
     tickers = [t for t in tickers if t and not t.startswith("^")]
     return tickers
+
+# ── visitor analytics ──────────────────────────────────────────────────────────
+ANALYTICS_LOG = PROJECT_ROOT / "api" / "visits.csv"
+_analytics_lock = threading.Lock()
+
+_CSV_FIELDS = ["timestamp", "ip", "country", "page", "user_agent", "referrer"]
+
+
+def _get_client_ip(request: Request) -> str:
+    """Extract real IP, honouring common proxy headers."""
+    for header in ("x-forwarded-for", "x-real-ip", "cf-connecting-ip"):
+        val = request.headers.get(header)
+        if val:
+            return val.split(",")[0].strip()
+    return request.client.host if request.client else "unknown"
+
+
+def _log_visit(ip: str, page: str, user_agent: str, referrer: str) -> None:
+    """Append one visit row to the CSV log (thread-safe)."""
+    with _analytics_lock:
+        is_new = not ANALYTICS_LOG.exists()
+        with open(ANALYTICS_LOG, "a", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=_CSV_FIELDS)
+            if is_new:
+                w.writeheader()
+            w.writerow({
+                "timestamp":  datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "ip":         ip,
+                "country":    "",          # filled in by geo lookup if desired
+                "page":       page,
+                "user_agent": user_agent[:200],
+                "referrer":   referrer[:200],
+            })
+
+
+def _read_visits() -> List[dict]:
+    """Return all rows from the visit log."""
+    if not ANALYTICS_LOG.exists():
+        return []
+    with _analytics_lock:
+        with open(ANALYTICS_LOG, newline="", encoding="utf-8") as f:
+            return list(csv.DictReader(f))
+
 
 # ── in-memory job store ────────────────────────────────────────────────────────
 # { job_id: {"status": "running"|"done"|"error", "file": Path|None, "lines": [str]} }
@@ -169,11 +214,28 @@ def _run_eval_job(job_id: str, market_key: str, date_str: str, months: int,
             emit(f"Tickers      : {len(tickers)} from watchlist")
         emit("─" * 48)
 
+        total      = len(tickers)
+        market_cfg = MARKET_CONFIG.get(MARKET_MAP.get(market_key, market_key), {})
+        data_dir   = market_cfg.get("data_dir")
+
+        # Batch-fetch base and forward prices — one yfinance call each instead of
+        # N individual calls.  Local stock_data CSVs are checked first so runs on
+        # Hetzner / local machines skip Yahoo entirely for historical dates.
+        emit(f"Fetching base-date prices  ({base_date})  ...")
+        base_ohlc_map = fetch_batch_ohlc(tickers, base_date,    data_dir)
+        base_hit = sum(1 for v in base_ohlc_map.values() if v)
+        emit(f"  -> {base_hit}/{total} prices found")
+
+        emit(f"Fetching forward-date prices ({forward_date}) ...")
+        fwd_ohlc_map  = fetch_batch_ohlc(tickers, forward_date, data_dir)
+        fwd_hit = sum(1 for v in fwd_ohlc_map.values() if v)
+        emit(f"  -> {fwd_hit}/{total} prices found")
+        emit("─" * 48)
+
         results = []
-        total   = len(tickers)
         for i, ticker in enumerate(tickers, 1):
-            base_ohlc = fetch_forward_ohlc(ticker, base_date)
-            fwd_ohlc  = fetch_forward_ohlc(ticker, forward_date)
+            base_ohlc = base_ohlc_map.get(ticker)
+            fwd_ohlc  = fwd_ohlc_map.get(ticker)
 
             pct = None
             if (base_ohlc and fwd_ohlc
@@ -322,6 +384,88 @@ def download_eval(job_id: str):
         path=str(job["file"]),
         filename=Path(job["file"]).name,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
+
+@app.post("/api/visit")
+async def record_visit(request: Request):
+    """
+    Beacon called by the React app on every page load.
+    Logs IP, page, user-agent, referrer to visits.csv.
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ip         = _get_client_ip(request)
+    page       = body.get("page", "/")
+    user_agent = request.headers.get("user-agent", "")
+    referrer   = request.headers.get("referer", body.get("referrer", ""))
+    _log_visit(ip, page, user_agent, referrer)
+    return {"ok": True}
+
+
+@app.get("/api/analytics")
+def get_analytics(days: int = 30):
+    """
+    Return visit summary for the last N days.
+    {
+      total_visits, unique_ips, by_day: [{date, visits, unique_ips}],
+      top_ips: [{ip, visits}],
+      top_pages: [{page, visits}]
+    }
+    """
+    rows = _read_visits()
+    if not rows:
+        return {"total_visits": 0, "unique_ips": 0, "by_day": [],
+                "top_ips": [], "top_pages": []}
+
+    cutoff = (datetime.datetime.utcnow() - datetime.timedelta(days=days)
+              ).strftime("%Y-%m-%dT%H:%M:%SZ")
+    rows = [r for r in rows if r["timestamp"] >= cutoff]
+
+    total      = len(rows)
+    unique_ips = len({r["ip"] for r in rows})
+
+    # ── by day ────────────────────────────────────────────────────────────────
+    day_visits: dict = defaultdict(list)
+    for r in rows:
+        day = r["timestamp"][:10]
+        day_visits[day].append(r["ip"])
+    by_day = sorted([
+        {"date": d, "visits": len(ips), "unique_ips": len(set(ips))}
+        for d, ips in day_visits.items()
+    ], key=lambda x: x["date"])
+
+    # ── top IPs ───────────────────────────────────────────────────────────────
+    ip_counter  = Counter(r["ip"] for r in rows)
+    top_ips     = [{"ip": ip, "visits": cnt}
+                   for ip, cnt in ip_counter.most_common(20)]
+
+    # ── top pages ─────────────────────────────────────────────────────────────
+    page_counter = Counter(r["page"] for r in rows)
+    top_pages    = [{"page": pg, "visits": cnt}
+                    for pg, cnt in page_counter.most_common(10)]
+
+    return {
+        "total_visits": total,
+        "unique_ips":   unique_ips,
+        "by_day":       by_day,
+        "top_ips":      top_ips,
+        "top_pages":    top_pages,
+        "days_window":  days,
+    }
+
+
+@app.get("/api/analytics/export")
+def export_visits():
+    """Download the raw visits.csv log."""
+    if not ANALYTICS_LOG.exists():
+        raise HTTPException(status_code=404, detail="No visit log yet")
+    return FileResponse(
+        path=str(ANALYTICS_LOG),
+        filename="visits.csv",
+        media_type="text/csv",
     )
 
 

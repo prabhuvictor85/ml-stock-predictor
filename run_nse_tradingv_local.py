@@ -2342,7 +2342,12 @@ def main() -> None:
         with perf.stage("Drift monitoring"):
             for m, art in results_by_mode.items():
                 try:
-                    latest_date = panel.index.get_level_values("date").max()
+                    _te = str(args.train_end or "").strip().lower()
+                    latest_date = (
+                        pd.Timestamp(_te)
+                        if _te and _te not in ("latest", "none", "")
+                        else panel.index.get_level_values("date").max()
+                    )
                     art["drift_monitor"].compute_weekly_drift(panel, latest_date)
                     art["drift_monitor"].save(Path(f"monitoring/{m}"))
                 except Exception as e:

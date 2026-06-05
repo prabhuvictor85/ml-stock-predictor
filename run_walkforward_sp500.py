@@ -456,12 +456,17 @@ def run_retrain(as_of: pd.Timestamp, train_start: str, mode: str,
     return run_cmd(cmd, step_log)
 
 
-def check_drift(mode: str) -> Dict[str, float]:
+def check_drift(mode: str, as_of: pd.Timestamp) -> Dict[str, float]:
     """Read the latest drift snapshot per sub-mode and return {submode: breach_fraction}.
 
     The drift monitor writes monitoring/<submode>/feature_drift.parquet with one
     row per (date, feature) carrying a boolean `retrain_flag`. We read the most
-    recent date's rows and compute the fraction of features flagged for retrain.
+    recent date's rows UP TO as_of and compute the fraction of features flagged.
+
+    as_of is required so that live-inference drift records (which are stamped with
+    today's wall-clock date and stored in monitoring/live/) cannot leak into this
+    read even if the parquet file is somehow shared.  Only snapshots whose date is
+    <= the current walk-forward step date are considered.
     """
     submodes = {"all": ["momentum", "reversal"]}.get(mode, [mode])
     fractions: Dict[str, float] = {}
@@ -475,8 +480,13 @@ def check_drift(mode: str) -> Dict[str, float]:
             if df.empty or "retrain_flag" not in df.columns:
                 fractions[sm] = 0.0
                 continue
-            latest = df["date"].max()
-            snap = df[df["date"] == latest]
+            # Guard: only consider snapshots on or before the current step date.
+            df_past = df[df["date"] <= as_of]
+            if df_past.empty:
+                fractions[sm] = 0.0
+                continue
+            latest = df_past["date"].max()
+            snap = df_past[df_past["date"] == latest]
             fractions[sm] = float(snap["retrain_flag"].mean()) if len(snap) else 0.0
         except Exception as e:
             log(f"  drift read failed for '{sm}': {e}")
@@ -627,7 +637,7 @@ def main() -> None:
                 sys.exit(rc)
 
             # 3. Drift gate
-            fractions = check_drift(args.mode)
+            fractions = check_drift(args.mode, pd.Timestamp(d))
             frac_str = ", ".join(f"{k}={v:.0%}" for k, v in fractions.items())
             log(f"  Drift breach fractions: {frac_str}")
             breached = (not args.no_drift_retrain) and any(

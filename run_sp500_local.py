@@ -2493,8 +2493,19 @@ def main() -> None:
         with perf.stage("Drift monitoring"):
             for m, art in results_by_mode.items():
                 try:
-                    latest_date = panel.index.get_level_values("date").max()
+                    # Prefer the explicit as-of date so the drift record is stamped
+                    # with the intended cross-section date, not the panel max (which
+                    # can differ if stale rows or multi-market data are present).
+                    latest_date = (
+                        pd.Timestamp(as_of_dt)
+                        if as_of_dt is not None
+                        else panel.index.get_level_values("date").max()
+                    )
                     art["drift_monitor"].compute_weekly_drift(panel, latest_date)
+                    # Walk-forward drift records go to monitoring/{mode}/.
+                    # Live inference (infer.py) writes to monitoring/live/{mode}/ instead,
+                    # keeping the two run types separate so live 2026-dated records
+                    # never cause check_drift() to force unnecessary retrains.
                     art["drift_monitor"].save(Path(f"monitoring/{m}"))
                 except Exception as e:
                     print(f"Drift monitor warning [{m}]: {e}")

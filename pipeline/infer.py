@@ -208,7 +208,10 @@ def main() -> None:
     # ── Drift monitoring ───────────────────────────────────────────────────
     try:
         drift_df = drift_monitor.compute_weekly_drift(snapshot_panel, latest_date)
-        drift_monitor.save()
+        # Save to a live-inference-specific path so these records never mix with
+        # walk-forward monitoring (which reads monitoring/{mode}/feature_drift.parquet).
+        # Mixing caused walk-forward to latch onto live 2026 dates and retrain every step.
+        drift_monitor.save(Path(f"monitoring/live/{args.mode}"))
         log.info(f"Drift check: {len(drift_df)} features checked, "
                  f"{drift_df['alert'].sum()} alerts, "
                  f"{drift_df['retrain_flag'].sum()} retrain flags")

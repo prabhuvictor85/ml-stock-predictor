@@ -84,6 +84,17 @@ DOWNLOADER    = PROJECT_DIR / "scripts" / "data" / "download_nse_data.py"
 RUNNER        = PROJECT_DIR / "run_nse_local.py"
 MONITORING_DIR = PROJECT_DIR / "monitoring"
 
+# ── Local-data fast-path: resolve benchmark CSV path once at import ──────────
+# The downloader writes the benchmark (^NSEI-1d.csv) LAST, after all tickers.
+# If it is current, all tickers are current — we can skip the entire download
+# subprocess (saves ~3 min of per-ticker sleeps per walkforward step).
+try:
+    sys.path.insert(0, str(PROJECT_DIR))
+    from pipeline.config.paths import PATHS as _PATHS
+    _BENCHMARK_CSV: Optional[Path] = _PATHS.stock_data.nse_local / "^NSEI-1d.csv"
+except Exception:
+    _BENCHMARK_CSV = None
+
 # Matches RETRAIN_FEATURE_FRACTION in pipeline/monitoring/drift_monitor.py:
 #   a retrain fires when > this fraction of monitored features breach the PSI
 #   retrain threshold.
@@ -427,12 +438,46 @@ def run_cmd(cmd: List[str], step_log: Path) -> int:
         ensure_swap(_OOM_CFG["swap_gb"], _OOM_CFG["swapfile"])
 
 
+def _data_covers_date(as_of: pd.Timestamp) -> bool:
+    """Return True if the local benchmark CSV already has data on or just before as_of.
+
+    Reads only ^NSEI-1d.csv (1 file) rather than scanning all 500+ ticker CSVs.
+    A 3-day tolerance handles weekends / public holidays where as_of falls on a
+    non-trading day but the last available bar is the preceding Friday.
+
+    The benchmark is written LAST by the downloader, so if it is current all
+    tickers are current too — safe to skip the entire download subprocess.
+    """
+    if _BENCHMARK_CSV is None or not _BENCHMARK_CSV.exists():
+        return False
+    try:
+        df = pd.read_csv(_BENCHMARK_CSV, index_col=0, parse_dates=True)
+        if df.empty:
+            return False
+        last_date = pd.Timestamp(df.index.max()).tz_localize(None)
+        as_of_naive = as_of.tz_localize(None) if as_of.tzinfo else as_of
+        covered = bool(last_date >= as_of_naive - pd.Timedelta(days=3))
+        if covered:
+            log(f"  Local data covers up to {last_date.date()} — download not needed.")
+        return covered
+    except Exception as e:
+        log(f"  [data_covers_date] check failed ({e}) — will run downloader to be safe.")
+        return False
+
+
 def download_until(as_of: pd.Timestamp, step_log: Path) -> int:
     """Incrementally extend local CSVs up to and including `as_of`.
 
+    Fast path: if the local benchmark CSV already covers as_of (within a 3-day
+    tolerance for weekends / holidays), the download subprocess is skipped
+    entirely — saving the ~3 min of per-ticker file reads and rate-limit sleeps.
+
+    Falls back to the full downloader when data is genuinely missing.
     yfinance treats --end as EXCLUSIVE, so pass as_of + 1 day to include the
     as_of bar itself (or the latest trading day on/just before it).
     """
+    if _data_covers_date(as_of):
+        return 0
     end_excl = (as_of + timedelta(days=1)).strftime("%Y-%m-%d")
     cmd = [PY, str(DOWNLOADER), "--end", end_excl]
     return run_cmd(cmd, step_log)

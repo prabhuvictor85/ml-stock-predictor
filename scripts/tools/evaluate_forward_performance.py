@@ -130,8 +130,14 @@ def fetch_forward_ohlc(ticker: str, target: datetime.date) -> dict | None:
 def _read_local_ohlc(ticker: str, target: datetime.date, data_dir: Path) -> dict | None:
     """Read OHLC for ticker/date from the local stock_data CSV (no network call).
 
-    Returns None if the file doesn't exist or doesn't cover the target date —
-    caller falls back to yfinance in that case.
+    Returns None if:
+      - the file doesn't exist, or
+      - the CSV's last bar is more than 7 days before target (stale — caller
+        falls back to yfinance so we don't silently return the wrong date's price).
+
+    The 7-day tolerance handles weekends and public holidays for the base date.
+    For a forward date that's genuinely beyond the CSV's history (e.g. Nov 2024
+    when CSVs only run to May 2024) this returns None and forces a live fetch.
     """
     # Strip .NS / .BO suffix for filename lookup (NSE tickers)
     file_ticker = ticker.replace(".NS", "").replace(".BO", "")
@@ -145,6 +151,15 @@ def _read_local_ohlc(ticker: str, target: datetime.date, data_dir: Path) -> dict
         df = df.reset_index().rename(columns={"index": "Date", df.index.name or "index": "Date"})
         if "Date" not in df.columns:
             df.columns.values[0] = "Date"
+
+        # Staleness guard: if the CSV ends more than 7 days before the target,
+        # the data doesn't cover the requested date — return None for yfinance fallback.
+        df_norm = _normalise_csv(df.copy())
+        if "Date" in df_norm.columns:
+            last_date = pd.to_datetime(df_norm["Date"]).dt.date.max()
+            if last_date < target - datetime.timedelta(days=7):
+                return None  # stale CSV — let caller fetch from yfinance
+
         return get_ohlc_on_date(df, target)
     except Exception:
         return None
@@ -248,18 +263,46 @@ def fetch_batch_ohlc(
     return results
 
 
+def _watchlist_search_dirs(output_dir: Path, date_str: str) -> list:
+    """Return candidate directories to search for watchlist files.
+
+    Supports two layouts:
+      - Flat  : output/us_local/watchlist_momentum_bull_2024-05-03.csv
+      - Dated : output/us_local/2024-05-03/watchlist_momentum_*_bull_2024-05-03.csv
+    """
+    dirs = [output_dir]
+    dated = output_dir / date_str
+    if dated.is_dir():
+        dirs.append(dated)
+    return dirs
+
+
 def load_watchlist_scores(output_dir: Path, base_date: datetime.date) -> pd.DataFrame:
-    """Load model scores from watchlist CSVs for the base date."""
+    """Load model scores from watchlist CSVs for the base date.
+
+    Handles both naming patterns:
+      - Old: watchlist_{model}_{side}_{date}.csv
+      - New: watchlist_{model}_{variant}_{side}_{date}.csv  (composite / pureml)
+    And both layouts (flat output_dir or date subdirectory).
+    """
     date_str = str(base_date)
     rows = []
+    search_dirs = _watchlist_search_dirs(output_dir, date_str)
+
     for model in ["momentum", "reversal"]:
         for side in ["bull", "bear"]:
-            f = output_dir / f"watchlist_{model}_{side}_{date_str}.csv"
-            if f.exists():
-                df = pd.read_csv(f)
-                df["model"] = model
-                df["side"]  = side
-                rows.append(df)
+            for d in search_dirs:
+                # Match both old and new naming: any variant between model and side
+                matched = list(d.glob(f"watchlist_{model}_*{side}_{date_str}.csv"))
+                # Exclude cap-tier files (large/mid/small) — use combined lists only
+                matched = [f for f in matched
+                           if not any(t in f.stem for t in ("_large_", "_mid_", "_small_"))]
+                for f in matched:
+                    df = pd.read_csv(f)
+                    df["model"] = model
+                    df["side"]  = side
+                    rows.append(df)
+
     if not rows:
         return pd.DataFrame()
     combined = pd.concat(rows, ignore_index=True)
@@ -268,6 +311,7 @@ def load_watchlist_scores(output_dir: Path, base_date: datetime.date) -> pd.Data
         if col in combined.columns:
             combined = combined.rename(columns={col: "ticker"})
             break
+    combined = combined.drop_duplicates(subset=["ticker"])
     return combined
 
 
@@ -466,16 +510,28 @@ def parse_args():
 
 
 def detect_latest_base_date(output_dir: Path) -> datetime.date | None:
-    """Auto-detect base date from latest watchlist file."""
-    files = sorted(output_dir.glob("watchlist_momentum_bull_*.csv"),
-                   key=lambda f: f.stat().st_mtime, reverse=True)
-    if not files:
-        return None
-    date_str = files[0].stem.replace("watchlist_momentum_bull_", "")
-    try:
-        return datetime.date.fromisoformat(date_str)
-    except Exception:
-        return None
+    """Auto-detect base date from latest watchlist file.
+
+    Handles both flat layout (watchlist_momentum_bull_DATE.csv directly in
+    output_dir) and dated subdirectory layout (output_dir/DATE/watchlist_...).
+    """
+    import re
+    DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+
+    # Flat layout
+    files = list(output_dir.glob("watchlist_momentum_*bull_*.csv"))
+    # Dated subdirectory layout
+    files += list(output_dir.glob("*/watchlist_momentum_*bull_*.csv"))
+
+    dates = []
+    for f in files:
+        m = DATE_RE.search(f.stem)
+        if m:
+            try:
+                dates.append(datetime.date.fromisoformat(m.group(1)))
+            except Exception:
+                pass
+    return max(dates) if dates else None
 
 
 if __name__ == "__main__":

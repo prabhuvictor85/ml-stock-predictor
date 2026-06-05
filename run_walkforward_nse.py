@@ -183,7 +183,7 @@ def parse_args() -> argparse.Namespace:
                    help="Resumability state JSON (default: <log_dir>/walkforward_state.json).")
     p.add_argument("--log_dir", default="/mnt/data/artefacts/nse_local",
                    help="Where per-step logs and state are written.")
-    p.add_argument("--ntfy_topic", default=os.environ.get("NTFY_TOPIC", ""),
+    p.add_argument("--ntfy_topic", default=os.environ.get("NTFY_TOPIC", "hetzner-victor-ml"),
                    help="ntfy.sh topic for phone alerts (or set $NTFY_TOPIC).")
     p.add_argument("--dry_run", action="store_true",
                    help="Print the schedule and the exact commands, then exit.")
@@ -195,19 +195,33 @@ def log(msg: str) -> None:
     print(f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {msg}", flush=True)
 
 
+_LAST_NOTIFY_TS: float = 0.0
+_NOTIFY_MIN_GAP: float = 3.0   # seconds — prevents burst rate-limiting on ntfy.sh free tier
+
+
 def notify(topic: str, title: str, body: str, tags: str = "") -> None:
-    """Best-effort ntfy.sh push. Never raises."""
+    """Best-effort ntfy.sh push. Never raises. Enforces a minimum gap between sends."""
+    global _LAST_NOTIFY_TS
+    import time
     if not topic:
         return
+    # Respect ntfy.sh free-tier burst limit — wait if last send was too recent
+    gap = time.time() - _LAST_NOTIFY_TS
+    if gap < _NOTIFY_MIN_GAP:
+        time.sleep(_NOTIFY_MIN_GAP - gap)
     try:
+        # HTTP headers must be ASCII — replace non-ASCII chars (e.g. em dash) with safe equivalents
+        safe_title = title.encode("ascii", errors="replace").decode("ascii")
         req = urllib.request.Request(
             f"https://ntfy.sh/{topic}",
             data=body.encode("utf-8"),
-            headers={"Title": title, "Tags": tags},
+            headers={"Title": safe_title, "Tags": tags},
         )
         urllib.request.urlopen(req, timeout=10)
-    except Exception:
-        pass
+        _LAST_NOTIFY_TS = time.time()
+    except Exception as e:
+        # Log but never raise — notifications must not kill the pipeline
+        log(f"  [notify] send failed (topic={topic!r}): {e}")
 
 
 def _quarter_ends(start: str, end: str) -> List[pd.Timestamp]:
@@ -218,7 +232,6 @@ def _quarter_ends(start: str, end: str) -> List[pd.Timestamp]:
     quarter_month_day = [(3, 31), (6, 30), (9, 30), (12, 31)]
     year = start_ts.year
     while True:
-        added_any = False
         for m, d in quarter_month_day:
             ts = pd.Timestamp(year=year, month=m, day=d)
             if ts < start_ts:
@@ -226,7 +239,6 @@ def _quarter_ends(start: str, end: str) -> List[pd.Timestamp]:
             if ts > end_ts:
                 return result
             result.append(ts)
-            added_any = True
         year += 1
         if year > end_ts.year + 1:
             break
@@ -525,7 +537,6 @@ def main() -> None:
 
     # ── Dry run: show the plan and exit ────────────────────────────────────
     end_ts = pd.Timestamp(args.end)
-    retrain_set_display = set(retrain_dates) | {end_ts}
     print("=" * 64)
     print("  NSE WALK-FORWARD SCHEDULE")
     print("=" * 64)
@@ -577,6 +588,10 @@ def main() -> None:
 
         log("=" * 60)
         log(f"STEP {dkey} [{d.strftime('%a')}] — planned action: {action}")
+        notify(args.ntfy_topic,
+               f"[{idx+1}/{len(schedule)}] {dkey} - {action}",
+               f"Starting {'full retrain' if action == 'retrain' else 'inference'} as of {dkey}.",
+               "arrow_forward")
 
         # 0. Disk guard — never start a step that could crash mid-write on a full disk
         if not ensure_disk(log_dir, args.min_free_gb, artefacts_dir, args.ntfy_topic):
@@ -656,8 +671,15 @@ def main() -> None:
         completed.add(dkey)
         state["completed"] = sorted(completed)
         save_state(state_file, state)
-        log(f"OK  {dkey} done"
-            + (" (model retrained)" if did_retrain else " (inference)"))
+        done_label = "model retrained" if did_retrain else "inference"
+        steps_left = len(schedule) - (idx + 1)
+        log(f"OK  {dkey} done ({done_label}). {steps_left} steps remaining.")
+        notify(args.ntfy_topic,
+               f"[{idx+1}/{len(schedule)}] {dkey} done",
+               f"{done_label.capitalize()} complete.\n"
+               f"Steps remaining: {steps_left}."
+               + (f"\nModel trained through: {dkey}" if did_retrain else ""),
+               "white_check_mark" if not did_retrain else "brain")
 
     heartbeat.stop()
     log("=" * 60)

@@ -218,8 +218,11 @@ class FeatureDriftMonitor:
         if path.exists():
             existing = pd.read_parquet(path)
             combined = pd.concat([existing, new_df], ignore_index=True).drop_duplicates(
-                subset=["date", "feature"]
+                subset=["date", "feature"], keep="last"
             )
+            # keep="last" so a post-retrain PSI computation (against the fresh baseline)
+            # overwrites the pre-retrain value for the same date.  Without this, the high
+            # PSI from the inference pass is kept and the next step re-triggers a retrain.
         else:
             combined = new_df
 

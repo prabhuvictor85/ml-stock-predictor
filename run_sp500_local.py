@@ -678,6 +678,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     # fenced model can still be scored forward.
     scoring_panel = panel
     if train_end is not None:
+        from pipeline.targets.builder import MAX_FORWARD_HORIZON
         _te   = pd.Timestamp(train_end)
         _d    = panel.index.get_level_values("date")
         _before = len(panel)
@@ -687,6 +688,24 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
               f"at {_te.date()} — {len(panel):,}/{_before:,} rows kept "
               f"(last train date {_maxd.date()}). HPO / CV / feature-selection / fit "
               f"see no later data.")
+        # Boundary purge: targets were computed on the FULL panel, so rows in the
+        # last MAX_FORWARD_HORIZON trading days before the fence carry forward
+        # returns derived from POST-fence (holdout) prices — a label leak. At the
+        # true end of data shift(-h) NaNs these automatically; the fence creates a
+        # new artificial end, so we must replicate that. Blank every forward-looking
+        # column for those boundary dates so no holdout info reaches the labels.
+        _udates = np.sort(panel.index.get_level_values("date").unique())
+        if len(_udates) > MAX_FORWARD_HORIZON:
+            _boundary = _udates[-MAX_FORWARD_HORIZON]
+            _fwd_cols = [c for c in panel.columns
+                         if c.startswith("future_") or c.startswith("cs_rank_")
+                         or "quintile" in c]
+            _bmask = panel.index.get_level_values("date") >= _boundary
+            panel.loc[_bmask, _fwd_cols] = np.nan
+            print(f"      [train_end] boundary purge: blanked {len(_fwd_cols)} forward "
+                  f"columns for {int(_bmask.sum()):,} rows in the last "
+                  f"{MAX_FORWARD_HORIZON} trading days (labels would have used "
+                  f"post-fence prices).")
 
     # Leakage tests — run AFTER targets are built so cs_rank_20d is present
     suite = LeakageTestSuite(panel, feat_cols)

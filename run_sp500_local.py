@@ -232,6 +232,14 @@ def parse_args() -> argparse.Namespace:
                    help="Optuna trials (set to 0 to skip HPO and use defaults; 25 = good balance of speed vs quality)")
     p.add_argument("--skip_train", action="store_true",
                    help="Skip training; load existing artefacts and re-score only")
+    p.add_argument("--pit_universe", action="store_true",
+                   help="Restrict in_universe to point-in-time index membership "
+                        "(survivorship-free). Reads membership intervals CSV "
+                        "(default: <stock_lists>/membership_sp500.csv — S&P 500 "
+                        "only, so mid/small tiers are empty in this mode).")
+    p.add_argument("--membership_csv", type=str, default=None,
+                   help="Membership intervals CSV (ticker,start_date,end_date; "
+                        "blank end = current member). Used with --pit_universe.")
     p.add_argument("--min_history_days", type=int, default=252,
                    help="Minimum trading days required per ticker")
     p.add_argument("--gpu", action="store_true",
@@ -263,6 +271,12 @@ def parse_args() -> argparse.Namespace:
                    help="Earliest date included in the training panel (default: 2010-01-01). "
                         "Rows before this date are dropped before walk-forward CV and HPO. "
                         "Scoring always uses the full panel. Example: --train_start 2010-01-01")
+    p.add_argument("--train_end", type=str, default=None,
+                   help="LOCKBOX FENCE. Latest date the model may LEARN from — HPO, "
+                        "feature selection, CV and the final fit see no rows after this "
+                        "date. Feature engineering and scoring still use the full panel, "
+                        "so a fenced model can be scored forward into the holdout period. "
+                        "Leave unset for normal training. Example: --train_end 2023-12-31")
     p.add_argument("--n_jobs",     type=int,   default=1,
                    help="Parallel Optuna trials (default 1 = sequential). "
                         "Set to 4 on Hetzner CCX33 for ~3x HPO speedup. "
@@ -567,7 +581,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
           mode: str = "legacy",
           mode_artefacts_dir: Optional[Path] = None,
           n_jobs: int = 1,
-          as_of: Optional[str] = None) -> dict:
+          as_of: Optional[str] = None,
+          train_end: Optional[str] = None) -> dict:
     """Full train: features → targets → CV → Optuna → models → calibration.
 
     mode: "legacy" | "momentum" | "reversal"
@@ -600,37 +615,43 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     fe = FeatureEngineer(cfg, benchmark_close)
     _train_perf = PerfTimer()
 
-    # ── Checkpoint 1: Feature-engineered panel ────────────────────────────
-    panel_ckpt = CKPT / "panel_features.pkl"
+    # ── Checkpoints 1+2: features + targets ──────────────────────────────
+    # panel_targets.pkl supersedes panel_features.pkl (same panel plus target
+    # columns), so resume prefers it directly and the features checkpoint is
+    # deleted once the targets checkpoint lands — halves checkpoint disk and
+    # skips a pointless multi-GB load on resume.
+    panel_ckpt     = CKPT / "panel_features.pkl"
     feat_cols_ckpt = CKPT / "feat_cols.txt"
+    targets_ckpt   = CKPT / "panel_targets.pkl"
 
-    with _train_perf.stage("[1/6] Feature engineering"):
-        if panel_ckpt.exists() and feat_cols_ckpt.exists():
-            print("\n[1/6] Feature engineering ... RESUMING from checkpoint")
-            with open(panel_ckpt, "rb") as f:
-                panel = pickle.load(f)
+    if targets_ckpt.exists() and feat_cols_ckpt.exists():
+        with _train_perf.stage("[1/6] Feature engineering"):
+            print("\n[1/6] Feature engineering ... SKIPPED (targets checkpoint supersedes)")
             feat_cols = feat_cols_ckpt.read_text().strip().split("\n")
-            print(f"      Loaded checkpoint: {len(feat_cols)} features, panel shape {panel.shape}")
-        else:
-            print("\n[1/6] Feature engineering ...")
-            panel = fe.build(panel)
-            feat_cols = [c for c in panel.columns if c.startswith(FEATURE_PREFIX)]
-            print(f"      {len(feat_cols)} feature columns — saving checkpoint ...")
-            with open(panel_ckpt, "wb") as f:
-                pickle.dump(panel, f)
-            feat_cols_ckpt.write_text("\n".join(feat_cols))
-            print(f"      Checkpoint saved: {panel_ckpt}")
-
-    # ── Checkpoint 2: Targets ─────────────────────────────────────────────
-    targets_ckpt = CKPT / "panel_targets.pkl"
-
-    with _train_perf.stage("[2/6] Target building"):
-        if targets_ckpt.exists():
+        with _train_perf.stage("[2/6] Target building"):
             print("[2/6] Building targets ... RESUMING from checkpoint")
             with open(targets_ckpt, "rb") as f:
                 panel = pickle.load(f)
             print(f"      cs_rank_20d non-null: {panel['cs_rank_20d'].notna().sum()}")
-        else:
+    else:
+        with _train_perf.stage("[1/6] Feature engineering"):
+            if panel_ckpt.exists() and feat_cols_ckpt.exists():
+                print("\n[1/6] Feature engineering ... RESUMING from checkpoint")
+                with open(panel_ckpt, "rb") as f:
+                    panel = pickle.load(f)
+                feat_cols = feat_cols_ckpt.read_text().strip().split("\n")
+                print(f"      Loaded checkpoint: {len(feat_cols)} features, panel shape {panel.shape}")
+            else:
+                print("\n[1/6] Feature engineering ...")
+                panel = fe.build(panel)
+                feat_cols = [c for c in panel.columns if c.startswith(FEATURE_PREFIX)]
+                print(f"      {len(feat_cols)} feature columns — saving checkpoint ...")
+                with open(panel_ckpt, "wb") as f:
+                    pickle.dump(panel, f)
+                feat_cols_ckpt.write_text("\n".join(feat_cols))
+                print(f"      Checkpoint saved: {panel_ckpt}")
+
+        with _train_perf.stage("[2/6] Target building"):
             print("[2/6] Building targets ...")
             tb = TargetBuilder(cfg)
             panel = tb.build(panel, benchmark_close)
@@ -638,6 +659,34 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             with open(targets_ckpt, "wb") as f:
                 pickle.dump(panel, f)
             print(f"      Checkpoint saved: {targets_ckpt}")
+            try:
+                if panel_ckpt.exists():
+                    panel_ckpt.unlink()
+                    print(f"      Removed superseded checkpoint: {panel_ckpt.name}")
+            except OSError:
+                pass
+
+    # ── Lockbox fence ─────────────────────────────────────────────────────
+    # Applied AFTER the feature/target checkpoint is loaded, so a pre-existing
+    # full-panel checkpoint cannot silently defeat the fence. Features are
+    # causal per-ticker (each row uses only its own past), so building them on
+    # the full panel and then dropping post-fence rows leaves the surviving
+    # training rows identical to a fenced-from-scratch build. Everything
+    # downstream — CV, HPO, feature selection, final fit — sees only <= train_end.
+    # The full feature+target panel is what scoring needs (all dates, incl. the
+    # holdout period). Keep a reference before fencing and return THAT, so a
+    # fenced model can still be scored forward.
+    scoring_panel = panel
+    if train_end is not None:
+        _te   = pd.Timestamp(train_end)
+        _d    = panel.index.get_level_values("date")
+        _before = len(panel)
+        panel = panel[_d <= _te].copy()
+        _maxd = panel.index.get_level_values("date").max()
+        print(f"      [train_end={train_end}] *** LOCKBOX FENCE ACTIVE: training capped "
+              f"at {_te.date()} — {len(panel):,}/{_before:,} rows kept "
+              f"(last train date {_maxd.date()}). HPO / CV / feature-selection / fit "
+              f"see no later data.")
 
     # Leakage tests — run AFTER targets are built so cs_rank_20d is present
     suite = LeakageTestSuite(panel, feat_cols)
@@ -929,8 +978,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
                 ranker = LGBMRanker(params, seed=cfg.random_seed, num_threads=_lgbm_threads)
                 if _use_es:
-                    X_es_tr  = tr_grp.loc[_es_tr_mask, sf_te].fillna(0)
-                    X_es_val = tr_grp.loc[_es_vl_mask, sf_te].fillna(0)
+                    X_es_tr  = tr_grp.loc[_es_tr_mask, sf_te]
+                    X_es_val = tr_grp.loc[_es_vl_mask, sf_te]
                     y_es_tr  = y_tr_r[_es_tr_mask]
                     y_es_val = y_tr_r[_es_vl_mask]
                     g_es_tr  = X_es_tr.groupby(level="date").size().values
@@ -938,14 +987,14 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                     ranker.fit(X_es_tr, y_es_tr, g_es_tr,
                                X_val=X_es_val, y_val=y_es_val, group_val=g_es_val)
                 else:
-                    ranker.fit(tr_grp[sf_te].fillna(0), y_tr_r, tr_groups)
+                    ranker.fit(tr_grp[sf_te], y_tr_r, tr_groups)
 
                 n_trees = ranker.model_.num_trees()
                 if n_trees == 0:
                     print(f"     Fold {fold_id}: ranker stalled (0 trees) — skipping", flush=True)
                     continue
 
-                scores = pd.Series(ranker.predict(te_univ[sf_te2].fillna(0)), index=te_univ.index)
+                scores = pd.Series(ranker.predict(te_univ[sf_te2]), index=te_univ.index)
                 m = compute_fold_metrics(te_univ, scores, sf_te2,
                                          benchmark_close.pct_change().fillna(0),
                                          cfg.commission_bps, cfg.get_slippage_bps(cfg.min_adv_usd),
@@ -1051,7 +1100,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         final_features = sel.select(X_full_cls, y_full_c_cls, top_k=best_k)
         print(f"      Selected {len(final_features)} features")
 
-        X_fin = X_full[final_features].fillna(0)
+        # NaN passes through — LGBMRanker.fit trains NaN-native (see lgbm_ranker.py)
+        X_fin = X_full[final_features]
 
         # ── AUDIT: prove exactly what the deployed model trains on ────────
         # The CV-fold logs above only show VALIDATION spans (they end early by
@@ -1095,7 +1145,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         _sf      = [f for f in final_features if f in _te_u.columns]
         if len(_te_u) < 5 or not _sf:
             continue
-        _X_te  = _te_u[_sf].fillna(0)
+        _X_te  = _te_u[_sf]
         _vol_s = _te_u[_hv_feat] if _hv_feat in _te_u.columns else None
         _ens_s = pd.Series(ensemble.score(_X_te, _vol_s), index=_te_u.index)
         _m     = compute_fold_metrics(_te_u, _ens_s, _sf, bm_rets, cfg.commission_bps, slip,
@@ -1119,17 +1169,23 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             ("ensemble.pkl",      ensemble),
             ("lgbm_ranker.pkl",   final_ranker),
             ("drift_monitor.pkl", drift_monitor),
-            ("panel.pkl",         panel),   # full unfiltered panel for scoring
         ]:
             with open(_art_dir / name, "wb") as f:
                 pickle.dump(obj, f)
         (_art_dir / "selected_features.txt").write_text("\n".join(final_features))
+        # panel.pkl is intentionally NOT saved: the pipeline never reads it
+        # back (--skip_train re-runs feature engineering on a fresh panel) and
+        # at full-panel size it dominated artefact disk usage. Diagnostics
+        # that need the panel load checkpoints/panel_targets.pkl instead.
+        from pipeline.artifact_meta import write_artifact_meta
+        write_artifact_meta(_art_dir, mode=mode, final_features=final_features,
+                            panel=panel, nan_native=True)
         print(f"      Artefacts saved to {_art_dir}")
 
     _train_perf.report()
 
     return {
-        "panel":             panel,       # full unfiltered — for scoring all stocks
+        "panel":             scoring_panel,   # full unfenced panel — for scoring all stocks/dates
         "ensemble":          ensemble,
         "final_features":    final_features,
         "drift_monitor":     drift_monitor,
@@ -1189,7 +1245,9 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
     )
 
     avail   = [f for f in final_features if f in cross.columns]
-    X_inf   = cross[avail].fillna(0)
+    # No fillna: LGBMRanker.predict applies the model-appropriate NaN treatment
+    # (NaN-native for new artefacts, fillna(0) for legacy pickles).
+    X_inf   = cross[avail]
     # Use HISTORICAL realized vol for inverse-vol weighting — future_vol_20d is a
     # forward-looking target (always NaN at inference time on the latest date).
     _hist_vol_feat = f"{FEATURE_PREFIX}hist_vol_20d"
@@ -1332,6 +1390,13 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
     _bull_zone_mask = _bull_comp_wl > _MIN_COMPOSITE
     _bear_zone_mask = _bear_comp_wl > _MIN_COMPOSITE
 
+    # ── Momentum-bull quality gate (NKE / CPRT false-positive filter) ──────
+    # Shared implementation: pipeline/gating.py (this script is the canonical
+    # source it was extracted from). No-op for non-momentum modes.
+    from pipeline.gating import momentum_bull_quality_gate
+    _bull_zone_mask = _bull_zone_mask & momentum_bull_quality_gate(
+        cross_wl, mode, FEATURE_PREFIX)
+
     cross_wl_bull = cross_wl[_bull_zone_mask.values]
     cross_wl_bear = cross_wl[_bear_zone_mask.values]
     bull_score_wl  = bull_score_wl[_bull_zone_mask.values]
@@ -1382,7 +1447,7 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
         recent        = panel[panel.index.get_level_values("date").isin(recent_dates)]
         recent_univ   = recent[recent["in_universe"] == True]
         X_shap        = recent_univ[[f for f in final_features
-                                     if f in recent_univ.columns]].fillna(0)
+                                     if f in recent_univ.columns]]
         X_shap        = X_shap.sample(min(2000, len(X_shap)), random_state=42)
         shap_exp.compute(X_shap)
         shap_importance = shap_exp.global_importance(top_k=20)
@@ -2367,6 +2432,24 @@ def main() -> None:
             if benchmark_close.empty:
                 benchmark_close = panel.groupby(level="date")["close"].mean().rename("benchmark_close")
 
+        # ── Point-in-time universe (survivorship correction) ───────────────
+        # Default panel marks every loaded ticker in_universe=True from its
+        # first bar — i.e. the CURRENT constituent snapshot projected into the
+        # past. --pit_universe restricts membership to the dates each ticker
+        # was actually in the index (membership intervals CSV).
+        if args.pit_universe:
+            from pipeline.universe import apply_pit_universe
+            from pipeline.config.paths import PATHS as _PATHS_U
+            _mcsv = args.membership_csv or str(
+                Path(_PATHS_U.stock_lists.lists_dir) / "membership_sp500.csv")
+            panel = apply_pit_universe(panel, _mcsv)
+            print("  [PIT] NOTE: membership file covers S&P 500 only — mid/small "
+                  "cap tiers will be empty in this mode until SP400/SP600 "
+                  "intervals are added to the CSV.")
+        else:
+            print("  [PIT] universe = current constituent snapshot (survivorship-"
+                  "biased). Use --pit_universe for survivorship-free training.")
+
         # ── Resolve as_of date ─────────────────────────────────────────────
         as_of_dt: Optional[datetime] = None
         if args.as_of:
@@ -2454,13 +2537,19 @@ def main() -> None:
             # Warmup: ~2 years needed for sufficient history before first fold.
             # This ensures the most recent years are always covered in CV.
             if args.n_folds == 8:   # default — user didn't explicitly set it
-                _as_of_year      = pd.Timestamp(args.as_of).year if args.as_of else pd.Timestamp.now().year
+                # When the lockbox fence is active, CV cannot extend past it —
+                # use the fence year, not as_of, so the fold count is sane and
+                # no fold straddles the holdout boundary.
+                if args.train_end:
+                    _end_year = pd.Timestamp(args.train_end).year
+                else:
+                    _end_year = pd.Timestamp(args.as_of).year if args.as_of else pd.Timestamp.now().year
                 _start_year      = pd.Timestamp(args.train_start).year
                 _warmup_years    = 2
-                _auto_folds      = max(6, _as_of_year - _start_year - _warmup_years + 1)
+                _auto_folds      = max(6, _end_year - _start_year - _warmup_years + 1)
                 if _auto_folds != args.n_folds:
                     print(f"\n  [n_folds] Auto-computed {_auto_folds} folds "
-                          f"({_as_of_year} - {_start_year} - {_warmup_years} warmup + 1) "
+                          f"({_end_year} - {_start_year} - {_warmup_years} warmup + 1) "
                           f"— overrides default of {args.n_folds}")
                     args.n_folds = _auto_folds
 
@@ -2481,6 +2570,7 @@ def main() -> None:
                         mode_artefacts_dir=MODE_DIRS[m],
                         n_jobs=args.n_jobs,
                         as_of=args.as_of,
+                        train_end=args.train_end,
                     )
                 panel = artefacts["panel"]   # feature-engineered panel — required for score_and_rank
                 results_by_mode[m] = {

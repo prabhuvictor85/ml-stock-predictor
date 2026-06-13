@@ -1,0 +1,158 @@
+# Lockbox Validation Protocol — SP500 Momentum
+
+**Status:** pre-registration draft. Commit this file (with your final thresholds)
+*before* running the fenced test. Once committed, the pass/fail bar is fixed —
+the whole point is that you cannot move the goalposts after seeing the result.
+
+---
+
+## 1. What this test answers
+
+Does the SP500 momentum signal have a real edge on data its **configuration**
+never saw? The in-sample pulse check was strong but optimistic by construction
+(HPO, feature selection, gates were all chosen on history that included
+2024–2026). This test re-derives the model with everything fenced at
+**2023-12-31** and measures performance on **2024-01-01 → 2026-05-06**, which the
+fence never touched.
+
+### Honest scope (read before trusting the result)
+
+This lockbox is **semi-clean, not perfectly clean**:
+
+- **Decontaminated by the fence:** hyperparameters (Optuna), feature selection,
+  and model weights — all re-derived using only ≤ 2023-12-31 data.
+- **NOT decontaminated:** *design* decisions made in earlier sessions while
+  looking at 2024–26 results — which gates exist (ssz>0.6, ict_bear>0.4), the
+  85/15 blend, which features are in the pool. Those leaks cannot be undone
+  retroactively.
+
+Therefore treat the result as an **upper bound on the true edge**, still better
+than any in-sample number. The only perfectly clean holdout is the future
+(see §6).
+
+---
+
+## 2. In-sample baseline (the number to beat down from)
+
+Pulse check, momentum/bull/model_score, 2024-01-12 → 2026-05-04, n=53
+(`pulse_check_momentum.json`, in-sample / optimistic):
+
+| Metric | In-sample value |
+|---|---|
+| mean rank-IC @20d | +0.0655 |
+| IC t-stat (non-overlap) | +2.44 |
+| top-decile excess @20d | +1.47% (t=4.89) |
+
+The fenced number **will be lower**. The question is *how much survives*.
+
+---
+
+## 3. Frozen configuration (the recipe under test)
+
+Recorded here so the run is reproducible and the config is provably fixed:
+
+- **Market / mode:** SP500, `momentum`
+- **Primary signal:** `model_score` (pure LGBM rank). *Rationale:* the pulse
+  check showed `composite_score` (85/15 blend) roughly halves the edge and its
+  top-decile CI includes zero — the blend dilutes. The clean test still records
+  composite for completeness but the verdict is on `model_score`.
+- **Fence date:** `--train_end 2023-12-31`
+- **Train start:** 2010-01-01
+- **HPO:** Optuna, `--n_trials 40` (reduced for 2-CPU tractability), seed fixed
+  in config. `--n_folds` auto = 12 from the fenced range; may be set lower
+  (e.g. 8) to fit the overnight window — record whichever you use.
+- **Universe:** current snapshot (NOT `--pit_universe`) — match whatever the
+  pulse-check model used so the comparison is apples-to-apples. (A separate
+  PIT-on test is future work.)
+- **Code version:** record the git commit hash of the run here: `__________`
+
+Any change to the above after committing this file invalidates the test.
+
+---
+
+## 4. Procedure (all on Hetzner; isolated via ML_ARTEFACTS_ROOT)
+
+`ML_ARTEFACTS_ROOT` redirects *every* output (scores, model artifacts,
+checkpoints) so the fenced run cannot touch production artifacts, and forces a
+fresh checkpoint build so no stale production panel can leak past the fence.
+
+```bash
+cd /root/ml-stock-predictor
+git pull origin master                      # get --train_end + validator
+export ML_ARTEFACTS_ROOT=/mnt/data/artefacts/us_lockbox
+
+# 1. Seed the FENCED model: HPO + feature selection + weights, all <= 2023-12-31
+python3 run_sp500_local.py --mode momentum \
+    --train_start 2010-01-01 --train_end 2023-12-31 \
+    --as_of 2023-12-29 --n_trials 40
+
+# 2. Walk forward through the holdout, fenced, inference-only.
+#    --train_end keeps every retrain fenced; --no_drift_retrain stops
+#    mid-walk retrains. The model stays the 2023-frozen recipe throughout.
+python3 run_walkforward_sp500.py \
+    --start 2024-01-12 --end 2026-05-04 --cadence_days 14 \
+    --mode momentum --train_end 2023-12-31 --no_drift_retrain \
+    --log_dir /mnt/data/artefacts/us_lockbox/us_local
+
+# 3. Independent verdict (read-only; recomputes returns from price CSVs)
+python3 scripts/tools/validate_lockbox.py \
+    --scores_dir /mnt/data/artefacts/us_lockbox/us_local/output \
+    --data_dir   /mnt/data/Learning_charts/stock_data/us_stocks \
+    --mode momentum --side bull --score_field model_score \
+    --start 2024-01-01 --end 2026-05-06 \
+    --out /mnt/data/artefacts/us_lockbox/lockbox_verdict.json
+```
+
+Sanity check during step 1: the log must print
+`*** LOCKBOX FENCE ACTIVE: training capped at 2023-12-31`. If it does not, the
+fence is off — abort.
+
+---
+
+## 5. Pre-registered pass/fail criteria
+
+Verdict is on **momentum / bull / model_score @ 20d** from step 3.
+*(Edit these to your final commitment before committing the file.)*
+
+| Outcome | Criteria (ALL must hold for PASS) |
+|---|---|
+| **PASS** | non-overlap IC t-stat **> 2.0** AND mean IC **> 0.02** AND top-decile excess 95% CI **excludes 0** |
+| **MARGINAL** | mean IC > 0 and top-decile excess > 0, but t-stat between 1 and 2 (real but underpowered) |
+| **FAIL** | mean IC ≤ 0.02 or t-stat < 1 or top-decile CI includes 0 |
+
+Interpretation fixed in advance:
+- **PASS** → the edge survives fencing; proceed to (a) drop/shrink the composite
+  blend, (b) fix entry timing to t+1 fills, (c) wire the execution/risk model,
+  then a PIT-on confirmation run.
+- **MARGINAL** → real but fragile; do NOT scale capital. Investigate the
+  composite dilution and the momentum/reversal split before more work.
+- **FAIL** → the in-sample edge was largely overfitting. Stop; rethink features
+  before any further tuning.
+
+The expected haircut from the §2 baseline is itself a data point: record
+`lockbox_IC / insample_IC` as the overfitting ratio.
+
+---
+
+## 6. The one-shot rule (non-negotiable)
+
+1. **One run, one verdict.** A disappointing result may NOT be answered by
+   tweaking a threshold and re-running on this same 2024–26 window — that burns
+   the lockbox forever. Go back to ≤2023 data to rethink; the next clean test is
+   *future* data.
+2. **Criteria are frozen at commit time** (§5). No post-hoc redefinition.
+3. **The future is the renewable lockbox.** From today, log live/paper picks
+   with committed timestamps and re-run the validator quarterly. That is the
+   only perfectly clean test and it costs nothing but patience.
+
+---
+
+## 7. Result (fill in after the single run)
+
+- Run date / git commit: `__________`
+- n_folds used / n_trials: `__________`
+- mean IC @20d: `______`  |  non-overlap t-stat: `______`  |  positive rate: `____`
+- top-decile excess @20d: `______`  CI `[____, ____]`
+- Overfitting ratio (lockbox / in-sample IC): `______`
+- **Verdict (PASS / MARGINAL / FAIL):** `__________`
+- Notes: `__________`

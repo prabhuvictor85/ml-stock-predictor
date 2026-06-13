@@ -160,6 +160,11 @@ def parse_args() -> argparse.Namespace:
                    help="Days between inference runs (14 = bi-weekly).")
     p.add_argument("--train_start", default="2010-01-01",
                    help="Earliest date in the training panel for (re)training.")
+    p.add_argument("--train_end", default=None,
+                   help="LOCKBOX FENCE. Cap every (re)train at this date — the model "
+                        "never learns from rows after it, even as the walk rolls forward. "
+                        "Inference still scores forward on the full panel. Use for a "
+                        "survivorship-free holdout test. Example: --train_end 2023-12-31")
     p.add_argument("--mode", default="all",
                    choices=["all", "momentum", "reversal", "legacy"],
                    help="Ranker mode(s) passed through to run_sp500_local.py.")
@@ -492,12 +497,18 @@ def run_inference(as_of: pd.Timestamp, mode: str, n_jobs: int, step_log: Path) -
 
 
 def run_retrain(as_of: pd.Timestamp, train_start: str, mode: str,
-                n_jobs: int, step_log: Path) -> int:
+                n_jobs: int, step_log: Path,
+                train_end: Optional[str] = None) -> int:
     cmd = [PY, str(RUNNER),
            "--train_start", train_start,
            "--as_of", as_of.strftime("%Y-%m-%d"),
            "--mode", mode,
            "--n_jobs", str(n_jobs)]
+    # Lockbox fence: when set, EVERY retrain re-fits only on data <= train_end,
+    # so the recipe + weights never see the holdout period even as the walk
+    # rolls forward. Inference steps still score forward on the full panel.
+    if train_end:
+        cmd += ["--train_end", train_end]
     return run_cmd(cmd, step_log)
 
 
@@ -665,7 +676,8 @@ def main() -> None:
             log(f"FULL RETRAIN (scheduled quarter end) at {dkey} ...")
             _STATUS["action"] = "retrain"; _STATUS["action_start"] = datetime.now()
             rc = run_retrain(d, args.train_start, args.mode, args.n_jobs,
-                             log_dir / f"wf_{dkey}_retrain.log")
+                             log_dir / f"wf_{dkey}_retrain.log",
+                             train_end=args.train_end)
             did_retrain = True
         else:
             # 2b. Inference-only — model frozen
@@ -699,7 +711,8 @@ def main() -> None:
                        f"{dkey}: drift breached ({frac_str}). Retraining now.", "warning")
                 _STATUS["action"] = "retrain"; _STATUS["action_start"] = datetime.now()
                 rc = run_retrain(d, args.train_start, args.mode, args.n_jobs,
-                                 log_dir / f"wf_{dkey}_drift_retrain.log")
+                                 log_dir / f"wf_{dkey}_drift_retrain.log",
+                                 train_end=args.train_end)
                 did_retrain = True
 
         if rc != 0:

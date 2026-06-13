@@ -674,8 +674,12 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     # training rows identical to a fenced-from-scratch build. Everything
     # downstream — CV, HPO, feature selection, final fit — sees only <= train_end.
     # The full feature+target panel is what scoring needs (all dates, incl. the
-    # holdout period). Keep a reference before fencing and return THAT, so a
-    # fenced model can still be scored forward.
+    # holdout period). In a NON-fenced run we just return it. In a fenced run we
+    # must NOT hold it alongside the fenced training panel through the whole
+    # CV/HPO loop — two ~5M-row multi-indexed panels resident is ~12-18 GB and
+    # OOMs the box at the large late folds. So in the fenced case we drop the
+    # full panel here (freeing it for GC) and reload it from the on-disk
+    # checkpoint only at the return, purely for scoring.
     scoring_panel = panel
     if train_end is not None:
         from pipeline.targets.builder import MAX_FORWARD_HORIZON
@@ -706,6 +710,10 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                   f"columns for {int(_bmask.sum()):,} rows in the last "
                   f"{MAX_FORWARD_HORIZON} trading days (labels would have used "
                   f"post-fence prices).")
+        # Release the full panel so only the fenced training panel is resident
+        # through the CV/HPO loop. It is reloaded from the checkpoint at return.
+        scoring_panel = None
+        import gc as _gc_fence; _gc_fence.collect()
 
     # Leakage tests — run AFTER targets are built so cs_rank_20d is present
     suite = LeakageTestSuite(panel, feat_cols)
@@ -1202,6 +1210,16 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         print(f"      Artefacts saved to {_art_dir}")
 
     _train_perf.report()
+
+    # Fenced run released the full panel during CV/HPO to save RAM — reload it
+    # from the checkpoint now (cheap) so the caller can score across all dates.
+    if scoring_panel is None:
+        _tgt_ckpt = CKPT / "panel_targets.pkl"
+        if _tgt_ckpt.exists():
+            with open(_tgt_ckpt, "rb") as f:
+                scoring_panel = pickle.load(f)
+        else:
+            scoring_panel = panel   # fallback: fenced panel (covers as_of <= train_end)
 
     return {
         "panel":             scoring_panel,   # full unfenced panel — for scoring all stocks/dates

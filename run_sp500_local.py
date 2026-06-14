@@ -2542,6 +2542,24 @@ def main() -> None:
                 results_by_mode[m] = _load_mode(MODE_DIRS[m], m)
 
             with perf.stage("Feature engineering (skip_train)"):
+                # CAUSALITY GUARD: zone/ICT features carry state that future price
+                # action can change (a zone stays "active" until later price
+                # invalidates it). fe.build() runs with cutoff_date=None, so if the
+                # panel contains bars AFTER as_of, the feature row at as_of would
+                # encode the future — a look-ahead leak whenever we score a
+                # historical date against CSVs that already extend past it
+                # (backtest / walk-forward re-run). Truncating to <= as_of before
+                # build makes inference causal regardless of CSV state. Live runs
+                # (as_of == latest bar) are unaffected — nothing is dropped.
+                if as_of_dt is not None:
+                    _d = panel.index.get_level_values("date")
+                    _before = len(panel)
+                    panel = panel[_d <= pd.Timestamp(as_of_dt)].copy()
+                    _dropped = _before - len(panel)
+                    if _dropped > 0:
+                        print(f"  [as_of={args.as_of}] causality guard: dropped "
+                              f"{_dropped:,} post-as_of rows before feature build "
+                              f"(prevents look-ahead in zone/ICT state).")
                 print("Re-running feature engineering on fresh panel ...")
                 from pipeline.features.engineer import FeatureEngineer, FEATURE_PREFIX
                 fe = FeatureEngineer(cfg, benchmark_close)

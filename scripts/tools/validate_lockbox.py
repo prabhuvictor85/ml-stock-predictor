@@ -159,6 +159,7 @@ def t_stat(series: np.ndarray) -> float:
 
 
 def bootstrap_ci(series: np.ndarray, n_boot: int = 5000, seed: int = 42) -> tuple:
+    """IID bootstrap CI of the mean (ignores autocorrelation — see block version)."""
     series = series[np.isfinite(series)]
     if len(series) < 3:
         return (np.nan, np.nan)
@@ -166,6 +167,84 @@ def bootstrap_ci(series: np.ndarray, n_boot: int = 5000, seed: int = 42) -> tupl
     means = [rng.choice(series, size=len(series), replace=True).mean()
              for _ in range(n_boot)]
     return (float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5)))
+
+
+# -- autocorrelation-aware statistics ------------------------------------------
+
+def newey_west_tstat(series: np.ndarray, lags: int) -> float:
+    """
+    HAC (Newey-West) t-stat of the mean, robust to autocorrelation up to `lags`.
+    Overlapping forward-return windows make consecutive ICs serially correlated;
+    the naive t-stat ignores that and is inflated. This corrects the standard
+    error with a Bartlett kernel.
+    """
+    x = series[np.isfinite(series)]
+    n = len(x)
+    if n < 3:
+        return 0.0
+    mu = float(x.mean())
+    e = x - mu
+    var = float(np.dot(e, e) / n)                      # gamma_0
+    for k in range(1, min(lags, n - 1) + 1):
+        w = 1.0 - k / (lags + 1.0)                     # Bartlett weight
+        cov = float(np.dot(e[k:], e[:-k]) / n)
+        var += 2.0 * w * cov
+    if var <= 0:
+        return 0.0
+    se = np.sqrt(var / n)
+    return float(mu / se) if se > 0 else 0.0
+
+
+def block_bootstrap_ci(series: np.ndarray, block_len: int,
+                       n_boot: int = 5000, seed: int = 42) -> tuple:
+    """
+    Moving-block bootstrap CI of the mean. Resamples contiguous blocks so serial
+    dependence (from overlapping windows) is preserved — an IID bootstrap on
+    autocorrelated ICs understates the CI width.
+    """
+    x = series[np.isfinite(series)]
+    n = len(x)
+    if n < 3:
+        return (np.nan, np.nan)
+    block_len = max(1, min(block_len, n))
+    n_blocks = int(np.ceil(n / block_len))
+    starts_max = n - block_len + 1
+    rng = np.random.default_rng(seed)
+    means = []
+    for _ in range(n_boot):
+        starts = rng.integers(0, starts_max, size=n_blocks)
+        sample = np.concatenate([x[s:s + block_len] for s in starts])[:n]
+        means.append(sample.mean())
+    return (float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5)))
+
+
+def forward_return_lagged(close: pd.Series, as_of: pd.Timestamp,
+                          horizon: int, lag: int = 1) -> float:
+    """
+    Realistic fill: rank on close[t], ENTER at close[t+lag], exit close[t+lag+h].
+    Removes the same-bar look-ahead in forward_return() (which enters at the very
+    close used to rank — unbuyable live).
+    """
+    pos = close.index.searchsorted(as_of, side="right") - 1
+    if pos < 0:
+        return np.nan
+    entry = pos + lag
+    exit_ = entry + horizon
+    if entry >= len(close) or exit_ >= len(close):
+        return np.nan
+    c0, c1 = close.iloc[entry], close.iloc[exit_]
+    if not (np.isfinite(c0) and np.isfinite(c1)) or c0 <= 0:
+        return np.nan
+    return c1 / c0 - 1.0
+
+
+def top_decile_members(scores: Dict[str, float], fwd: Dict[str, float]) -> set:
+    """Tickers in the top 10% by score among names with a realized forward return."""
+    common = [t for t in scores if t in fwd and np.isfinite(fwd[t])]
+    if len(common) < 20:
+        return set()
+    s = pd.Series({t: scores[t] for t in common})
+    return set(s[s >= s.quantile(0.90)].index)
 
 
 # -- main ----------------------------------------------------------------------
@@ -184,6 +263,12 @@ def main():
     ap.add_argument("--start", default=None)
     ap.add_argument("--end", default=None)
     ap.add_argument("--primary_horizon", type=int, default=20)
+    ap.add_argument("--fill_lag", type=int, default=1,
+                    help="Trading-day lag between ranking and entry for the realistic "
+                         "fill check (1 = rank close[t], buy close[t+1]).")
+    ap.add_argument("--cost_bps", type=float, default=10.0,
+                    help="Round-trip transaction cost (bps) for the net-of-cost "
+                         "top-decile estimate.")
     ap.add_argument("--out", default=None, help="Write verdict JSON here")
     args = ap.parse_args()
 
@@ -218,10 +303,18 @@ def main():
           f"({100*len(closes)/max(len(universe),1):.0f}% coverage)")
 
     # -- per-date IC at each horizon + top-decile excess at primary horizon --
+    ph = args.primary_horizon
     ic_by_h: Dict[int, List[float]] = {h: [] for h in HORIZONS}
     ic_dates: Dict[int, List[pd.Timestamp]] = {h: [] for h in HORIZONS}
     tde_vals: List[float] = []
     tde_dates: List[pd.Timestamp] = []
+
+    # Post-run diagnostics collected at the primary horizon:
+    surv_scored: List[int] = []      # scored names that have a price CSV
+    surv_valid:  List[int] = []      # of those, how many had a realized forward return
+    topdec_seq:  List[set] = []      # top-decile membership per date (for turnover)
+    ic_lag_vals: List[float] = []    # IC under realistic (lagged) fill
+    tde_lag_vals: List[float] = []   # top-decile excess under realistic fill
 
     for dt, sc in all_scores.items():
         for h in HORIZONS:
@@ -230,16 +323,40 @@ def main():
             if ic is not None:
                 ic_by_h[h].append(ic)
                 ic_dates[h].append(dt)
-            if h == args.primary_horizon:
+            if h == ph:
                 tde = top_decile_excess(sc, fwd)
                 if tde is not None:
                     tde_vals.append(tde)
                     tde_dates.append(dt)
+                # survivorship audit: scored-with-CSV vs realized-return available
+                _scored = [t for t in sc if t in closes]
+                surv_scored.append(len(_scored))
+                surv_valid.append(sum(1 for t in _scored
+                                      if np.isfinite(fwd.get(t, np.nan))))
+                # turnover: top-decile membership this date
+                topdec_seq.append(top_decile_members(sc, fwd))
+                # realistic fill (rank close[t], enter close[t+lag])
+                fwd_lag = {t: forward_return_lagged(closes[t], dt, h, args.fill_lag)
+                           for t in sc if t in closes}
+                _icl = spearman_ic(sc, fwd_lag)
+                _tdl = top_decile_excess(sc, fwd_lag)
+                if _icl is not None:
+                    ic_lag_vals.append(_icl)
+                if _tdl is not None:
+                    tde_lag_vals.append(_tdl)
 
     # -- verdict assembly ----------------------------------------------------
-    ph = args.primary_horizon
     ic_arr = np.array(ic_by_h[ph], dtype=float)
     ph_dates = ic_dates[ph]
+
+    # Median spacing between score dates -> #overlapping periods per window.
+    # Drives the HAC lag count and the bootstrap block length.
+    if len(ph_dates) > 1:
+        _sp = np.diff([d.value for d in ph_dates]) / 8.64e13   # ns -> days
+        med_spacing = float(np.median(_sp))
+    else:
+        med_spacing = float(ph)
+    overlap_lags = max(1, int(np.ceil(ph / max(med_spacing, 1.0))))
 
     # Non-overlapping subsample: keep dates >= horizon trading days apart.
     nonoverlap_idx = []
@@ -252,8 +369,43 @@ def main():
 
     mean_ic = float(np.mean(ic_arr)) if len(ic_arr) else 0.0
     ci_lo, ci_hi = bootstrap_ci(ic_arr)
+    block_lo, block_hi = block_bootstrap_ci(ic_arr, block_len=overlap_lags + 1)
+    nw_t = newey_west_tstat(ic_arr, overlap_lags)
     tde_arr = np.array(tde_vals, dtype=float)
     tde_ci = bootstrap_ci(tde_arr)
+
+    # -- (1) autocorrelation-aware significance is folded into ic_primary below
+
+    # -- (2) regime robustness: IC by calendar year ---------------------------
+    yr_series: Dict[int, List[float]] = {}
+    for d, v in zip(ph_dates, ic_arr):
+        yr_series.setdefault(d.year, []).append(v)
+    by_year = {}
+    for yr, vals in sorted(yr_series.items()):
+        a = np.array(vals, dtype=float)
+        by_year[str(yr)] = {
+            "mean_ic":       float(a.mean()),
+            "n":             int(len(a)),
+            "positive_rate": float((a > 0).mean()),
+        }
+
+    # -- (3) turnover + net-of-cost top-decile --------------------------------
+    turnovers = [1.0 - len(a & b) / len(a)
+                 for a, b in zip(topdec_seq[:-1], topdec_seq[1:]) if a and b]
+    mean_turnover = float(np.mean(turnovers)) if turnovers else float("nan")
+    rt_cost = args.cost_bps / 1e4
+    gross_tde = float(np.mean(tde_arr)) if len(tde_arr) else 0.0
+    # cost per rebalance = turnover * round-trip cost; subtract from per-period excess
+    net_tde = (gross_tde - mean_turnover * rt_cost) if turnovers else gross_tde
+
+    # -- (4) survivorship audit -----------------------------------------------
+    drop_frac = [1.0 - v / s for s, v in zip(surv_scored, surv_valid) if s > 0]
+    mean_drop = float(np.mean(drop_frac)) if drop_frac else float("nan")
+
+    # -- (5) realistic-fill (lagged entry) IC + excess ------------------------
+    ic_lag_arr  = np.array(ic_lag_vals, dtype=float)
+    tde_lag_arr = np.array(tde_lag_vals, dtype=float)
+    mean_ic_lag = float(ic_lag_arr.mean()) if len(ic_lag_arr) else 0.0
 
     verdict = {
         "generated_utc": datetime.utcnow().isoformat(timespec="seconds"),
@@ -261,6 +413,10 @@ def main():
             "mode": args.mode, "side": args.side,
             "score_field": args.score_field,
             "primary_horizon": ph,
+            "fill_lag": args.fill_lag,
+            "cost_bps": args.cost_bps,
+            "median_date_spacing_days": med_spacing,
+            "overlap_lags": overlap_lags,
             "date_range": [str(min(files).date()), str(max(files).date())],
             "n_score_dates": len(files),
         },
@@ -271,16 +427,38 @@ def main():
             "t_stat_naive": t_stat(ic_arr),
             "t_stat_nonoverlap": t_stat(ic_nonoverlap),
             "n_nonoverlap": int(len(ic_nonoverlap)),
+            "t_stat_newey_west": nw_t,
             "positive_rate": float((ic_arr > 0).mean()) if len(ic_arr) else 0.0,
-            "boot_ci95": [ci_lo, ci_hi],
+            "boot_ci95_iid": [ci_lo, ci_hi],
+            "boot_ci95_block": [block_lo, block_hi],
         },
         "ic_decay": {str(h): float(np.mean(ic_by_h[h])) if ic_by_h[h] else None
                      for h in HORIZONS},
+        "ic_by_year": by_year,
         "top_decile_excess": {
-            "mean": float(np.mean(tde_arr)) if len(tde_arr) else 0.0,
+            "mean": gross_tde,
             "t_stat": t_stat(tde_arr),
             "boot_ci95": list(tde_ci),
             "n_periods": int(len(tde_arr)),
+        },
+        "turnover": {
+            "mean_per_rebalance": mean_turnover,
+            "round_trip_cost_bps": args.cost_bps,
+            "gross_excess_per_period": gross_tde,
+            "net_excess_per_period": net_tde,
+        },
+        "realistic_fill": {
+            "fill_lag_days": args.fill_lag,
+            "mean_ic": mean_ic_lag,
+            "t_stat_newey_west": newey_west_tstat(ic_lag_arr, overlap_lags),
+            "mean_top_decile_excess": float(tde_lag_arr.mean()) if len(tde_lag_arr) else 0.0,
+        },
+        "survivorship": {
+            "mean_frac_scored_without_realized_return": mean_drop,
+            "note": ("Names scored but missing a realized fwd return (mostly "
+                     "delisted) are dropped from IC -> survivor-biased UPWARD. "
+                     "Cure needs --pit_universe + dead-ticker prices, not a "
+                     "post-run fix."),
         },
     }
 
@@ -289,9 +467,11 @@ def main():
     print(f"\n{'-'*64}\n  RANK-IC @ {ph}d (score vs realized forward return)\n{'-'*64}")
     print(f"  mean IC          : {ip['mean']:+.4f}   (std {ip['std']:.4f}, n={ip['n_periods']})")
     print(f"  t-stat (naive)   : {ip['t_stat_naive']:+.2f}   <- inflated by overlapping windows")
-    print(f"  t-stat (non-ovl) : {ip['t_stat_nonoverlap']:+.2f}   (n={ip['n_nonoverlap']}) <- trust this")
+    print(f"  t-stat (non-ovl) : {ip['t_stat_nonoverlap']:+.2f}   (n={ip['n_nonoverlap']})")
+    print(f"  t-stat (Newey-W) : {ip['t_stat_newey_west']:+.2f}   (HAC, lags={verdict['config']['overlap_lags']}) <- trust this")
     print(f"  positive rate    : {ip['positive_rate']:.0%}")
-    print(f"  bootstrap 95% CI : [{ip['boot_ci95'][0]:+.4f}, {ip['boot_ci95'][1]:+.4f}]")
+    print(f"  95% CI  (IID)    : [{ip['boot_ci95_iid'][0]:+.4f}, {ip['boot_ci95_iid'][1]:+.4f}]")
+    print(f"  95% CI  (block)  : [{ip['boot_ci95_block'][0]:+.4f}, {ip['boot_ci95_block'][1]:+.4f}]  <- autocorr-aware")
 
     print(f"\n  IC decay curve:")
     for h in HORIZONS:
@@ -299,20 +479,43 @@ def main():
         bar = "#" * int(abs(v) * 200) if v is not None else ""
         print(f"    {h:>3}d : {v:+.4f} {bar}" if v is not None else f"    {h:>3}d :   n/a")
 
+    print(f"\n  IC by year (regime robustness):")
+    for yr, d in verdict["ic_by_year"].items():
+        print(f"    {yr} : IC {d['mean_ic']:+.4f}  pos {d['positive_rate']:.0%}  (n={d['n']})")
+
     td = verdict["top_decile_excess"]
-    print(f"\n  Top-decile excess @ {ph}d:")
+    print(f"\n  Top-decile excess @ {ph}d (close[t] fill):")
     print(f"    mean {td['mean']*100:+.2f}%  t={td['t_stat']:+.2f}  "
           f"CI95 [{td['boot_ci95'][0]*100:+.2f}%, {td['boot_ci95'][1]*100:+.2f}%]")
 
-    # -- one-line automated read ---------------------------------------------
-    t_use = ip["t_stat_nonoverlap"]
-    ci_excl_0 = (ip["boot_ci95"][0] > 0) or (ip["boot_ci95"][1] < 0)
+    rf = verdict["realistic_fill"]
+    print(f"\n  Realistic fill (rank close[t], enter close[t+{rf['fill_lag_days']}]):")
+    print(f"    IC {rf['mean_ic']:+.4f}  t(NW)={rf['t_stat_newey_west']:+.2f}  "
+          f"top-decile excess {rf['mean_top_decile_excess']*100:+.2f}%")
+
+    tv = verdict["turnover"]
+    print(f"\n  Turnover & cost:")
+    print(f"    top-decile turnover/rebalance : {tv['mean_per_rebalance']:.0%}")
+    print(f"    gross excess/period {tv['gross_excess_per_period']*100:+.2f}%  ->  "
+          f"net (after {tv['round_trip_cost_bps']:.0f}bps) {tv['net_excess_per_period']*100:+.2f}%")
+
+    sv = verdict["survivorship"]
+    print(f"\n  Survivorship audit:")
+    print(f"    {sv['mean_frac_scored_without_realized_return']:.1%} of scored names/date had "
+          f"NO realized return (dropped from IC) -> IC is survivor-biased UPWARD.")
+
+    # -- one-line automated read (uses the autocorrelation-aware stats) -------
+    t_use = ip["t_stat_newey_west"]                       # HAC — the honest t
+    ci = ip["boot_ci95_block"]                            # autocorr-aware CI
+    ci_excl_0 = (ci[0] > 0) or (ci[1] < 0)
     if ip["mean"] > 0 and abs(t_use) > 2 and ci_excl_0:
-        read = "PULSE: positive IC, t>2, CI excludes 0 -- edge is unlikely to be pure luck."
+        read = ("PULSE: positive IC, Newey-West t>2, block-CI excludes 0 -- edge "
+                "unlikely to be luck (still survivor-biased; see audit).")
     elif ip["mean"] > 0 and abs(t_use) > 1:
-        read = "WEAK: positive IC but t<2 -- suggestive, not significant. Need more data or cleaner test."
+        read = ("WEAK: positive IC but HAC t<2 -- suggestive, not significant once "
+                "autocorrelation is accounted for.")
     else:
-        read = "FLATLINE: IC indistinguishable from zero -- no measurable edge in this sample."
+        read = "FLATLINE: IC indistinguishable from zero under autocorrelation-aware stats."
     print(f"\n  >>> {read}\n")
 
     if args.out:

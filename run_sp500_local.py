@@ -281,6 +281,12 @@ def parse_args() -> argparse.Namespace:
                    help="Parallel Optuna trials (default 1 = sequential). "
                         "Set to 4 on Hetzner CCX33 for ~3x HPO speedup. "
                         "Example: --n_jobs 4")
+    p.add_argument("--no_drift_save", action="store_true",
+                   help="Skip writing the shared monitoring/{mode}/feature_drift "
+                        "record. Use for parallel backtest/lockbox inference: the "
+                        "drift parquet is a single shared file (race under "
+                        "parallelism) and lockbox runs would otherwise pollute the "
+                        "production drift history. Scores/watchlists are unaffected.")
     return p.parse_args()
 
 
@@ -2636,7 +2642,13 @@ def main() -> None:
 
         # ── Drift check (per mode) ─────────────────────────────────────────
         with perf.stage("Drift monitoring"):
-            for m, art in results_by_mode.items():
+            if args.no_drift_save:
+                print("  [no_drift_save] skipping drift record write "
+                      "(parallel/backtest mode).")
+                results_by_mode_iter = []
+            else:
+                results_by_mode_iter = list(results_by_mode.items())
+            for m, art in results_by_mode_iter:
                 try:
                     # Prefer the explicit as-of date so the drift record is stamped
                     # with the intended cross-section date, not the panel max (which

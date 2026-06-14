@@ -67,9 +67,17 @@ def load_score_files(scores_dir: Path, mode: str,
             continue
         if end and dt > pd.Timestamp(end):
             continue
-        # If duplicate dates exist across folders, keep the lexically last path
-        if dt not in out or h > str(out[dt]):
-            out[dt] = Path(h)
+        # Fail loudly on a duplicate date. Two score files for the same date
+        # usually means a rerun or a different model variant landed under the
+        # scores_dir tree — silently picking one would validate the wrong model.
+        if dt in out:
+            raise ValueError(
+                f"Duplicate scores_detail for {dt.date()} ({mode}):\n"
+                f"  {out[dt]}\n  {h}\n"
+                f"Resolve the layout (point --scores_dir at a single run's output) "
+                f"before validating."
+            )
+        out[dt] = Path(h)
     return dict(sorted(out.items()))
 
 
@@ -85,9 +93,19 @@ def extract_scores(path: Path, side: str, score_field: str) -> Dict[str, float]:
     return scores
 
 
-def load_close_series(data_dir: Path, tickers: set) -> Dict[str, pd.Series]:
-    """Load close price Series (indexed by date) for each ticker that has a CSV."""
+def load_close_series(data_dir: Path, tickers: set,
+                      date_col: Optional[str] = None) -> Dict[str, pd.Series]:
+    """
+    Load close price Series (indexed by date) for each ticker that has a CSV.
+
+    date_col: explicit datetime column name (lower-cased match). If None, fall
+    back to autodetecting date/datetime/timestamp. Files whose date column can't
+    be resolved are reported (not silently dropped) so a misnamed column doesn't
+    quietly shrink the universe.
+    """
     out: Dict[str, pd.Series] = {}
+    skipped: List[str] = []
+    candidates = [date_col.lower()] if date_col else ["date", "datetime", "timestamp"]
     for t in tickers:
         p = data_dir / f"{t}-1d.csv"
         if not p.exists():
@@ -95,10 +113,12 @@ def load_close_series(data_dir: Path, tickers: set) -> Dict[str, pd.Series]:
         try:
             df = pd.read_csv(p)
         except Exception:
+            skipped.append(f"{t}(read-error)")
             continue
         df.columns = [c.strip().lower() for c in df.columns]
-        dcol = next((c for c in df.columns if c in ("date", "datetime", "timestamp")), None)
+        dcol = next((c for c in candidates if c in df.columns), None)
         if dcol is None or "close" not in df.columns:
+            skipped.append(f"{t}(no '{date_col or 'date/datetime/timestamp'}' or close col)")
             continue
         df[dcol] = pd.to_datetime(df[dcol], errors="coerce")
         s = (df.dropna(subset=[dcol])
@@ -106,21 +126,40 @@ def load_close_series(data_dir: Path, tickers: set) -> Dict[str, pd.Series]:
                .sort_index())
         s = s[~s.index.duplicated(keep="last")]
         out[t] = s
+    if skipped:
+        print(f"  WARNING: {len(skipped)} CSV(s) skipped (unresolved date/close column): "
+              f"{', '.join(skipped[:8])}{' ...' if len(skipped) > 8 else ''}")
     return out
 
 
-def forward_return(close: pd.Series, as_of: pd.Timestamp, horizon: int) -> float:
-    """close[t+h]/close[t]-1 using TRADING-day offset. NaN if insufficient data."""
+def forward_returns_at(close: pd.Series, as_of: pd.Timestamp,
+                       horizons: List[int], lag: int = 0) -> Dict[int, float]:
+    """
+    All forward returns for one (ticker, date) with a SINGLE index lookup.
+
+    Rank on close[t]; enter at close[t+lag] (lag=0 = same-bar, lag>=1 = realistic
+    fill). Returns {h: close[t+lag+h]/close[t+lag] - 1} per horizon, NaN where
+    data runs out. Hoisting the searchsorted out of the horizon loop removes the
+    O(N*H) redundant lookups.
+    """
+    arr = close.values
+    n = len(arr)
     pos = close.index.searchsorted(as_of, side="right") - 1
-    if pos < 0 or pos >= len(close):
-        return np.nan
-    fwd = pos + horizon
-    if fwd >= len(close):
-        return np.nan
-    c0, c1 = close.iloc[pos], close.iloc[fwd]
-    if not (np.isfinite(c0) and np.isfinite(c1)) or c0 <= 0:
-        return np.nan
-    return c1 / c0 - 1.0
+    base = pos + lag
+    if pos < 0 or base < 0 or base >= n:
+        return {h: np.nan for h in horizons}
+    c0 = arr[base]
+    if not (np.isfinite(c0) and c0 > 0):
+        return {h: np.nan for h in horizons}
+    out: Dict[int, float] = {}
+    for h in horizons:
+        f = base + h
+        if f >= n:
+            out[h] = np.nan
+            continue
+        c1 = arr[f]
+        out[h] = (c1 / c0 - 1.0) if np.isfinite(c1) else np.nan
+    return out
 
 
 # -- statistics ----------------------------------------------------------------
@@ -218,26 +257,6 @@ def block_bootstrap_ci(series: np.ndarray, block_len: int,
     return (float(np.percentile(means, 2.5)), float(np.percentile(means, 97.5)))
 
 
-def forward_return_lagged(close: pd.Series, as_of: pd.Timestamp,
-                          horizon: int, lag: int = 1) -> float:
-    """
-    Realistic fill: rank on close[t], ENTER at close[t+lag], exit close[t+lag+h].
-    Removes the same-bar look-ahead in forward_return() (which enters at the very
-    close used to rank — unbuyable live).
-    """
-    pos = close.index.searchsorted(as_of, side="right") - 1
-    if pos < 0:
-        return np.nan
-    entry = pos + lag
-    exit_ = entry + horizon
-    if entry >= len(close) or exit_ >= len(close):
-        return np.nan
-    c0, c1 = close.iloc[entry], close.iloc[exit_]
-    if not (np.isfinite(c0) and np.isfinite(c1)) or c0 <= 0:
-        return np.nan
-    return c1 / c0 - 1.0
-
-
 def top_decile_members(scores: Dict[str, float], fwd: Dict[str, float]) -> set:
     """Tickers in the top 10% by score among names with a realized forward return."""
     common = [t for t in scores if t in fwd and np.isfinite(fwd[t])]
@@ -263,6 +282,9 @@ def main():
     ap.add_argument("--start", default=None)
     ap.add_argument("--end", default=None)
     ap.add_argument("--primary_horizon", type=int, default=20)
+    ap.add_argument("--date_col", default=None,
+                    help="Explicit datetime column in the price CSVs (e.g. 'time'). "
+                         "Default: autodetect date/datetime/timestamp.")
     ap.add_argument("--fill_lag", type=int, default=1,
                     help="Trading-day lag between ranking and entry for the realistic "
                          "fill check (1 = rank close[t], buy close[t+1]).")
@@ -298,14 +320,25 @@ def main():
         all_scores[dt] = sc
         universe |= set(sc.keys())
     print(f"  tickers referenced: {len(universe)}  -- loading price CSVs ...")
-    closes = load_close_series(data_dir, universe)
+    closes = load_close_series(data_dir, universe, date_col=args.date_col)
     print(f"  price CSVs loaded:  {len(closes)}/{len(universe)} "
           f"({100*len(closes)/max(len(universe),1):.0f}% coverage)")
 
-    # -- per-date IC at each horizon + top-decile excess at primary horizon --
+    # -- horizons: ensure the chosen primary horizon is always tracked --------
     ph = args.primary_horizon
-    ic_by_h: Dict[int, List[float]] = {h: [] for h in HORIZONS}
-    ic_dates: Dict[int, List[pd.Timestamp]] = {h: [] for h in HORIZONS}
+    horizons = sorted(set(HORIZONS) | {ph})
+
+    # -- master trading calendar (union of all price dates) for trading-day
+    #    spacing in the non-overlap subsample (robust to holidays/short weeks).
+    if closes:
+        _all = np.unique(np.concatenate([c.index.values for c in closes.values()]))
+        master_idx = pd.DatetimeIndex(_all)
+    else:
+        master_idx = pd.DatetimeIndex([])
+
+    # -- per-date IC at each horizon + top-decile excess at primary horizon --
+    ic_by_h: Dict[int, List[float]] = {h: [] for h in horizons}
+    ic_dates: Dict[int, List[pd.Timestamp]] = {h: [] for h in horizons}
     tde_vals: List[float] = []
     tde_dates: List[pd.Timestamp] = []
 
@@ -317,33 +350,44 @@ def main():
     tde_lag_vals: List[float] = []   # top-decile excess under realistic fill
 
     for dt, sc in all_scores.items():
-        for h in HORIZONS:
-            fwd = {t: forward_return(closes[t], dt, h) for t in sc if t in closes}
-            ic = spearman_ic(sc, fwd)
+        # One index lookup per ticker yields ALL horizons (standard fill) plus
+        # the primary horizon under the realistic lagged fill.
+        fwd_by_h: Dict[int, Dict[str, float]] = {h: {} for h in horizons}
+        fwd_lag: Dict[str, float] = {}
+        for t in sc:
+            c = closes.get(t)
+            if c is None:
+                continue
+            rets = forward_returns_at(c, dt, horizons, lag=0)
+            for h in horizons:
+                fwd_by_h[h][t] = rets[h]
+            if args.fill_lag > 0:
+                fwd_lag[t] = forward_returns_at(c, dt, [ph], lag=args.fill_lag)[ph]
+
+        for h in horizons:
+            ic = spearman_ic(sc, fwd_by_h[h])
             if ic is not None:
                 ic_by_h[h].append(ic)
                 ic_dates[h].append(dt)
-            if h == ph:
-                tde = top_decile_excess(sc, fwd)
-                if tde is not None:
-                    tde_vals.append(tde)
-                    tde_dates.append(dt)
-                # survivorship audit: scored-with-CSV vs realized-return available
-                _scored = [t for t in sc if t in closes]
-                surv_scored.append(len(_scored))
-                surv_valid.append(sum(1 for t in _scored
-                                      if np.isfinite(fwd.get(t, np.nan))))
-                # turnover: top-decile membership this date
-                topdec_seq.append(top_decile_members(sc, fwd))
-                # realistic fill (rank close[t], enter close[t+lag])
-                fwd_lag = {t: forward_return_lagged(closes[t], dt, h, args.fill_lag)
-                           for t in sc if t in closes}
-                _icl = spearman_ic(sc, fwd_lag)
-                _tdl = top_decile_excess(sc, fwd_lag)
-                if _icl is not None:
-                    ic_lag_vals.append(_icl)
-                if _tdl is not None:
-                    tde_lag_vals.append(_tdl)
+
+        fwd_p = fwd_by_h[ph]
+        tde = top_decile_excess(sc, fwd_p)
+        if tde is not None:
+            tde_vals.append(tde)
+            tde_dates.append(dt)
+        # survivorship audit: scored-with-CSV vs realized-return available
+        _scored = [t for t in sc if t in closes]
+        surv_scored.append(len(_scored))
+        surv_valid.append(sum(1 for t in _scored if np.isfinite(fwd_p.get(t, np.nan))))
+        # turnover: top-decile membership this date
+        topdec_seq.append(top_decile_members(sc, fwd_p))
+        # realistic fill (rank close[t], enter close[t+lag])
+        _icl = spearman_ic(sc, fwd_lag)
+        _tdl = top_decile_excess(sc, fwd_lag)
+        if _icl is not None:
+            ic_lag_vals.append(_icl)
+        if _tdl is not None:
+            tde_lag_vals.append(_tdl)
 
     # -- verdict assembly ----------------------------------------------------
     ic_arr = np.array(ic_by_h[ph], dtype=float)
@@ -358,13 +402,16 @@ def main():
         med_spacing = float(ph)
     overlap_lags = max(1, int(np.ceil(ph / max(med_spacing, 1.0))))
 
-    # Non-overlapping subsample: keep dates >= horizon trading days apart.
+    # Non-overlapping subsample: keep dates >= ph TRADING days apart, measured on
+    # the actual price calendar (not a calendar-day heuristic — robust to holidays
+    # and short weeks). Map each score date to its position in the master index.
     nonoverlap_idx = []
-    last_kept: Optional[pd.Timestamp] = None
+    last_pos: Optional[int] = None
     for i, d in enumerate(ph_dates):
-        if last_kept is None or (d - last_kept).days >= ph * 1.4:  # ~h trading days
+        pos = int(master_idx.searchsorted(d)) if len(master_idx) else i
+        if last_pos is None or (pos - last_pos) >= ph:
             nonoverlap_idx.append(i)
-            last_kept = d
+            last_pos = pos
     ic_nonoverlap = ic_arr[nonoverlap_idx] if nonoverlap_idx else ic_arr
 
     mean_ic = float(np.mean(ic_arr)) if len(ic_arr) else 0.0
@@ -372,7 +419,9 @@ def main():
     block_lo, block_hi = block_bootstrap_ci(ic_arr, block_len=overlap_lags + 1)
     nw_t = newey_west_tstat(ic_arr, overlap_lags)
     tde_arr = np.array(tde_vals, dtype=float)
-    tde_ci = bootstrap_ci(tde_arr)
+    # top-decile returns carry the SAME overlapping-window autocorrelation as IC,
+    # so use the block bootstrap here too — an IID CI would be overconfident.
+    tde_ci = block_bootstrap_ci(tde_arr, block_len=overlap_lags + 1)
 
     # -- (1) autocorrelation-aware significance is folded into ic_primary below
 
@@ -433,7 +482,7 @@ def main():
             "boot_ci95_block": [block_lo, block_hi],
         },
         "ic_decay": {str(h): float(np.mean(ic_by_h[h])) if ic_by_h[h] else None
-                     for h in HORIZONS},
+                     for h in horizons},
         "ic_by_year": by_year,
         "top_decile_excess": {
             "mean": gross_tde,
@@ -474,7 +523,7 @@ def main():
     print(f"  95% CI  (block)  : [{ip['boot_ci95_block'][0]:+.4f}, {ip['boot_ci95_block'][1]:+.4f}]  <- autocorr-aware")
 
     print(f"\n  IC decay curve:")
-    for h in HORIZONS:
+    for h in horizons:
         v = verdict["ic_decay"][str(h)]
         bar = "#" * int(abs(v) * 200) if v is not None else ""
         print(f"    {h:>3}d : {v:+.4f} {bar}" if v is not None else f"    {h:>3}d :   n/a")
@@ -486,7 +535,7 @@ def main():
     td = verdict["top_decile_excess"]
     print(f"\n  Top-decile excess @ {ph}d (close[t] fill):")
     print(f"    mean {td['mean']*100:+.2f}%  t={td['t_stat']:+.2f}  "
-          f"CI95 [{td['boot_ci95'][0]*100:+.2f}%, {td['boot_ci95'][1]*100:+.2f}%]")
+          f"block-CI95 [{td['boot_ci95'][0]*100:+.2f}%, {td['boot_ci95'][1]*100:+.2f}%]")
 
     rf = verdict["realistic_fill"]
     print(f"\n  Realistic fill (rank close[t], enter close[t+{rf['fill_lag_days']}]):")

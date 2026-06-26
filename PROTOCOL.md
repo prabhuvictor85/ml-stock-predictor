@@ -68,6 +68,49 @@ Recorded here so the run is reproducible and the config is provably fixed:
 
 Any change to the above after committing this file invalidates the test.
 
+### 3.1 Configuration changelog (researcher-degrees-of-freedom ledger)
+
+Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
+**must post-date every entry below** — an older binary reproduces the old recipe.
+
+- **2026-06-26 — HPO feature-set construction corrected (production runners).**
+  Fix applied to `run_sp500_local.py`, `run_nse_local.py`,
+  `run_nse_tradingv_local.py` (the scripts §4 actually invokes). Each Optuna
+  trial previously used `pre_selected[:top_k]`. Because `FeatureSelector.select()`
+  returns the ~29 `ALWAYS_INCLUDE` features at the *front* of the list, that
+  front-slice handed every trial ~20–30 forced features and almost **zero**
+  data-ranked ones — so HPO (including the `feature_top_K` choice and all tree
+  params) was tuned on the hand-picked set, while the final model shipped
+  `forced + top_k ordinary` (~49–59 features). Trials now build
+  `_forced_pre + _ordinary_pre[:top_k]`, matching the final model exactly.
+  (`pipeline/train.py`, a legacy/secondary entry point not used by §4, was
+  corrected the same way earlier but does not affect the lockbox run.)
+  *Implication:* any HPO recipe / `ensemble.pkl` / `selected_features.txt`
+  produced before this date is from the buggy construction and must be
+  regenerated before the lockbox run.
+
+- **2026-06-26 — ICT feature-pool leak fixed (`pipeline/features/engineer.py`).**
+  The 1d ICT column prefixer used a hardcoded list that had drifted out of sync,
+  so ~50 ICT features (premium/discount, CHoCH/MSS, Breaker Blocks, fill-pct,
+  displacement quality, prior-session levels, liquidity-pool stats, OB entry/
+  rejection) were emitted **unprefixed** and never reached the model — they sat
+  in the panel as dead `ict_*` columns the FeatureSelector ignores. Prefixing is
+  now dynamic (all `ict_*` → `features_ict_*`). *Implication:* the available
+  feature pool grows materially; the FeatureSelector now sees these ~50 columns
+  for the first time. Treat as a recipe change — regenerate artefacts and
+  re-run selection before the lockbox.
+
+- **2026-06-26 — Ranker target NaNs dropped, not zero-filled (production runners).**
+  `run_sp500_local.py`, `run_nse_local.py`, `run_nse_tradingv_local.py`
+  previously did `cs_rank_composite.fillna(0)` when building the ranker label
+  (HPO folds + final fit). Rows with an unknowable forward-return rank
+  (delisted/halted tickers, last ~20 trading days) were thereby labelled rank 0
+  — the *worst* stock in the cross-section — corrupting the LambdaRank target.
+  Those rows are now dropped from ranker training and the LightGBM group array
+  is recomputed to stay aligned (the classifier head already used its own
+  `notna` mask, unchanged). *Implication:* changes the training label set →
+  regenerate any pre-this-date model artefacts before the lockbox run.
+
 ---
 
 ## 4. Procedure (all on Hetzner; isolated via ML_ARTEFACTS_ROOT)

@@ -16,9 +16,13 @@ from typing import List
 import numpy as np
 import pandas as pd
 from pipeline.config.base import MarketConfig
-from pipeline.features.ict_features import ICTFeatureEngine, _wilder_atr, _wilder_adx
+from pipeline.features.ict_features import ICTFeatureEngine, _wilder_atr, _wilder_adx, _wilder_di
 from pipeline.features.multitf_merger import MultiTFMerger
-from pipeline.features.zone_features import compute_zone_features
+from pipeline.features.zone_features import (
+    compute_zone_features, _MONTH_END, _QUARTER_END, _YEAR_END,
+    _ZONE_PROXIMITY_PCT,
+)
+from pipeline.features.structure_features import structure_feature_frame
 from pipeline.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -26,27 +30,43 @@ log = get_logger(__name__)
 FEATURE_PREFIX = "features_"
 
 # ── Multi-timeframe ICT constants ─────────────────────────────────────────────
-_ICT_HTF_RESAMPLE = {"1wk": "W-FRI", "1mo": "ME", "3mo": "QE", "1y": "YE"}
+# Period-end aliases come from zone_features.py, which picks the spelling the
+# installed pandas accepts (M/Q/Y on <2.2, ME/QE/YE on >=2.2). Hardcoded "ME"
+# silently zeroed the 1mo/3mo/1y ICT contributions on pandas <2.2 — the
+# per-TF try/except logged it at DEBUG and moved on.
+_ICT_HTF_RESAMPLE = {"1wk": "W-FRI", "1mo": _MONTH_END, "3mo": _QUARTER_END, "1y": _YEAR_END}
 
 # Zone expiry in bars per timeframe — stale zones deactivate after this many bars.
 # daily=63 (~3mo), weekly=26 (~6mo), monthly=12 (1yr), quarterly=8 (2yr), yearly=3 (3yr)
 _ICT_ZONE_EXPIRY = {"1d": 63, "1wk": 26, "1mo": 12, "3mo": 8, "1y": 3}
-# Optional displacement-gate ATR multiple per timeframe. The reference Pine
-# indicator qualifies OB/FVG structurally (no absolute ATR gate), so the gate is
-# DISABLED (0.0) by default to preserve fidelity — a non-structural 3.0x gate had
-# annihilated 100% of Order Blocks. Set a positive value per timeframe only to
-# experiment with an extra institutional-displacement filter.
-_ICT_DISP_MULT   = {"1d": 0.0, "1wk": 0.0, "1mo": 0.0, "3mo": 0.0, "1y": 0.0}
+# Displacement-gate ATR multiple per timeframe: an OB/FVG only registers when
+# the move that created it spans >= this many ATRs (institutional displacement,
+# not drift). Measured dose-response on 25 US tickers, 750d, daily TF
+# (proximity gate on):
+#   disp 0.0 -> OB 39% / FVG 40% of days active  (saturated - no discrimination)
+#   disp 1.0 -> OB 14% / FVG 25%                 (selective)
+#   disp 1.5 -> OB  3%                            (near-annihilation; 3.0 killed 100%)
+# 1.0 thins creation rate without breaking structural fidelity; Breaker Blocks
+# are unaffected (already gated by swing + sweep + engulfing structure).
+_ICT_DISP_MULT   = {"1d": 1.0, "1wk": 1.0, "1mo": 1.0, "3mo": 1.0, "1y": 1.0}
+_ICT_IMPL_MODE   = "legacy"  # switch to "institutional" for stricter OB/FVG defaults
 _ICT_HTF_W        = {"1d": 1, "1wk": 2, "1mo": 3, "3mo": 4, "1y": 5}
 _ICT_SIGNAL_MAX   = float(sum(_ICT_HTF_W.values()))   # 15.0
-_ICT_PRIORITY_MAX = 3.0   # max ZonePriority value (BB = 3)
+_ICT_PRIORITY_MAX = 4.0   # max ZonePriority value (BK = 4)
 
 # Columns carried from each HTF ICT run back to the daily index
 _ICT_CARRY_COLS = [
-    "ict_bob_active",   "ict_bullbb_active",   "ict_bullfvg_active",
-    "ict_sob_active",   "ict_bearbb_active",   "ict_bearfvg_active",
+    "ict_bob_active",   "ict_bullrb_active",   "ict_bullfvg_active",
+    "ict_sob_active",   "ict_bearrb_active",   "ict_bearfvg_active",
+    "ict_bull_bos", "ict_bear_bos",
+    "ict_bob_bos_conf", "ict_sob_bos_conf",
+    "ict_bullfvg_bos_conf", "ict_bearfvg_bos_conf",
+    "ict_bullfvg_sweep_conf", "ict_bearfvg_sweep_conf",
+    "ict_bull_ob_fvg_confluence", "ict_bear_ob_fvg_confluence",
     "ict_bsl_swept",    "ict_ssl_swept",
     "ict_bull_zone_priority", "ict_bear_zone_priority",
+    "ict_bob_entered_recent", "ict_sob_entered_recent",
+    "ict_bob_rejection",      "ict_sob_rejection",
 ]
 
 
@@ -57,10 +77,49 @@ def _rolling_beta(ticker_log_rets: pd.Series, bm_log_rets: pd.Series, window: in
     return (cov / var.replace(0, np.nan)).reindex(ticker_log_rets.index)
 
 
+# Values a discrete feature may take: binary flags (0/1), signs (-1/0/+1),
+# half-step composites, and small integer codes (ict zone priority 0..4).
+_DISCRETE_VALUES = np.array([-1.0, -0.5, 0.0, 0.5, 1.0, 2.0, 3.0, 4.0])
+
+# Bounded-by-construction features: ADX/DI live in ~[0,100], so there are no
+# outliers to tame — and winsorizing the one-sided pair (adx_bull/adx_bear)
+# actively corrupts it: on a date where <1% of stocks sit on one side, the
+# lower-percentile clip lifts the structural zeros ("other side in control")
+# to a positive value, breaking the mutual exclusivity the split exists for.
+_WINSORIZE_EXCLUDE = {
+    f"{FEATURE_PREFIX}adx_14",
+    f"{FEATURE_PREFIX}plus_di",
+    f"{FEATURE_PREFIX}minus_di",
+    f"{FEATURE_PREFIX}adx_bull",
+    f"{FEATURE_PREFIX}adx_bear",
+}
+
+
+def _is_discrete_feature(values: np.ndarray) -> bool:
+    """True for flag/sign/priority columns that must not be winsorized."""
+    vals = values[~np.isnan(values)]
+    if vals.size == 0:
+        return False
+    uniq = np.unique(vals)
+    return len(uniq) <= 6 and np.isin(uniq, _DISCRETE_VALUES).all()
+
+
 def _winsorize_per_date(panel: pd.DataFrame, feature_cols: List[str], lo: float = 1.0, hi: float = 99.0) -> pd.DataFrame:
-    """Winsorize features at [lo, hi] percentile cross-sectionally per date."""
+    """Winsorize continuous features at [lo, hi] percentile per date.
+
+    Discrete columns (binary flags, signs, dummies, zone-priority codes) are
+    skipped: clipping a 0/1 column at the per-date 99th percentile ERASES rare
+    flags outright — e.g. 10 of 1500 stocks in a yearly SDZ puts the 99th
+    percentile at 0, turning all ten 1s into 0s. That destroys the signal
+    precisely on the dates it is rarest and most informative. A yes/no answer
+    has no outliers to tame.
+    """
     for col in feature_cols:
         if col not in panel.columns:
+            continue
+        if col in _WINSORIZE_EXCLUDE:
+            continue
+        if _is_discrete_feature(panel[col].values.astype(float)):
             continue
         panel[col] = (
             panel.groupby(level="date")[col].transform(
@@ -116,15 +175,27 @@ class FeatureEngineer:
 
             # ── ATR (Wilder) ──────────────────────────────────────────────
             atr14 = _wilder_atr(h, l, c, 14)
-            safe_atr = np.where(np.isnan(atr14) | (atr14 == 0), 1e-8, atr14)
+            # Floor ATR at 5 bps of price — same guard as ict_features.py. On
+            # stale/illiquid tickers ATR decays toward 0 and every /ATR feature
+            # (price_vs_sma*, sma slopes, returns) explodes to thousands of
+            # "ATRs", which also contaminates the per-date winsorize bounds for
+            # healthy stocks. A sub-5bps daily range is noise, not signal.
+            # Invalid ATR (NaN/<=0) stays NaN — the NaN-native model reads it
+            # as "unknown", not as a meaningful value.
+            atr_floor = np.abs(c) * 5e-4
+            safe_atr = np.where(np.isnan(atr14) | (atr14 <= 0), np.nan,
+                                np.where(atr14 > atr_floor, atr14, atr_floor))
             grp["atr_14"] = atr14
 
             # Percentage ATR = ATR / close — keeps return normalization dimensionless
             # and consistent across stocks regardless of absolute price level.
             # Use this ONLY for normalizing log returns (which are already dimensionless).
             # Price-vs-SMA and SMA-slope features stay on absolute-ATR units (both ₹).
+            # safe_atr is floored at 5 bps of price, so pct_atr >= 5e-4 whenever
+            # valid; invalid stays NaN (the old 1e-6 pseudo-floor turned unknown
+            # ATR into million-fold return explosions).
             pct_atr = safe_atr / np.where(c > 0, c, np.nan)
-            safe_pct_atr = np.where(np.isnan(pct_atr) | (pct_atr == 0), 1e-6, pct_atr)
+            safe_pct_atr = pct_atr
 
             # ATR percentile rank in trailing 252d window
             # Use pandas rolling.rank(pct=True) — vectorised, no per-row Python call
@@ -140,7 +211,26 @@ class FeatureEngineer:
             grp[f"{FEATURE_PREFIX}compression_score"] = 1.0 - vol_contraction
 
             # ── ADX ───────────────────────────────────────────────────────
-            grp[f"{FEATURE_PREFIX}adx_14"] = _wilder_adx(h, l, c, 14)
+            _adx14 = _wilder_adx(h, l, c, 14)
+            grp[f"{FEATURE_PREFIX}adx_14"] = _adx14
+
+            # ── Directional ADX (+DI / −DI) ───────────────────────────────
+            # Raw ADX is direction-blind: abs(+DI − −DI) gives the SAME value
+            # for a strong uptrend and a strong downtrend (NKE: ADX 36 in a
+            # falling stock read identically to a 36-ADX breakout). Expose
+            # +DI, −DI and their sign so the model (next retrain) and the
+            # momentum-bull gate (now) can distinguish "strong up" from
+            # "strong down".
+            _plus_di, _minus_di = _wilder_di(h, l, c, 14)
+            grp[f"{FEATURE_PREFIX}plus_di"]  = _plus_di
+            grp[f"{FEATURE_PREFIX}minus_di"] = _minus_di
+            # +1 = bulls in control (+DI>−DI), −1 = bears in control (−DI>+DI)
+            grp[f"{FEATURE_PREFIX}adx_dir"]  = np.sign(_plus_di - _minus_di)
+            # One-sided split — same dialect as sdz/ssz and regime_bull/bear:
+            # trend strength owned by each side. NKE-type bars read
+            # adx_bull=0 / adx_bear=36, needing no learned interaction.
+            grp[f"{FEATURE_PREFIX}adx_bull"] = np.where(_plus_di > _minus_di, _adx14, 0.0)
+            grp[f"{FEATURE_PREFIX}adx_bear"] = np.where(_minus_di > _plus_di, _adx14, 0.0)
 
             # ── Log returns (percentage-ATR-normalized) ───────────────────
             # Log returns are dimensionless; dividing by absolute ATR (₹) creates
@@ -245,13 +335,18 @@ class FeatureEngineer:
             grp[f"{FEATURE_PREFIX}rolling_beta_60d"] = beta.values
 
             # ── ICT features ──────────────────────────────────────────────
-            grp = self._ict.compute(grp, disp_mult=_ICT_DISP_MULT["1d"])
+            # proximity_pct: same per-TF "price left the zone behind" gate the
+            # ZoneAnalyzer uses — keeps the two zone engines' semantics aligned.
+            grp = self._ict.compute(grp,
+                                    implementation_mode=_ICT_IMPL_MODE,
+                                    disp_mult=_ICT_DISP_MULT["1d"],
+                                    proximity_pct=_ZONE_PROXIMITY_PCT["1d"])
 
             # ── ICT signal counts (debug logging) ────────────────────────
             _n_bob     = int(grp.get("ict_bob_active",     pd.Series(0)).sum())
             _n_sob     = int(grp.get("ict_sob_active",     pd.Series(0)).sum())
-            _n_bullbb  = int(grp.get("ict_bullbb_active",  pd.Series(0)).sum())
-            _n_bearbb  = int(grp.get("ict_bearbb_active",  pd.Series(0)).sum())
+            _n_bullbb  = int(grp.get("ict_bullrb_active",  pd.Series(0)).sum())
+            _n_bearbb  = int(grp.get("ict_bearrb_active",  pd.Series(0)).sum())
             _n_bullfvg = int(grp.get("ict_bullfvg_active", pd.Series(0)).sum())
             _n_bearfvg = int(grp.get("ict_bearfvg_active", pd.Series(0)).sum())
             _n_bsl     = int(grp.get("ict_bsl_swept",      pd.Series(0)).sum())
@@ -267,29 +362,18 @@ class FeatureEngineer:
             if _n_bob == 0 and _n_bullbb == 0 and _n_bullfvg == 0:
                 log.warning(f"{ticker}: NO bull ICT signals detected in {len(grp)} bars — check OHLCV quality")
 
-            for ict_col in [
-                # Order Blocks
-                "ict_bob_active",
-                "ict_bob_atr_dist",    "ict_bob_pct_dist",   # Bull OB distances
-                "ict_sob_active",
-                "ict_sob_atr_dist",    "ict_sob_pct_dist",   # Bear OB distances
-                # Breaker Blocks (highest-priority ICT signal)
-                "ict_bullbb_active",
-                "ict_bullbb_atr_dist", "ict_bullbb_pct_dist",
-                "ict_bearbb_active",
-                "ict_bearbb_atr_dist", "ict_bearbb_pct_dist",
-                # Fair Value Gaps
-                "ict_bullfvg_active",
-                "ict_bullfvg_atr_dist","ict_bullfvg_pct_dist",
-                "ict_bearfvg_active",
-                "ict_bearfvg_atr_dist","ict_bearfvg_pct_dist",
-                # Liquidity sweeps
-                "ict_bsl_swept",       "ict_ssl_swept",
-                # Zone priority metadata
-                "ict_bull_zone_priority", "ict_bear_zone_priority",
-            ]:
-                if ict_col in grp.columns and not ict_col.startswith(FEATURE_PREFIX):
-                    grp[f"{FEATURE_PREFIX}{ict_col}"] = grp.pop(ict_col)
+            # Prefix every 1d ICT feature column dynamically. ICTFeatureEngine emits
+            # many families (zones, BOS/CHoCH, premium/discount, liquidity pools,
+            # fill/rejection, prior-session levels). A hardcoded list here drifted
+            # out of sync as ICT features were added — silently leaking the new
+            # columns into the panel unprefixed, so the model never saw them (and
+            # the raw-ICT-leak guard test failed). Materialise the column list FIRST
+            # (so grp isn't mutated mid-iteration), then prefix all ict_* columns.
+            # HTF ICT columns are added below already prefixed, so only raw 1d
+            # columns are caught here.
+            for ict_col in [c for c in grp.columns
+                            if c.startswith("ict_") and not c.startswith(FEATURE_PREFIX)]:
+                grp[f"{FEATURE_PREFIX}{ict_col}"] = grp.pop(ict_col)
 
             # ── Multi-timeframe ICT (1wk / 1mo / 3mo / 1y) ───────────────────
             # For each HTF: resample OHLCV → compute ATR → run ICT engine →
@@ -333,8 +417,10 @@ class FeatureEngineer:
                         # Run ICT engine on HTF bars with timeframe-appropriate zone expiry + displacement gate
                         htf_ict = self._ict.compute(
                             htf,
+                            implementation_mode=_ICT_IMPL_MODE,
                             zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label],
                             disp_mult=_ICT_DISP_MULT[tf_label],
+                            proximity_pct=_ZONE_PROXIMITY_PCT[tf_label],
                         )
 
                         # Carry active cols back to daily via merge_asof (backward fill)
@@ -413,6 +499,23 @@ class FeatureEngineer:
             grp[f"{FEATURE_PREFIX}zone_active"]   = grp["zone_active_1d"].astype(np.float32)
             grp[f"{FEATURE_PREFIX}zone_dist_atr"] = grp["zone_dist_atr_1d"].astype(np.float32)
             grp[f"{FEATURE_PREFIX}zone_strength"] = grp["zone_strength_1d"].astype(np.float32)
+
+            # ── BOS/CHoCH market-structure features (toggle) ─────────────────
+            # Initial build (no cutoff). Per-fold causal recompute happens in
+            # recompute_fold_features. OFF by default → zero baseline impact.
+            if getattr(self.cfg, "use_structure_features", False):
+                try:
+                    sf = structure_feature_frame(
+                        grp[["open", "high", "low", "close", "volume"]],
+                        cutoff_date=None,
+                        prefix=FEATURE_PREFIX,
+                        major_swing_length=getattr(self.cfg, "structure_major_swing", 25),
+                        minor_swing_length=getattr(self.cfg, "structure_minor_swing", 5),
+                    )
+                    for scol in sf.columns:
+                        grp[scol] = sf[scol].values
+                except Exception as e:
+                    log.warning(f"{ticker}: structure features failed ({e}) — skipped")
 
             # HTF composite scores
             sdz_score = np.zeros(len(grp), dtype=np.float32)
@@ -658,7 +761,8 @@ class FeatureEngineer:
             # atr_14 already present from engineer.build() — no recompute needed.
             if len(grp_cut) >= 10:
                 try:
-                    ict_result   = self._ict.compute(grp_cut, disp_mult=_ICT_DISP_MULT["1d"])
+                    ict_result   = self._ict.compute(grp_cut, disp_mult=_ICT_DISP_MULT["1d"],
+                                                     proximity_pct=_ZONE_PROXIMITY_PCT["1d"])
                     raw_ict_cols = [c for c in ict_result.columns if c.startswith("ict_")]
                     for raw_col in raw_ict_cols:
                         feat_col = f"{FEATURE_PREFIX}{raw_col}"
@@ -709,6 +813,7 @@ class FeatureEngineer:
                             htf,
                             zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label],
                             disp_mult=_ICT_DISP_MULT[tf_label],
+                            proximity_pct=_ZONE_PROXIMITY_PCT[tf_label],
                         )
                         htf_reset = htf_ict.reset_index()
                         date_col  = htf_reset.columns[0]
@@ -756,6 +861,21 @@ class FeatureEngineer:
                         grp[col] = zone_result[col].values
             except Exception as e:
                 log.warning(f"{ticker}: zone recompute failed ({e})")
+
+            # ── 3b. Structure recompute (cutoff guard, toggle) ───────────────
+            if getattr(self.cfg, "use_structure_features", False):
+                try:
+                    sf = structure_feature_frame(
+                        ohlcv_full,
+                        cutoff_date=cutoff_date,
+                        prefix=FEATURE_PREFIX,
+                        major_swing_length=getattr(self.cfg, "structure_major_swing", 25),
+                        minor_swing_length=getattr(self.cfg, "structure_minor_swing", 5),
+                    )
+                    for scol in sf.columns:
+                        grp[scol] = sf.reindex(full_index)[scol].values
+                except Exception as e:
+                    log.warning(f"{ticker}: structure recompute failed ({e})")
 
             # Rebuild zone composite columns
             sdz = np.zeros(len(grp), dtype=np.float32)

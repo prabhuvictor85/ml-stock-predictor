@@ -60,11 +60,18 @@ def test_htf_resample_rules_are_right_labelled():
     backward attaches a still-incomplete (future) period to early daily bars —
     a look-ahead leak.
     """
-    assert _ICT_HTF_RESAMPLE["1mo"] == "ME"
-    assert _ICT_HTF_RESAMPLE["3mo"] == "QE"
-    assert _ICT_HTF_RESAMPLE["1y"] == "YE"
+    # Aliases are version-resolved (M/Q/Y on pandas <2.2, ME/QE/YE on >=2.2);
+    # assert period-END anchoring, not a literal spelling.
+    assert _ICT_HTF_RESAMPLE["1mo"] in ("M", "ME")
+    assert _ICT_HTF_RESAMPLE["3mo"] in ("Q", "QE")
+    assert _ICT_HTF_RESAMPLE["1y"] in ("Y", "YE")
     # Weekly is right-anchored on Friday already — safe.
     assert _ICT_HTF_RESAMPLE["1wk"] == "W-FRI"
+    # Semantic check: monthly bars labelled at period END, never start.
+    idx = pd.date_range("2024-01-01", "2024-03-31", freq="D")
+    df = pd.DataFrame({"x": np.arange(len(idx), dtype=float)}, index=idx)
+    res = df.resample(_ICT_HTF_RESAMPLE["1mo"]).agg({"x": "last"}).dropna()
+    assert res.index[0] == pd.Timestamp("2024-01-31")
 
 
 def test_no_lookahead_in_monthly_merge_asof():
@@ -94,7 +101,7 @@ def test_zone_violation_latch_is_sticky():
     """
     out = ICTFeatureEngine().compute(_ob_then_violation_path(), disp_mult=3.0)
     # The path forms a bull Breaker Block (outranks the OB) at bar 21.
-    a = out["ict_bullbb_active"].values
+    a = out["ict_bullrb_active"].values
     assert np.all(a[21:30] == 1), "zone should be live while price holds above it"
     assert a[30] == 0, "zone must deactivate on violation"
     assert np.all(a[31:40] == 0), "violated zone must NOT resurrect on recovery"
@@ -108,11 +115,12 @@ def test_zone_priority_is_persistent_not_trigger_instant():
     """
     out = ICTFeatureEngine().compute(_ob_then_violation_path(), disp_mult=3.0)
     prio = out["ict_bull_zone_priority"].values
-    # Live window 21..29 should all carry the BB priority (3), not a lone spike.
-    assert np.all(prio[21:30] == 3.0)
+    # Bar 20's SOB is violated by the bar21 rally, creating a Bull BK (priority 4)
+    # alongside the RB (priority 3). BK outranks RB, so the live priority is 4.
+    assert np.all(prio[21:30] == 4.0)
     assert prio[30] == 0.0
     # Distance features must be zeroed once the zone is dead.
-    dist = out["ict_bullbb_atr_dist"].values
+    dist = out["ict_bullrb_atr_dist"].values
     assert np.all(dist[21:30] != 0)
     assert np.all(dist[31:40] == 0)
 
@@ -169,10 +177,79 @@ def test_order_block_fires_without_displacement_gate():
     assert gated["ict_bob_active"].sum() == 0, "3x ATR gate wrongly kills the OB"
 
 
-def test_default_disp_mult_is_gate_off():
-    """The engine default and the engineer per-timeframe map must keep the gate
-    disabled (0.0) so OB/FVG match the reference indicator out of the box."""
+def test_disp_mult_policy():
+    """Engine DEFAULTS stay neutral (gates off — standalone use matches the
+    reference Pine indicator). The PIPELINE map applies a measured 1.0x ATR
+    displacement gate: 0.0 saturated OB/FVG at ~40% of stock-days each
+    (~88%% union across TFs — no discrimination), 1.0 thins to 14%/25%,
+    and >=1.5 approaches annihilation (3.0 killed 100% of OBs).
+    Guards both against silently re-disabling the gate and against
+    re-introducing the annihilation-grade values."""
     import inspect
     sig = inspect.signature(ICTFeatureEngine.compute)
-    assert sig.parameters["disp_mult"].default == 0.0
-    assert all(v == 0.0 for v in _ICT_DISP_MULT.values())
+    assert sig.parameters["disp_mult"].default == 0.0       # standalone fidelity
+    assert sig.parameters["proximity_pct"].default == 0.0   # standalone fidelity
+    assert all(v == 1.0 for v in _ICT_DISP_MULT.values()), (
+        "pipeline displacement gate must stay at the measured 1.0 — "
+        "0.0 saturates, >=1.5 annihilates"
+    )
+
+
+def test_high_conviction_fvg_is_sweep_gated():
+    """High-conviction FVG triggers must be gated by opposite-side recent sweeps."""
+    out = ICTFeatureEngine().compute(_ob_then_violation_path(), fvg_sweep_lookback=3)
+
+    assert "ict_bullfvg_sweep_conf" in out.columns
+    assert "ict_bearfvg_sweep_conf" in out.columns
+
+    bull_conf = out["ict_bullfvg_sweep_conf"].values.astype(float)
+    bear_conf = out["ict_bearfvg_sweep_conf"].values.astype(float)
+    bsl = out["ict_bsl_swept"].values.astype(float)
+    ssl = out["ict_ssl_swept"].values.astype(float)
+
+    assert np.isin(bull_conf, [0.0, 1.0]).all()
+    assert np.isin(bear_conf, [0.0, 1.0]).all()
+
+    # If a high-conviction trigger fires at i, at least one opposite-side
+    # sweep must exist in the causal window [i-2, i].
+    for i in range(len(out)):
+        if bull_conf[i] == 1.0:
+            lo = max(0, i - 2)
+            assert ssl[lo:i + 1].max() == 1.0
+        if bear_conf[i] == 1.0:
+            lo = max(0, i - 2)
+            assert bsl[lo:i + 1].max() == 1.0
+
+
+def test_bos_companion_features_are_binary_and_causal():
+    """BOS companion signals must be binary and require recent BOS context."""
+    out = ICTFeatureEngine().compute(_ob_then_violation_path(), bos_lookback=3)
+
+    needed = [
+        "ict_bull_bos", "ict_bear_bos",
+        "ict_bob_bos_conf", "ict_sob_bos_conf",
+        "ict_bullfvg_bos_conf", "ict_bearfvg_bos_conf",
+    ]
+    for col in needed:
+        assert col in out.columns
+        vals = out[col].values.astype(float)
+        assert np.isin(vals, [0.0, 1.0]).all()
+
+    bull_bos = out["ict_bull_bos"].values.astype(float)
+    bear_bos = out["ict_bear_bos"].values.astype(float)
+
+    for col in ["ict_bob_bos_conf", "ict_bullfvg_bos_conf"]:
+        conf = out[col].values.astype(float)
+        for i in range(len(out)):
+            if conf[i] == 1.0:
+                lo = max(0, i - 2)
+                assert bull_bos[lo:i + 1].max() == 1.0
+
+    for col in ["ict_sob_bos_conf", "ict_bearfvg_bos_conf"]:
+        conf = out[col].values.astype(float)
+        for i in range(len(out)):
+            if conf[i] == 1.0:
+                lo = max(0, i - 2)
+                assert bear_bos[lo:i + 1].max() == 1.0
+
+

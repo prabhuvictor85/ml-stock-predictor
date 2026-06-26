@@ -1,7 +1,7 @@
 """
 run_sp500_local.py — End-to-end S&P 500 + NASDAQ 100 pipeline using LOCAL CSV stock data.
 
-Universe  : S&P 500 + NASDAQ 100 combined (~540-560 unique tickers after dedup)
+Universe  : S&P 500 + NASDAQ 100 combined + SP400 and SP600 and stocks added and used by peers (~1600 unique tickers after dedup)
 Benchmark : Blended SPX (40%) + NDX (60%) — reflects a tech-heavy portfolio
 
 Reads:
@@ -509,9 +509,9 @@ def build_panel_from_local(
     set in_universe=True for tickers with enough history, assign group_date.
     Uses ThreadPoolExecutor for parallel CSV I/O.
     """
-    from pipeline.config.nse import NSE_CONFIG
+    from pipeline.config.sp500 import SP500_CONFIG
     from concurrent.futures import ThreadPoolExecutor, as_completed
-    cfg = NSE_CONFIG
+    cfg = SP500_CONFIG
     _sector_map = sector_map or {}
 
     print(f"Loading {len(tickers)} local CSV files (parallel I/O) ...")
@@ -605,7 +605,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     from pipeline.validation.leakage_tests import LeakageTestSuite
     from pipeline.models.lgbm_ranker import LGBMRanker, cs_rank_to_label
     from pipeline.models.ensemble import EnsembleRanker
-    from pipeline.selection.selector import FeatureSelector
+    from pipeline.selection.selector import FeatureSelector, ALWAYS_INCLUDE
     from pipeline.validation.metrics import compute_fold_metrics, ndcg_at_k
     from pipeline.monitoring.drift_monitor import FeatureDriftMonitor
 
@@ -799,6 +799,12 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         _pre_sel = FeatureSelector(seed=cfg.random_seed)
         pre_selected = _pre_sel.select(X_hpo_cls, y_hpo_cls, top_k=50)  # generous pool
         print(f"      Pre-selected {len(pre_selected)} features for HPO")
+        # select() returns [forced..., ordinary...] with the ALWAYS_INCLUDE features
+        # at the FRONT. A naive pre_selected[:top_k] scoops only forced features;
+        # split here so each trial uses forced + top_k DATA-RANKED ordinary features —
+        # the same construction the final model is built from (no HPO/final mismatch).
+        _forced_pre   = [f for f in pre_selected if f in ALWAYS_INCLUDE]
+        _ordinary_pre = [f for f in pre_selected if f not in ALWAYS_INCLUDE]
         del full_grp_hpo, X_hpo_cls, y_hpo_cls, _pre_sel  # free selector + inputs
         import gc as _gc2; _gc2.collect()
         try:  # return freed pages to the OS — gc.collect() alone doesn't do this on Linux
@@ -955,7 +961,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
         def objective(trial):
             top_k    = trial.suggest_categorical("feature_top_K", [20, 30, 40, 50])
-            sf_trial = pre_selected[:top_k]
+            sf_trial = _forced_pre + _ordinary_pre[:top_k]
 
             params = {
                 "num_leaves":        trial.suggest_int("num_leaves", 20, 200),
@@ -994,7 +1000,16 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 if not sf_te2:
                     continue
 
-                _rank = tr_grp["cs_rank_composite"].fillna(0)
+                # Drop rows with unknown forward-return rank (delisted/halted/last
+                # ~20d). fillna(0) would mislabel them as the WORST stock in the
+                # cross-section — label corruption in a ranking objective. Drop
+                # X+y together and recompute group sizes so they stay aligned.
+                _lbl_mask = tr_grp["cs_rank_composite"].notna()
+                tr_grp    = tr_grp.loc[_lbl_mask]
+                if len(tr_grp) == 0:
+                    continue
+                tr_groups = tr_grp.groupby(level="date").size().values
+                _rank  = tr_grp["cs_rank_composite"]
                 y_tr_r = 1.0 - _rank if mode == "reversal" else _rank
 
                 t_fold = _time.time()
@@ -1058,8 +1073,13 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 print(f"     Trial {trial.number}: only {len(ndcg_vals)} valid folds (<{MIN_VALID_FOLDS}) — pruned", flush=True)
                 raise optuna.exceptions.TrialPruned()
             if np.mean(top_dec_vals) <= 0:
-                print(f"     Trial {trial.number}: mean top-decile excess={np.mean(top_dec_vals):.4f} <= 0 — pruned", flush=True)
-                raise optuna.exceptions.TrialPruned()
+                # Completed trial with no top-decile edge: return a strong-negative
+                # score, NOT TrialPruned. A pruned trial is dropped from the TPE
+                # sampler's model, so the optimizer never learns to avoid this
+                # region — a low completed value does. -1.0 sits clearly below
+                # every valid NDCG-based objective (~[0, 0.6]).
+                print(f"     Trial {trial.number}: mean top-decile excess={np.mean(top_dec_vals):.4f} <= 0 — penalised score -1.0 (not pruned)", flush=True)
+                return -1.0
 
             score = float(np.mean(ndcg_vals)) - 0.5 * float(np.std(ndcg_vals))
             print(
@@ -1111,10 +1131,16 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         avail    = [f for f in feat_cols if f in full_grp.columns]
         # Downcast to float32 to halve memory usage on large panels
         X_full   = full_grp[avail].astype(np.float32)
-        _rank_raw = full_grp["cs_rank_composite"].fillna(0)
+        # Ranker trains only on rows with a known forward-return rank. Unlabelled
+        # rows (delisted/halted/last ~20d) carry NaN cs_rank_composite; fillna(0)
+        # would mislabel them as the WORST stock in the cross-section — label
+        # corruption. Filter the ranker rows (the classifier head below keeps its
+        # own notna mask) and recompute the group array after the drop.
+        _rank_lbl_mask = full_grp["cs_rank_composite"].notna()
+        _rank_raw      = full_grp.loc[_rank_lbl_mask, "cs_rank_composite"]
         # Reversal mode trains a bear ranker: invert rank so stocks expected to
         # decline most get the highest label, mirroring how the bull ranker works.
-        y_full_r  = 1.0 - _rank_raw if mode == "reversal" else _rank_raw
+        y_full_r       = 1.0 - _rank_raw if mode == "reversal" else _rank_raw
 
         # FeatureSelector uses top_quintile (bull) or bot_quintile (reversal) as a
         # binary proxy. Reversal mode inverts so the selector learns features that
@@ -1134,7 +1160,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         print(f"      Selected {len(final_features)} features")
 
         # NaN passes through — LGBMRanker.fit trains NaN-native (see lgbm_ranker.py)
-        X_fin = X_full[final_features]
+        X_fin = X_full.loc[_rank_lbl_mask, final_features]
+        _rank_groups = X_fin.groupby(level="date").size().values  # groups for labelled rows
 
         # ── AUDIT: prove exactly what the deployed model trains on ────────
         # The CV-fold logs above only show VALIDATION spans (they end early by
@@ -1157,7 +1184,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         )
 
         final_ranker = LGBMRanker(best_params, seed=cfg.random_seed, num_threads=-1)  # final model uses all cores
-        final_ranker.fit(X_fin, y_full_r, full_groups)
+        final_ranker.fit(X_fin, y_full_r, _rank_groups)
 
     ensemble = EnsembleRanker(final_ranker)
 
@@ -2395,7 +2422,7 @@ def main() -> None:
             except Exception:
                 print("WARNING: --gpu specified but no CUDA GPU detected — running on CPU")
 
-        from pipeline.config.nse import NSE_CONFIG as cfg
+        from pipeline.config.sp500 import SP500_CONFIG as cfg
 
         # ── Load ticker list ──────────────────────────────────────────────
         with perf.stage("Load ticker list"):

@@ -60,7 +60,7 @@ def parse_args() -> argparse.Namespace:
                    help="Parallel Optuna workers (-1 = all CPU cores). "
                         "Uses SQLite storage for thread-safety.")
     p.add_argument("--use_gpu", action="store_true",
-                   help="Enable GPU acceleration for LightGBM, CatBoost, and XGBoost.")
+                   help="Enable GPU acceleration for LightGBM.")
     p.add_argument("--panel_dir", default="panel", help="Panel parquet directory")
     p.add_argument("--output_dir", default="artefacts", help="Output directory for models")
     p.add_argument("--polygon_key", default="", help="Polygon.io API key")
@@ -89,11 +89,17 @@ def make_optuna_objective(
     from pipeline.validation.cv import PurgedWalkForwardCV
     from pipeline.validation.metrics import compute_fold_metrics, ndcg_at_k
     from pipeline.models.lgbm_ranker import LGBMRanker, cs_rank_to_label
-    from pipeline.models.catboost_model import CatBoostModel
-    from pipeline.models.calibrator import IsotonicCalibrator
-    from pipeline.models.ensemble import EnsembleRanker
-    from pipeline.models.xgb_baseline import XGBBaseline
+    from pipeline.selection.selector import ALWAYS_INCLUDE
     import optuna
+
+    # FIX 2b: split the pre-selected list into forced vs data-ranked ONCE.
+    # select() returns [forced..., ordinary...] with forced at the FRONT, so a
+    # naive pre_selected[:top_k] slice scoops only forced features and never
+    # reaches the importance-ranked ones — HPO would tune on the hand-picked set,
+    # not the data. Mirror select()'s construction (forced + top_k ordinary) so
+    # each trial uses the SAME feature set the final model is built from.
+    _forced_pre   = [f for f in pre_selected_features if f in ALWAYS_INCLUDE]
+    _ordinary_pre = [f for f in pre_selected_features if f not in ALWAYS_INCLUDE]
 
     def objective(trial: optuna.Trial) -> float:
         # FIX 9: tightened search space — avoids ultra-slow trials and degenerate configs
@@ -106,9 +112,11 @@ def make_optuna_objective(
             "colsample_bytree":  trial.suggest_float("colsample_bytree", 0.6, 1.0),
             "reg_lambda":        trial.suggest_float("reg_lambda", 0.1, 5.0, log=True),
         }
-        # FIX 2: slice pre-selected list by top_k — no per-fold FeatureSelector run
+        # FIX 2: forced features + top_k DATA-RANKED ordinary features — mirrors
+        # FeatureSelector.select() so HPO tunes on the same feature set the final
+        # model ships with (not a front-slice of only forced features).
         top_k = trial.suggest_categorical("feature_top_K", [20, 30])
-        selected_feats = pre_selected_features[:top_k]
+        selected_feats = _forced_pre + _ordinary_pre[:top_k]
 
         cv = PurgedWalkForwardCV(n_folds=n_folds)
         ndcg_list: List[float] = []
@@ -135,7 +143,6 @@ def make_optuna_objective(
             avail_feats  = [f for f in selected_feats if f in train_grp.columns]
             X_tr         = train_grp[avail_feats].fillna(0)
             y_tr_rank    = train_grp["cs_rank_20d"].fillna(0)
-            y_tr_cls     = train_grp["top_quintile"].fillna(0).astype(int)
 
             # Score test set
             test_univ = test_panel[test_panel["in_universe"] == True].copy()
@@ -146,23 +153,6 @@ def make_optuna_objective(
             # any genuinely missing columns with 0 rather than silently dropping
             # them (which causes a 0-feature matrix and LightGBM crash).
             X_te = test_univ.reindex(columns=avail_feats).fillna(0)
-
-            # NOTE: classifier trained on binary top_quintile labels.
-            # NDCG computed from classifier probs is an approximation — ranker scores preferred.
-            # compute_fold_metrics uses cs_rank_20d as ground-truth relevance, not top_quintile.  # FIX 4
-            clf = XGBBaseline(
-                params={
-                    "n_estimators":  params.get("n_estimators", 200),
-                    "learning_rate": params.get("learning_rate", 0.05),
-                    "max_depth": 6,
-                },
-                model_mode="classifier",
-                seed=cfg.random_seed,
-                use_gpu=use_gpu,
-            )
-            clf.fit(X_tr, y_tr_cls)
-            clf_proba    = clf.predict_proba(X_te)
-            score_series = pd.Series(clf_proba, index=test_univ.index)
 
             # FIX 3: safe attribute probe — best_iteration=0 is normal without early stopping;
             # use num_trees() to detect genuine stalls; multiple attribute paths for robustness.
@@ -184,20 +174,19 @@ def make_optuna_objective(
             except Exception:
                 n_trees = 0
 
-            if n_trees > 0:
-                ranker_scores = ranker.predict(X_te)
-                score_series  = pd.Series(ranker_scores, index=test_univ.index)
-            else:
+            if n_trees == 0:
                 _obj_log.warning(  # FIX 1: was log.warning
-                    f"Fold {fold_spec.fold_id}: ranker has 0 trees "
-                    f"— using classifier scores for NDCG"
+                    f"Fold {fold_spec.fold_id}: ranker has 0 trees — skipping fold"
                 )
+                continue
+            ranker_scores = ranker.predict(X_te)
+            score_series  = pd.Series(ranker_scores, index=test_univ.index)
 
             # FIX 12: positional call, no top_n kwarg (matches compute_fold_metrics signature)
             metrics = compute_fold_metrics(
                 test_univ,
                 score_series,
-                avail_test,
+                avail_feats,
                 benchmark_close.pct_change().fillna(0),
                 cfg.commission_bps,
                 cfg.get_slippage_bps(cfg.min_adv_usd),
@@ -237,9 +226,6 @@ def main() -> None:
     from pipeline.targets.builder import TargetBuilder
     from pipeline.validation.cv import PurgedWalkForwardCV
     from pipeline.models.lgbm_ranker import LGBMRanker, cs_rank_to_label
-    from pipeline.models.catboost_model import CatBoostModel
-    from pipeline.models.xgb_baseline import XGBBaseline
-    from pipeline.models.calibrator import IsotonicCalibrator
     from pipeline.models.ensemble import EnsembleRanker
     from pipeline.selection.selector import FeatureSelector
     from pipeline.monitoring.drift_monitor import FeatureDriftMonitor
@@ -437,48 +423,12 @@ def main() -> None:
     final_ranker = LGBMRanker(params=best_params, seed=cfg.random_seed, use_gpu=args.use_gpu)
     final_ranker.fit(X_final, y_full_rank, full_groups)
 
-    # CatBoost
-    final_cb = CatBoostModel(params={
-        "iterations":    best_params.get("n_estimators", 500),
-        "learning_rate": best_params.get("learning_rate", 0.05),
-    }, seed=cfg.random_seed, use_gpu=args.use_gpu)
-    final_cb.fit(X_final, y_full_cls)
-
-    # XGBoost baseline
-    xgb_baseline = XGBBaseline(params={
-        "n_estimators":  best_params.get("n_estimators", 300),
-        "learning_rate": best_params.get("learning_rate", 0.05),
-        "max_depth": 6,
-    }, model_mode="classifier", seed=cfg.random_seed, use_gpu=args.use_gpu)
-    xgb_baseline.fit(X_final, y_full_cls)
-
-    # ── 7. Calibration ────────────────────────────────────────────────────
-    # FIX 7: use OOS predictions from the last CV fold — in-sample calibration is guaranteed overfit
-    log.info("Calibrating CatBoost probabilities on OOS data (last CV fold)...")
-    fold_specs_cal = cv.get_fold_specs(panel)
-    calibrator     = IsotonicCalibrator()
-    if fold_specs_cal:
-        last_fold_cal = fold_specs_cal[-1]
-        dates_cal     = panel.index.get_level_values("date")
-        cal_mask      = (dates_cal >= last_fold_cal.test_start) & (dates_cal <= last_fold_cal.test_end)
-        cal_panel     = panel.iloc[np.where(cal_mask)[0]]
-        cal_univ      = cal_panel[cal_panel["in_universe"] == True]
-
-        if len(cal_univ) > 50:
-            avail_cal    = [f for f in final_features if f in cal_univ.columns]
-            X_cal        = cal_univ[avail_cal].fillna(0)
-            y_cal        = cal_univ["top_quintile"].fillna(0).astype(int)
-            cb_probs_oos = final_cb.predict_proba(X_cal)
-            calibrator.fit(cb_probs_oos, y_cal.values)
-            log.info(f"Calibrator fitted on {len(cal_univ)} OOS rows from last fold.")
-        else:
-            log.warning("Last fold too small for OOS calibration — falling back to in-sample.")
-            calibrator.fit(final_cb.predict_proba(X_final), y_full_cls.values)
-    else:
-        calibrator.fit(final_cb.predict_proba(X_final), y_full_cls.values)
-
-    # ── 8. Ensemble ───────────────────────────────────────────────────────
-    ensemble = EnsembleRanker(final_ranker, final_cb, calibrator)
+    # ── 7. Ensemble ───────────────────────────────────────────────────────
+    # LGBM-only + inverse-vol tilt — matches the production EnsembleRanker used
+    # by the run_*_local.py scripts. CatBoost/XGBoost/calibrator were removed:
+    # their artefacts were pickled but never loaded anywhere, and a second GBM
+    # on the same features correlates 0.85+ with LGBM (see ensemble.py).
+    ensemble = EnsembleRanker(final_ranker)
 
     from pipeline.validation.metrics import compute_fold_metrics
     fold_specs = cv.get_fold_specs(panel)
@@ -497,14 +447,7 @@ def main() -> None:
             # FIX 12: positional call — no top_n kwarg, matches compute_fold_metrics signature
             lgbm_metrics     = compute_fold_metrics(test_univ, lgbm_scores, final_features, bm_rets, cfg.commission_bps, slippage)
 
-            xgb_scores_raw   = xgb_baseline.predict_scores(X_te)
-            xgb_score_series = pd.Series(xgb_scores_raw, index=test_univ.index)
-            xgb_metrics      = compute_fold_metrics(test_univ, xgb_score_series, final_features, bm_rets, cfg.commission_bps, slippage)
-
-            log.info(f"LGBM net_sharpe={lgbm_metrics['net_sharpe']:.3f}, "
-                     f"XGB net_sharpe={xgb_metrics['net_sharpe']:.3f}")
-            if lgbm_metrics["net_sharpe"] <= xgb_metrics["net_sharpe"]:
-                log.warning("LightGBM does NOT beat XGBoost on net Sharpe — flag for investigation!")
+            log.info(f"LGBM net_sharpe={lgbm_metrics['net_sharpe']:.3f} (last-fold OOS)")
 
     # ── 9. SHAP global explanations ───────────────────────────────────────
     log.info("Computing SHAP global feature importances...")
@@ -527,12 +470,6 @@ def main() -> None:
     log.info("Saving artefacts...")
     with open(output_dir / "lgbm_ranker.pkl", "wb") as f:
         pickle.dump(final_ranker, f)
-    with open(output_dir / "catboost_model.pkl", "wb") as f:
-        pickle.dump(final_cb, f)
-    with open(output_dir / "xgb_baseline.pkl", "wb") as f:
-        pickle.dump(xgb_baseline, f)
-    with open(output_dir / "calibrator.pkl", "wb") as f:
-        pickle.dump(calibrator, f)
     with open(output_dir / "ensemble.pkl", "wb") as f:
         pickle.dump(ensemble, f)
     with open(output_dir / "drift_monitor.pkl", "wb") as f:

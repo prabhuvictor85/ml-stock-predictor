@@ -176,8 +176,14 @@ class LGBMRanker:
         # Constraints are enforced at inference time via the ensemble ranking logic.
 
         label_train = cs_rank_to_label(y_train)
+        # NaNs pass through untouched — LightGBM learns a per-split default
+        # direction for missing values, which is strictly more expressive than
+        # fillna(0) (0 is a meaningful value for price_vs_sma*, slopes, returns:
+        # it conflates "unknown" with "exactly neutral"). Models trained this way
+        # set nan_native_=True; predict() uses it to keep old artefacts (trained
+        # on filled data) scoring exactly as they were trained.
         dtrain = lgb.Dataset(
-            X_train.fillna(0),
+            X_train,
             label=label_train,
             group=group_train,
             free_raw_data=False,
@@ -188,7 +194,7 @@ class LGBMRanker:
         if has_val:
             label_val = cs_rank_to_label(y_val)
             dval = lgb.Dataset(
-                X_val.fillna(0),
+                X_val,
                 label=label_val,
                 group=group_val,
                 reference=dtrain,
@@ -216,11 +222,24 @@ class LGBMRanker:
                 callbacks=callbacks,
             )
         self.feature_names_ = list(X_train.columns)
+        # Record the ACTUAL NaN policy of the training inputs so predict() serves
+        # data the same way the model was trained: native-NaN if the caller passed
+        # NaNs through, fill-0 if the caller pre-filled (no NaNs present). Setting
+        # this True unconditionally caused a train/serve shift when a caller filled
+        # X before fit() — the model learned 0-routing but predict() then fed raw NaN.
+        self.nan_native_ = bool(X_train.isna().to_numpy().any())
         log.info(f"LGBMRanker trained. Best iteration: {self.model_.best_iteration}")
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
-        """Return raw ranking scores."""
+        """Return raw ranking scores.
+
+        Train/serve consistency: artefacts pickled before the NaN-native change
+        lack nan_native_ and were trained on fillna(0) data — they must keep
+        receiving filled inputs or their split routing silently shifts.
+        """
         assert self.model_ is not None, "Model not trained"
+        if getattr(self, "nan_native_", False):
+            return self.model_.predict(X)
         return self.model_.predict(X.fillna(0))
 
     def predict_normalized(self, X: pd.DataFrame) -> np.ndarray:

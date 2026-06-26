@@ -11,7 +11,9 @@ Steps:
   1.  Load all local CSVs → master panel
   2.  Feature engineering (Wilder ATR/ADX, ICT, zones, multi-TF, regime)
   3.  Target building (cs_rank_20d, top_quintile, hit_target …)
-  4.  Purged walk-forward CV (5 folds)
+  4.  Purged walk-forward CV (auto-computed folds based on years of data — same
+      formula as run_sp500_local.py; typically ~14 folds against the full
+      pre-2010-to-present NSE history)
   5.  LGBMRanker training
   6.  Isotonic calibration
   7.  Ensemble scoring on latest cross-section
@@ -251,7 +253,7 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--train_start", type=str, default="2010-01-01",
                    help="Earliest date included in the training panel (default: 2010-01-01). "
                         "Rows before this date are dropped before walk-forward CV and HPO, "
-                        "so all 8 folds land in the meaningful data window. "
+                        "so all folds land in the meaningful data window. "
                         "Scoring always uses the full panel regardless of this setting. "
                         "Example: --train_start 2010-01-01")
     p.add_argument("--as_of", type=str, default=None,
@@ -532,7 +534,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     from pipeline.validation.leakage_tests import LeakageTestSuite
     from pipeline.models.lgbm_ranker import LGBMRanker, cs_rank_to_label
     from pipeline.models.ensemble import EnsembleRanker
-    from pipeline.selection.selector import FeatureSelector
+    from pipeline.selection.selector import FeatureSelector, ALWAYS_INCLUDE
     from pipeline.validation.metrics import compute_fold_metrics, ndcg_at_k
     from pipeline.monitoring.drift_monitor import FeatureDriftMonitor
 
@@ -549,37 +551,43 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
     _train_perf = PerfTimer()
 
-    # ── Checkpoint 1: Feature-engineered panel ────────────────────────────
-    panel_ckpt = CKPT / "panel_features.pkl"
+    # ── Checkpoints 1+2: features + targets ──────────────────────────────
+    # panel_targets.pkl supersedes panel_features.pkl (same panel plus target
+    # columns), so resume prefers it directly and the features checkpoint is
+    # deleted once the targets checkpoint lands — halves checkpoint disk and
+    # skips a pointless multi-GB load on resume.
+    panel_ckpt     = CKPT / "panel_features.pkl"
     feat_cols_ckpt = CKPT / "feat_cols.txt"
+    targets_ckpt   = CKPT / "panel_targets.pkl"
 
-    with _train_perf.stage("[1/6] Feature engineering"):
-        if panel_ckpt.exists() and feat_cols_ckpt.exists():
-            print("\n[1/6] Feature engineering ... RESUMING from checkpoint")
-            with open(panel_ckpt, "rb") as f:
-                panel = pickle.load(f)
+    if targets_ckpt.exists() and feat_cols_ckpt.exists():
+        with _train_perf.stage("[1/6] Feature engineering"):
+            print("\n[1/6] Feature engineering ... SKIPPED (targets checkpoint supersedes)")
             feat_cols = feat_cols_ckpt.read_text().strip().split("\n")
-            print(f"      Loaded checkpoint: {len(feat_cols)} features, panel shape {panel.shape}")
-        else:
-            print("\n[1/6] Feature engineering ...")
-            panel = fe.build(panel)
-            feat_cols = [c for c in panel.columns if c.startswith(FEATURE_PREFIX)]
-            print(f"      {len(feat_cols)} feature columns — saving checkpoint ...")
-            with open(panel_ckpt, "wb") as f:
-                pickle.dump(panel, f)
-            feat_cols_ckpt.write_text("\n".join(feat_cols))
-            print(f"      Checkpoint saved: {panel_ckpt}")
-
-    # ── Checkpoint 2: Targets ─────────────────────────────────────────────
-    targets_ckpt = CKPT / "panel_targets.pkl"
-
-    with _train_perf.stage("[2/6] Target building"):
-        if targets_ckpt.exists():
+        with _train_perf.stage("[2/6] Target building"):
             print("[2/6] Building targets ... RESUMING from checkpoint")
             with open(targets_ckpt, "rb") as f:
                 panel = pickle.load(f)
             print(f"      cs_rank_20d non-null: {panel['cs_rank_20d'].notna().sum()}")
-        else:
+    else:
+        with _train_perf.stage("[1/6] Feature engineering"):
+            if panel_ckpt.exists() and feat_cols_ckpt.exists():
+                print("\n[1/6] Feature engineering ... RESUMING from checkpoint")
+                with open(panel_ckpt, "rb") as f:
+                    panel = pickle.load(f)
+                feat_cols = feat_cols_ckpt.read_text().strip().split("\n")
+                print(f"      Loaded checkpoint: {len(feat_cols)} features, panel shape {panel.shape}")
+            else:
+                print("\n[1/6] Feature engineering ...")
+                panel = fe.build(panel)
+                feat_cols = [c for c in panel.columns if c.startswith(FEATURE_PREFIX)]
+                print(f"      {len(feat_cols)} feature columns — saving checkpoint ...")
+                with open(panel_ckpt, "wb") as f:
+                    pickle.dump(panel, f)
+                feat_cols_ckpt.write_text("\n".join(feat_cols))
+                print(f"      Checkpoint saved: {panel_ckpt}")
+
+        with _train_perf.stage("[2/6] Target building"):
             print("[2/6] Building targets ...")
             tb = TargetBuilder(cfg)
             panel = tb.build(panel, benchmark_close)
@@ -587,6 +595,12 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             with open(targets_ckpt, "wb") as f:
                 pickle.dump(panel, f)
             print(f"      Checkpoint saved: {targets_ckpt}")
+            try:
+                if panel_ckpt.exists():
+                    panel_ckpt.unlink()
+                    print(f"      Removed superseded checkpoint: {panel_ckpt.name}")
+            except OSError:
+                pass
 
     # Leakage tests — run AFTER targets are built so cs_rank_20d is present
     suite = LeakageTestSuite(panel, feat_cols)
@@ -668,6 +682,12 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         _pre_sel = FeatureSelector(seed=cfg.random_seed)
         pre_selected = _pre_sel.select(X_hpo_cls, y_hpo_cls, top_k=50)  # generous pool
         print(f"      Pre-selected {len(pre_selected)} features for HPO")
+        # select() returns [forced..., ordinary...] with the ALWAYS_INCLUDE features
+        # at the FRONT. A naive pre_selected[:top_k] scoops only forced features;
+        # split here so each trial uses forced + top_k DATA-RANKED ordinary features —
+        # the same construction the final model is built from (no HPO/final mismatch).
+        _forced_pre   = [f for f in pre_selected if f in ALWAYS_INCLUDE]
+        _ordinary_pre = [f for f in pre_selected if f not in ALWAYS_INCLUDE]
         del full_grp_hpo, X_hpo_cls, y_hpo_cls, _pre_sel  # free selector + inputs
         import gc as _gc2; _gc2.collect()
         try:  # return freed pages to the OS — gc.collect() alone doesn't do this on Linux
@@ -824,7 +844,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
         def objective(trial):
             top_k    = trial.suggest_categorical("feature_top_K", [20, 30, 40, 50])
-            sf_trial = pre_selected[:top_k]
+            sf_trial = _forced_pre + _ordinary_pre[:top_k]
 
             params = {
                 "num_leaves":        trial.suggest_int("num_leaves", 20, 200),
@@ -863,7 +883,16 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 if not sf_te2:
                     continue
 
-                _rank = tr_grp["cs_rank_composite"].fillna(0)
+                # Drop rows with unknown forward-return rank (delisted/halted/last
+                # ~20d). fillna(0) would mislabel them as the WORST stock in the
+                # cross-section — label corruption in a ranking objective. Drop
+                # X+y together and recompute group sizes so they stay aligned.
+                _lbl_mask = tr_grp["cs_rank_composite"].notna()
+                tr_grp    = tr_grp.loc[_lbl_mask]
+                if len(tr_grp) == 0:
+                    continue
+                tr_groups = tr_grp.groupby(level="date").size().values
+                _rank  = tr_grp["cs_rank_composite"]
                 y_tr_r = 1.0 - _rank if mode == "reversal" else _rank
 
                 t_fold = _time.time()
@@ -880,8 +909,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
                 ranker = LGBMRanker(params, seed=cfg.random_seed, num_threads=_lgbm_threads)
                 if _use_es:
-                    X_es_tr  = tr_grp.loc[_es_tr_mask, sf_te].fillna(0)
-                    X_es_val = tr_grp.loc[_es_vl_mask, sf_te].fillna(0)
+                    X_es_tr  = tr_grp.loc[_es_tr_mask, sf_te]
+                    X_es_val = tr_grp.loc[_es_vl_mask, sf_te]
                     y_es_tr  = y_tr_r[_es_tr_mask]
                     y_es_val = y_tr_r[_es_vl_mask]
                     g_es_tr  = X_es_tr.groupby(level="date").size().values
@@ -889,14 +918,14 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                     ranker.fit(X_es_tr, y_es_tr, g_es_tr,
                                X_val=X_es_val, y_val=y_es_val, group_val=g_es_val)
                 else:
-                    ranker.fit(tr_grp[sf_te].fillna(0), y_tr_r, tr_groups)
+                    ranker.fit(tr_grp[sf_te], y_tr_r, tr_groups)
 
                 n_trees = ranker.model_.num_trees()
                 if n_trees == 0:
                     print(f"     Fold {fold_id}: ranker stalled (0 trees) — skipping", flush=True)
                     continue
 
-                scores = pd.Series(ranker.predict(te_univ[sf_te2].fillna(0)), index=te_univ.index)
+                scores = pd.Series(ranker.predict(te_univ[sf_te2]), index=te_univ.index)
                 m = compute_fold_metrics(te_univ, scores, sf_te2,
                                          benchmark_close.pct_change().fillna(0),
                                          cfg.commission_bps, cfg.get_slippage_bps(cfg.min_adv_usd),
@@ -927,8 +956,13 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 print(f"     Trial {trial.number}: only {len(ndcg_vals)} valid folds (<{MIN_VALID_FOLDS}) — pruned", flush=True)
                 raise optuna.exceptions.TrialPruned()
             if np.mean(top_dec_vals) <= 0:
-                print(f"     Trial {trial.number}: mean top-decile excess={np.mean(top_dec_vals):.4f} <= 0 — pruned", flush=True)
-                raise optuna.exceptions.TrialPruned()
+                # Completed trial with no top-decile edge: return a strong-negative
+                # score, NOT TrialPruned. A pruned trial is dropped from the TPE
+                # sampler's model, so the optimizer never learns to avoid this
+                # region — a low completed value does. -1.0 sits clearly below
+                # every valid NDCG-based objective (~[0, 0.6]).
+                print(f"     Trial {trial.number}: mean top-decile excess={np.mean(top_dec_vals):.4f} <= 0 — penalised score -1.0 (not pruned)", flush=True)
+                return -1.0
 
             score = float(np.mean(ndcg_vals)) - 0.5 * float(np.std(ndcg_vals))
             print(
@@ -955,20 +989,10 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             print(f"      Running {n_jobs} parallel trials (n_jobs={n_jobs})")
         study.optimize(objective, n_trials=remaining, n_jobs=n_jobs,
                        show_progress_bar=True)
-        completed_after = len([t for t in study.trials if t.state.name == "COMPLETE"])
-        if completed_after == 0:
-            print("      WARNING: All HPO trials were pruned — using default params")
-            best_params = {
-                "learning_rate": 0.05, "num_leaves": 63, "min_child_samples": 20,
-                "subsample": 0.8, "colsample_bytree": 0.8, "reg_alpha": 0.1,
-                "reg_lambda": 0.1, "n_estimators": 300,
-            }
-            best_k = 30
-        else:
-            best_params = study.best_params.copy()
-            best_k = best_params.pop("feature_top_K", 30)
-            best_params["learning_rate"] = best_params.pop("lr", best_params.get("learning_rate", 0.05))
-            print(f"      Best NDCG objective: {study.best_value:.4f}")
+        best_params = study.best_params.copy()
+        best_k = best_params.pop("feature_top_K", 30)
+        best_params["learning_rate"] = best_params.pop("lr", best_params.get("learning_rate", 0.05))
+        print(f"      Best NDCG objective: {study.best_value:.4f}")
     else:
         print("[4/6] HPO skipped — using default params")
     _hpo_stage.__exit__(None, None, None)
@@ -989,10 +1013,16 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         full_grp, full_groups = cv.build_group_array(train_panel, min_group_size=5)
         avail    = [f for f in feat_cols if f in full_grp.columns]
         X_full   = full_grp[avail].astype(np.float32)
-        _rank_raw = full_grp["cs_rank_composite"].fillna(0)
+        # Ranker trains only on rows with a known forward-return rank. Unlabelled
+        # rows (delisted/halted/last ~20d) carry NaN cs_rank_composite; fillna(0)
+        # would mislabel them as the WORST stock in the cross-section — label
+        # corruption. Filter the ranker rows (the classifier head below keeps its
+        # own notna mask) and recompute the group array after the drop.
+        _rank_lbl_mask = full_grp["cs_rank_composite"].notna()
+        _rank_raw      = full_grp.loc[_rank_lbl_mask, "cs_rank_composite"]
         # Reversal mode trains a bear ranker: invert rank so stocks expected to
         # decline most get the highest label, mirroring how the bull ranker works.
-        y_full_r  = 1.0 - _rank_raw if mode == "reversal" else _rank_raw
+        y_full_r       = 1.0 - _rank_raw if mode == "reversal" else _rank_raw
 
         # FeatureSelector uses top_quintile (bull) or bot_quintile (reversal) as a
         # binary proxy. Reversal mode inverts so the selector learns features that
@@ -1011,7 +1041,9 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         final_features = sel.select(X_full_cls, y_full_c_cls, top_k=best_k)
         print(f"      Selected {len(final_features)} features")
 
-        X_fin = X_full[final_features].fillna(0)
+        # NaN passes through — LGBMRanker.fit trains NaN-native (see lgbm_ranker.py)
+        X_fin = X_full.loc[_rank_lbl_mask, final_features]
+        _rank_groups = X_fin.groupby(level="date").size().values  # groups for labelled rows
 
         # ── AUDIT: prove exactly what the deployed model trains on ────────
         # The CV-fold logs above only show VALIDATION spans (they end early by
@@ -1034,7 +1066,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         )
 
         final_ranker = LGBMRanker(best_params, seed=cfg.random_seed, num_threads=-1)  # final model uses all cores
-        final_ranker.fit(X_fin, y_full_r, full_groups)
+        final_ranker.fit(X_fin, y_full_r, _rank_groups)
 
     ensemble = EnsembleRanker(final_ranker)
 
@@ -1055,7 +1087,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         _sf      = [f for f in final_features if f in _te_u.columns]
         if len(_te_u) < 5 or not _sf:
             continue
-        _X_te  = _te_u[_sf].fillna(0)
+        _X_te  = _te_u[_sf]
         _vol_s = _te_u[_hv_feat] if _hv_feat in _te_u.columns else None
         _ens_s = pd.Series(ensemble.score(_X_te, _vol_s), index=_te_u.index)
         _m     = compute_fold_metrics(_te_u, _ens_s, _sf, bm_rets, cfg.commission_bps, slip,
@@ -1079,11 +1111,17 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             ("ensemble.pkl",      ensemble),
             ("lgbm_ranker.pkl",   final_ranker),
             ("drift_monitor.pkl", drift_monitor),
-            ("panel.pkl",         panel),   # full unfiltered panel for scoring
         ]:
             with open(_art_dir / name, "wb") as f:
                 pickle.dump(obj, f)
         (_art_dir / "selected_features.txt").write_text("\n".join(final_features))
+        # panel.pkl is intentionally NOT saved: the pipeline never reads it
+        # back (--skip_train re-runs feature engineering on a fresh panel) and
+        # at full-panel size it dominated artefact disk usage. Diagnostics
+        # that need the panel load checkpoints/panel_targets.pkl instead.
+        from pipeline.artifact_meta import write_artifact_meta
+        write_artifact_meta(_art_dir, mode=mode, final_features=final_features,
+                            panel=panel, nan_native=True)
         print(f"      Artefacts saved to {_art_dir}")
 
     _train_perf.report()
@@ -1149,7 +1187,9 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
     )
 
     avail   = [f for f in final_features if f in cross.columns]
-    X_inf   = cross[avail].fillna(0)
+    # No fillna: LGBMRanker.predict applies the model-appropriate NaN treatment
+    # (NaN-native for new artefacts, fillna(0) for legacy pickles).
+    X_inf   = cross[avail]
     # Use HISTORICAL realized vol for inverse-vol weighting — future_vol_20d is a
     # forward-looking target (always NaN at inference time on the latest date).
     _hist_vol_feat = f"{FEATURE_PREFIX}hist_vol_20d"
@@ -1296,6 +1336,15 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
     _bull_zone_mask = _bull_comp_wl > _MIN_COMPOSITE
     _bear_zone_mask = _bear_comp_wl > _MIN_COMPOSITE
 
+    # ── Momentum-bull quality gate (NKE / CPRT false-positive filter) ──────
+    # Shared implementation: pipeline/gating.py (extracted from
+    # run_sp500_local.py). No-op for non-momentum modes. NOTE: structural
+    # thresholds were calibrated on the US universe — watch the printed veto
+    # rate on NSE runs; the >15% alarm flags miscalibration.
+    from pipeline.gating import momentum_bull_quality_gate
+    _bull_zone_mask = _bull_zone_mask & momentum_bull_quality_gate(
+        cross_wl, mode, FEATURE_PREFIX)
+
     cross_wl_bull = cross_wl[_bull_zone_mask.values]
     cross_wl_bear = cross_wl[_bear_zone_mask.values]
     bull_score_wl  = bull_score_wl[_bull_zone_mask.values]
@@ -1346,7 +1395,7 @@ def score_and_rank(panel: pd.DataFrame, ensemble, final_features: List[str],
         recent        = panel[panel.index.get_level_values("date").isin(recent_dates)]
         recent_univ   = recent[recent["in_universe"] == True]
         X_shap        = recent_univ[[f for f in final_features
-                                     if f in recent_univ.columns]].fillna(0)
+                                     if f in recent_univ.columns]]
         X_shap        = X_shap.sample(min(2000, len(X_shap)), random_state=42)
         shap_exp.compute(X_shap)
         shap_importance = shap_exp.global_importance(top_k=20)

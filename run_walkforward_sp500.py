@@ -84,6 +84,12 @@ DOWNLOADER    = PROJECT_DIR / "scripts" / "data" / "download_us_data.py"
 RUNNER        = PROJECT_DIR / "run_sp500_local.py"
 MONITORING_DIR = PROJECT_DIR / "monitoring"
 
+# Extra args forwarded to EVERY run_sp500_local.py child (retrain + inference),
+# populated from argparse in main(). Keeps the universe (e.g. --pit_universe)
+# identical across the seed, every walk-forward retrain, and every scoring step —
+# otherwise the walk would silently revert to a survivorship-biased universe.
+_RUNNER_PASSTHROUGH: list = []
+
 # ── Local-data fast-path: resolve benchmark CSV path once at import ──────────
 # The downloader writes the benchmark (^GSPC-1d.csv) LAST, after all tickers.
 # If it is current, all tickers are current — we can skip the entire download
@@ -110,7 +116,7 @@ _STATUS: dict = {
     "market":       "",       # set in main() — "NSE" or "SP500"
     "step":         "",       # current as_of date string e.g. "2024-02-10"
     "action":       "idle",   # "download" | "infer" | "retrain"
-    "action_start": None,     # datetime of when current action began
+    "action_start": None,     # datetime of when current action began   
     "step_idx":     0,        # 1-based index into schedule
     "total_steps":  0,        # len(schedule)
 }
@@ -203,6 +209,13 @@ def parse_args() -> argparse.Namespace:
                    help="ntfy.sh topic for phone alerts (or set $NTFY_TOPIC).")
     p.add_argument("--dry_run", action="store_true",
                    help="Print the schedule and the exact commands, then exit.")
+    p.add_argument("--pit_universe", action="store_true",
+                   help="Survivorship-free universe: forward --pit_universe to every "
+                        "run_sp500_local.py retrain AND inference step (point-in-time "
+                        "index membership). Requires the membership CSV present.")
+    p.add_argument("--membership_csv", default=None,
+                   help="Membership intervals CSV for --pit_universe; forwarded to every "
+                        "child step (default path resolved by run_sp500_local.py).")
     return p.parse_args()
 
 
@@ -492,7 +505,7 @@ def run_inference(as_of: pd.Timestamp, mode: str, n_jobs: int, step_log: Path) -
            "--skip_train",
            "--as_of", as_of.strftime("%Y-%m-%d"),
            "--mode", mode,
-           "--n_jobs", str(n_jobs)]
+           "--n_jobs", str(n_jobs)] + _RUNNER_PASSTHROUGH
     return run_cmd(cmd, step_log)
 
 
@@ -503,7 +516,7 @@ def run_retrain(as_of: pd.Timestamp, train_start: str, mode: str,
            "--train_start", train_start,
            "--as_of", as_of.strftime("%Y-%m-%d"),
            "--mode", mode,
-           "--n_jobs", str(n_jobs)]
+           "--n_jobs", str(n_jobs)] + _RUNNER_PASSTHROUGH
     # Lockbox fence: when set, EVERY retrain re-fits only on data <= train_end,
     # so the recipe + weights never see the holdout period even as the walk
     # rolls forward. Inference steps still score forward on the full panel.
@@ -568,6 +581,12 @@ def save_state(path: Path, state: dict) -> None:
 # ── Main ────────────────────────────────────────────────────────────────────
 def main() -> None:
     args = parse_args()
+    # Forward universe selection to every child run_sp500_local.py (retrain + inference)
+    # so the walk-forward stays consistent with the fenced seed.
+    if args.pit_universe:
+        _RUNNER_PASSTHROUGH.append("--pit_universe")
+        if args.membership_csv:
+            _RUNNER_PASSTHROUGH.extend(["--membership_csv", args.membership_csv])
     log_dir = Path(args.log_dir)
     state_file = Path(args.state_file) if args.state_file else (log_dir / "walkforward_state.json")
 

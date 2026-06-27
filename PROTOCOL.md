@@ -61,9 +61,12 @@ Recorded here so the run is reproducible and the config is provably fixed:
 - **HPO:** Optuna, `--n_trials 40` (reduced for 2-CPU tractability), seed fixed
   in config. `--n_folds` auto = 12 from the fenced range; may be set lower
   (e.g. 8) to fit the overnight window — record whichever you use.
-- **Universe:** current snapshot (NOT `--pit_universe`) — match whatever the
-  pulse-check model used so the comparison is apples-to-apples. (A separate
-  PIT-on test is future work.)
+- **Universe:** **point-in-time** (`--pit_universe` ON) — survivorship-free SP500
+  membership from `{data_root}/stock_lists/membership_sp500.csv` (1202 tickers:
+  503 current + ~699 ex-members, intervals 1996–2026). Forwarded to the seed AND
+  every walk-forward retrain/inference step. Residual caveat: still a *tighter*
+  upper bound — ~139 dead ex-members have no price data, so the deepest failures
+  remain under-represented. (Prior `current snapshot` runs were survivorship-biased.)
 - **Code version:** record the git commit hash of the run here: `__________`
 
 Any change to the above after committing this file invalidates the test.

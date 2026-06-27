@@ -65,10 +65,10 @@ ALWAYS_INCLUDE: set = {
     "features_ict_sob_active",
     "features_ict_sob_atr_dist",         # ATR-normalised distance from SOB midpoint
     # ICT Breaker Blocks (highest-priority ICT signals)
-    "features_ict_bullbb_active",
-    "features_ict_bullbb_atr_dist",
-    "features_ict_bearbb_active",
-    "features_ict_bearbb_atr_dist",
+    "features_ict_bullrb_active",
+    "features_ict_bullrb_atr_dist",
+    "features_ict_bearrb_active",
+    "features_ict_bearrb_atr_dist",
     # ICT Fair Value Gaps
     "features_ict_bullfvg_active",
     "features_ict_bullfvg_atr_dist",
@@ -141,7 +141,9 @@ class FeatureSelector:
             log.info(f"Step 1 removed {len(removed_nan)} features with >5% NaN: "
                      f"{list(removed_nan)[:5]}...")
         features = keep
-        X = X_train[features].fillna(0).astype("float32")  # float32 halves memory vs float64
+        # NaN kept (not filled): selection must judge features under the same
+        # native-NaN regime the final LGBM trains with. float32 halves memory.
+        X = X_train[features].astype("float32")
 
         # ── Step 2: Correlation clustering ────────────────────────────────
         # Compute quick importance; apply boost to zone/OB features so they

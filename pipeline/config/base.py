@@ -67,6 +67,15 @@ class MarketConfig:
     # ── Reproducibility ──────────────────────────────────────────────────────
     random_seed: int = 42
 
+    # ── Experimental features (toggle on/off) ────────────────────────────────
+    # BOS/CHoCH/liquidity-sweep market-structure features (pipeline.features.
+    # structure_features). Default OFF → baseline behaviour unchanged. When ON,
+    # engineer.py emits features_{major,internal}_* + features_structure_alignment,
+    # computed causally per CV fold (cutoff_date guard, mirrors zone features).
+    use_structure_features: bool = False
+    structure_major_swing: int = 25
+    structure_minor_swing: int = 5
+
     def get_slippage_bps(self, adv_usd: float) -> float:
         """Return slippage bps for the given 20d ADV in USD."""
         for tier in sorted(self.slippage_tiers_bps, key=lambda t: t.adv_min_usd, reverse=True):

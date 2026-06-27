@@ -2,10 +2,15 @@
 TargetBuilder — computes all target columns from the master panel.
 
 RULE: All targets computed inside groupby('ticker').
-RULE: Drop last max_forward_horizon rows per ticker (RULE 3).
+RULE: The last max_forward_horizon rows per ticker get NaN labels (their forward
+      window runs past the data end). Rows are KEPT with NaN — they are NOT
+      dropped here. Downstream training MUST drop NaN-label rows, never fillna
+      (a zero-filled rank = "worst stock"); see the ranker paths in run_*_local.py.
 RULE: benchmark_20d_return fetched from cfg.benchmark_ticker via DataFetcher.
 """
 from __future__ import annotations
+
+import os
 
 import numpy as np
 import pandas as pd
@@ -26,17 +31,22 @@ def _hit_target(
     open_next: np.ndarray,
     profit_target_pct: float,
     stop_loss_pct: float,
+    window: int = 20,
 ) -> np.ndarray:
     """
     Vectorised hit-target scan using rolling window max/min.
     entry = open[t+1]
-    hit = 1 if max(high[t+1:t+21]) >= entry*(1+profit) BEFORE min(low) <= entry*(1-stop)
-    
+    hit = 1 if max(high[t+1:t+1+window]) >= entry*(1+profit) BEFORE min(low) <= entry*(1-stop)
+
+    `window` is the scan horizon in bars (default 20, matching the hit_target_20d
+    column). It was previously hardcoded to MAX_FORWARD_HORIZON (60), so a column
+    named *_20d actually scanned 60 bars — a target-definition bug, now fixed.
+
     Implementation: for each bar t, build a (n, window) matrix of future highs/lows,
     then find the first bar where each condition triggers.
     """
     n = len(high)
-    W = MAX_FORWARD_HORIZON
+    W = window
     result = np.full(n, np.nan)
     if n <= W:
         return result
@@ -95,31 +105,71 @@ class TargetBuilder:
         self,
         panel: pd.DataFrame,
         benchmark_close: pd.Series,
+        terminal_window: int | None = None,
     ) -> pd.DataFrame:
         cfg = self.cfg
         panel = panel.copy()
 
+        # Terminal-price smoothing for the return labels. window=1 (default) is the
+        # exact endpoint return close[t+h]/close[t]-1. window>1 averages the last
+        # `window` closes ending at t+h (a TWAP terminal), de-sensitising the label
+        # to a single print landing on day t+h — without changing the horizon.
+        # Driven by env so the SAME ruler toggles for this builder AND
+        # validate_lockbox.py at once:  export TARGET_TWAP_WINDOW=5
+        if terminal_window is None:
+            terminal_window = int(os.environ.get("TARGET_TWAP_WINDOW", "1"))
+        terminal_window = max(1, int(terminal_window))
+        _min_h = min(HORIZONS)
+        if terminal_window >= _min_h:
+            raise ValueError(
+                f"TARGET_TWAP_WINDOW={terminal_window} >= shortest horizon {_min_h}d: "
+                "the terminal average would smear across the whole horizon (and reach "
+                "back past the entry). Use a small window relative to the horizon, e.g. 3-5."
+            )
+        if terminal_window > 1:
+            if terminal_window > _min_h // 2:
+                log.warning("TARGET_TWAP_WINDOW=%d is large vs the %dd horizon — "
+                            "risk of over-smoothing the label.", terminal_window, _min_h)
+            log.info("Target labels use TWAP terminal window = %d bars", terminal_window)
+
         # Deduplicate index — large universes (US stocks) can have duplicate
-        # (ticker, date) rows from delta merges; groupby().apply() raises on non-unique index
+        # (ticker, date) rows from delta merges; groupby().apply() raises on non-unique index.
+        # A few dups from delta merges are benign; a large fraction signals an upstream
+        # join/ingestion bug, and silently keeping="last" would alter labels invisibly —
+        # so fail loud past a small threshold instead of masking the defect.
         if not panel.index.is_unique:
             before = len(panel)
-            panel = panel[~panel.index.duplicated(keep="last")]
-            panel = panel.sort_index()
-            log.warning("Deduplicated panel index: %d -> %d rows", before, len(panel))
+            n_dup  = int(panel.index.duplicated(keep="last").sum())
+            frac   = n_dup / max(before, 1)
+            panel  = panel[~panel.index.duplicated(keep="last")]
+            panel  = panel.sort_index()
+            msg = f"Deduplicated panel index: {before} -> {len(panel)} rows ({n_dup} dups, {frac:.2%})"
+            if frac > 0.01:
+                raise ValueError(
+                    msg + " — >1% duplicate (ticker,date) rows signals an upstream "
+                    "join/ingestion bug. Refusing to silently alter labels; investigate "
+                    "the panel build before proceeding."
+                )
+            log.warning(msg + " (keep=last)")
 
         log.info("Building targets for horizons: 20d, 40d, 60d ...")
 
         bm = benchmark_close.copy()
 
         # ── Multi-horizon returns + excess returns ─────────────────────────
+        # Terminal price is a `terminal_window`-bar trailing average ending at t+h
+        # (window=1 → the plain endpoint close[t+h]). Stock and benchmark use the
+        # SAME smoothing so excess return stays apples-to-apples.
         for h in HORIZONS:
-            # Stock future return
+            # Stock future return (TWAP terminal over close[t])
             panel[f"future_{h}d_return"] = (
                 panel.groupby(level="ticker")["close"]
-                .transform(lambda x, h=h: x.shift(-h) / x - 1)
+                .transform(lambda x, h=h, w=terminal_window:
+                           (x.rolling(w).mean() if w > 1 else x).shift(-h) / x - 1)
             )
-            # Benchmark future return for same horizon
-            bm_fut = bm.shift(-h) / bm - 1
+            # Benchmark future return for same horizon (same TWAP terminal)
+            _bm_term = bm.rolling(terminal_window).mean() if terminal_window > 1 else bm
+            bm_fut = _bm_term.shift(-h) / bm - 1
             panel[f"benchmark_{h}d_return"] = (
                 panel.index.get_level_values("date").map(bm_fut)
             )
@@ -137,7 +187,7 @@ class TargetBuilder:
         def _hit(grp: pd.DataFrame) -> pd.Series:
             hits = _hit_target(
                 grp["high"].values, grp["low"].values, grp["open"].values,
-                cfg.profit_target_pct, cfg.stop_loss_pct,
+                cfg.profit_target_pct, cfg.stop_loss_pct, window=20,
             )
             return pd.Series(hits, index=grp.index)
 
@@ -220,6 +270,14 @@ class TargetBuilder:
             w * panel[col].fillna(0.0) for col, w in _w.items()
         )
         panel["cs_rank_composite"] = (_weighted_sum / _avail_w.replace(0, np.nan))
+
+        # Strict full-window composite: defined ONLY when all three horizon ranks
+        # exist, so its meaning never drifts with the dataset tail (unlike
+        # cs_rank_composite, which renormalises on whatever horizons are present).
+        # When all three exist _avail_w == 1.0, so this equals the fixed 0.5/0.3/0.2
+        # blend exactly. Use it for stationary CV / drift checks; NaN elsewhere.
+        _n_present = sum(panel[col].notna().astype(int) for col in _w)
+        panel["cs_rank_composite_full"] = panel["cs_rank_composite"].where(_n_present == len(_w))
 
         # ── Backward-compatible aliases ────────────────────────────────────
         panel["cs_rank_20d"]   = panel["cs_rank_20d"]

@@ -111,6 +111,28 @@ Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
   `notna` mask, unchanged). *Implication:* changes the training label set →
   regenerate any pre-this-date model artefacts before the lockbox run.
 
+- **2026-06-27 — New knob `TARGET_TWAP_WINDOW` (target terminal-price smoothing).**
+  `TargetBuilder` and `validate_lockbox.py` gained a trailing-average terminal
+  window for the forward-return labels (env `TARGET_TWAP_WINDOW`, or
+  `terminal_window`/`--twap_window`). **Frozen default = 1 = the exact endpoint
+  return** — verified bit-identical to prior behaviour, so the current recipe is
+  UNCHANGED. window>1 de-sensitises labels to a single print on day t+h. This is
+  a **tuning-era A/B candidate only**: set the SAME value for the builder and the
+  validator (the env var does both), evaluate on ≤2023, and if adopted, record
+  the chosen window here before the lockbox. Also fixed same-commit: `hit_target`
+  now scans 20 bars (was 60; column is `*_20d`) — unused by the model, hygiene
+  only. Added `cs_rank_composite_full` (strict all-3-horizon composite) for
+  stationary CV/drift; dedup now fails loud above 1% duplicate rows.
+
+  *Eval-side sibling (done 2026-06-27):* `pipeline/validation/metrics.py` no
+  longer `fillna(0)`s the relevance label — fold NDCG/precision are now graded
+  only on known-outcome stocks (return metrics already dropna). Slightly changes
+  the HPO fold objective on the delisting/tail subset → recipe-affecting, lands
+  in the same retrain. Also added a fail-loud upper bound on `TARGET_TWAP_WINDOW`
+  (must be < shortest horizon). The validator's *primary* IC/top-decile use
+  `lag=0` (matches the label's `close[t]` entry); `--fill_lag` drives only the
+  separate realistic-fill diagnostic, so the primary ruler stays bit-equal.
+
 ---
 
 ## 4. Procedure (all on Hetzner; isolated via ML_ARTEFACTS_ROOT)

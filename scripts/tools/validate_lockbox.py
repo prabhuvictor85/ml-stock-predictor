@@ -35,6 +35,7 @@ from __future__ import annotations
 import argparse
 import glob
 import json
+import os
 import re
 import sys
 from datetime import datetime
@@ -133,14 +134,18 @@ def load_close_series(data_dir: Path, tickers: set,
 
 
 def forward_returns_at(close: pd.Series, as_of: pd.Timestamp,
-                       horizons: List[int], lag: int = 0) -> Dict[int, float]:
+                       horizons: List[int], lag: int = 0,
+                       twap_window: int = 1) -> Dict[int, float]:
     """
     All forward returns for one (ticker, date) with a SINGLE index lookup.
 
     Rank on close[t]; enter at close[t+lag] (lag=0 = same-bar, lag>=1 = realistic
-    fill). Returns {h: close[t+lag+h]/close[t+lag] - 1} per horizon, NaN where
-    data runs out. Hoisting the searchsorted out of the horizon loop removes the
-    O(N*H) redundant lookups.
+    fill). Returns {h: terminal/close[t+lag] - 1} per horizon, NaN where data runs
+    out. `twap_window` (default 1 = plain endpoint close[t+lag+h]) averages the last
+    `twap_window` closes ending at t+lag+h, so the referee grades on the SAME
+    terminal-price ruler as the training label (TargetBuilder.terminal_window) —
+    keep them equal via $TARGET_TWAP_WINDOW. Hoisting the searchsorted out of the
+    horizon loop removes the O(N*H) redundant lookups.
     """
     arr = close.values
     n = len(arr)
@@ -151,13 +156,14 @@ def forward_returns_at(close: pd.Series, as_of: pd.Timestamp,
     c0 = arr[base]
     if not (np.isfinite(c0) and c0 > 0):
         return {h: np.nan for h in horizons}
+    w = max(1, int(twap_window))
     out: Dict[int, float] = {}
     for h in horizons:
         f = base + h
         if f >= n:
             out[h] = np.nan
             continue
-        c1 = arr[f]
+        c1 = np.nanmean(arr[max(0, f - w + 1): f + 1]) if w > 1 else arr[f]
         out[h] = (c1 / c0 - 1.0) if np.isfinite(c1) else np.nan
     return out
 
@@ -282,6 +288,12 @@ def main():
     ap.add_argument("--start", default=None)
     ap.add_argument("--end", default=None)
     ap.add_argument("--primary_horizon", type=int, default=20)
+    ap.add_argument("--twap_window", type=int,
+                    default=int(os.environ.get("TARGET_TWAP_WINDOW", "1")),
+                    help="Trailing-average terminal-price window (bars) for forward "
+                         "returns. MUST equal TargetBuilder's terminal_window so the "
+                         "referee grades on the same ruler as the label. Default "
+                         "honours $TARGET_TWAP_WINDOW (1 = plain endpoint return).")
     ap.add_argument("--date_col", default=None,
                     help="Explicit datetime column in the price CSVs (e.g. 'time'). "
                          "Default: autodetect date/datetime/timestamp.")
@@ -358,11 +370,12 @@ def main():
             c = closes.get(t)
             if c is None:
                 continue
-            rets = forward_returns_at(c, dt, horizons, lag=0)
+            rets = forward_returns_at(c, dt, horizons, lag=0, twap_window=args.twap_window)
             for h in horizons:
                 fwd_by_h[h][t] = rets[h]
             if args.fill_lag > 0:
-                fwd_lag[t] = forward_returns_at(c, dt, [ph], lag=args.fill_lag)[ph]
+                fwd_lag[t] = forward_returns_at(c, dt, [ph], lag=args.fill_lag,
+                                                twap_window=args.twap_window)[ph]
 
         for h in horizons:
             ic = spearman_ic(sc, fwd_by_h[h])

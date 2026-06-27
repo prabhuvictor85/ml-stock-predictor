@@ -129,7 +129,9 @@ def main() -> None:
 
     # ── Ensemble scoring ───────────────────────────────────────────────────
     avail = [f for f in selected_features if f in current_cross.columns]
-    X_infer = current_cross[avail].fillna(0)
+    # No fillna: LGBMRanker.predict applies the model-appropriate NaN treatment
+    # (NaN-native for new artefacts, fillna(0) for legacy pickles).
+    X_infer = current_cross[avail]
 
     vol_col = "future_vol_20d" if "future_vol_20d" in current_cross.columns else None
     vol_series = current_cross[vol_col] if vol_col else None

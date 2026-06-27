@@ -96,16 +96,24 @@ def compute_fold_metrics(
         if len(grp) < 5:
             continue
 
-        _cs = grp["cs_rank_20d"].fillna(0)
-        if invert_relevance:
-            _cs = 1.0 - _cs   # rank worst performers highest for bear model
-        rel = cs_rank_to_label(_cs).values
-        sc = grp["_score"].values
-        _q_col = "bot_quintile" if invert_relevance else "top_quintile"
-        top_q = grp[_q_col].fillna(0).astype(int).values
+        sc = grp["_score"].values   # full-group scores (used for portfolio selection below)
 
-        ndcg_values.append(ndcg_at_k(rel, sc, k=10))
-        prec_values.append(precision_at_k(top_q, sc, k=10))
+        # Rank-quality metrics (NDCG / precision) are graded ONLY on stocks whose
+        # forward outcome is known. Zero-filling a missing cs_rank label would grade
+        # an unknown-outcome pick (delisted/halted/tail) as the WORST stock, biasing
+        # the HPO objective. The return metrics below already dropna, so this keeps
+        # the ranking and return sides consistent.
+        _gk = grp[grp["cs_rank_20d"].notna()]
+        if len(_gk) >= 5:
+            _cs = _gk["cs_rank_20d"]
+            if invert_relevance:
+                _cs = 1.0 - _cs   # rank worst performers highest for bear model
+            rel  = cs_rank_to_label(_cs).values
+            sc_k = _gk["_score"].values
+            _q_col = "bot_quintile" if invert_relevance else "top_quintile"
+            top_q = _gk[_q_col].fillna(0).astype(int).values
+            ndcg_values.append(ndcg_at_k(rel, sc_k, k=10))
+            prec_values.append(precision_at_k(top_q, sc_k, k=10))
 
         # Select top-N for this week
         top_idx = np.argsort(sc)[::-1][:top_n]

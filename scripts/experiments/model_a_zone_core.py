@@ -34,7 +34,16 @@ import pandas as pd
 from scipy.stats import spearmanr
 
 import lightgbm as lgb
-from pipeline.models.lgbm_ranker import cs_rank_to_label, build_label_gain
+
+
+# Inlined from pipeline.models.lgbm_ranker — avoids pulling in the full
+# pipeline package (which imports pandas_market_calendars, broken on Py3.14).
+def build_label_gain(n_bins: int = 100) -> list:
+    return list(range(n_bins))
+
+
+def cs_rank_to_label(cs_rank, n_bins: int = 100):
+    return (cs_rank * (n_bins - 1)).round().clip(0, n_bins - 1).fillna(0).astype(int)
 
 # ── Zone core feature set ────────────────────────────────────────────────────
 # Selected from feature persistence audit (scripts/experiments/feature_persistence_audit.py)

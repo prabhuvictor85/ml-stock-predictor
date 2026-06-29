@@ -167,6 +167,7 @@ def run_wf_cv(panel: pd.DataFrame, features: list[str],
         fold["test_year"] = test_year
         results.append(fold)
         print(f"IC={fold['mean_ic']:.4f}  top-dec={fold['top_decile_exc']:.4f}")
+        import gc; gc.collect()
 
     return results
 
@@ -174,7 +175,7 @@ def run_wf_cv(panel: pd.DataFrame, features: list[str],
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    panel_path = "/mnt/data/artefacts/us_lockbox/us_local/checkpoints/panel_targets.pkl"
+    panel_path = "/mnt/data/artefacts/us_lockbox_v2/us_local/checkpoints/panel_targets.pkl"
     out_path   = "/mnt/data/artefacts/experiments/model_a_results.json"
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
@@ -186,14 +187,21 @@ def main() -> None:
     panel = pd.read_pickle(panel_path)
     date_level = "date" if "date" in panel.index.names else panel.index.names[0]
 
+    # Feature availability check (before slimming — panel still has all columns)
+    avail   = [f for f in ZONE_CORE_FEATURES if f in panel.columns]
+    missing = [f for f in ZONE_CORE_FEATURES if f not in panel.columns]
+
+    # Slim to only needed columns before fencing — drops 184 → ~18 columns,
+    # reducing peak RAM from ~4GB to ~400MB and preventing a native OOM segfault.
+    keep = avail + ["cs_rank_composite", "future_20d_excess_return"]
+    panel = panel[[c for c in keep if c in panel.columns]].copy()
+    import gc; gc.collect()
+
     # Fence to tuning era
     panel = panel[panel.index.get_level_values(date_level) <= pd.Timestamp("2023-12-31")]
     print(f"Fenced panel: {panel.shape[0]:,} rows, "
-          f"{panel.index.get_level_values(date_level).nunique()} dates")
-
-    # Feature availability check
-    avail   = [f for f in ZONE_CORE_FEATURES if f in panel.columns]
-    missing = [f for f in ZONE_CORE_FEATURES if f not in panel.columns]
+          f"{panel.index.get_level_values(date_level).nunique()} dates"
+          f"  (RAM: {panel.memory_usage(deep=True).sum() / 1e9:.2f} GB)")
     print(f"\nZone features: {len(avail)}/{len(ZONE_CORE_FEATURES)} available")
     if missing:
         print(f"Missing (excluded): {missing}")

@@ -21,6 +21,7 @@ Output:
 """
 from __future__ import annotations
 
+import gc
 import json
 import os
 import sys
@@ -29,11 +30,13 @@ import warnings
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 warnings.filterwarnings("ignore")
 
-import numpy as np
+# pandas only at module scope — numpy/scipy/lightgbm are imported lazily,
+# AFTER the panel pickle is loaded and slimmed. On this server, importing
+# numpy/scipy/lightgbm before pd.read_pickle() reliably segfaults inside
+# numpy's _multiarray_umath during deserialization (Python 3.14 + numpy
+# 2.4.6 ABI issue). Loading with pandas alone first, then importing the
+# rest once the big object is gone, avoids it entirely.
 import pandas as pd
-from scipy.stats import spearmanr
-
-import lightgbm as lgb
 
 
 # Inlined from pipeline.models.lgbm_ranker — avoids pulling in the full
@@ -107,6 +110,9 @@ LGBM_PARAMS = dict(
 def run_fold(train_df: pd.DataFrame, test_df: pd.DataFrame,
              features: list[str], date_level: str) -> dict:
     """Train on train_df, score test_df, return IC + top-decile excess."""
+    import numpy as np
+    import lightgbm as lgb
+    from scipy.stats import spearmanr
 
     train_df = train_df.dropna(subset=features + ["cs_rank_composite"])
     test_df  = test_df.dropna(subset=features + ["future_20d_excess_return"])
@@ -176,7 +182,7 @@ def run_wf_cv(panel: pd.DataFrame, features: list[str],
         fold["test_year"] = test_year
         results.append(fold)
         print(f"IC={fold['mean_ic']:.4f}  top-dec={fold['top_decile_exc']:.4f}")
-        import gc; gc.collect()
+        gc.collect()
 
     return results
 
@@ -184,7 +190,7 @@ def run_wf_cv(panel: pd.DataFrame, features: list[str],
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    panel_path = "/mnt/data/artefacts/us_lockbox_v2/us_local/checkpoints/panel_targets.pkl"
+    panel_path = "/mnt/data/artefacts/us_local/checkpoints/panel_targets.pkl"
     out_path   = "/mnt/data/artefacts/experiments/model_a_results.json"
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
@@ -204,7 +210,7 @@ def main() -> None:
     # reducing peak RAM from ~4GB to ~400MB and preventing a native OOM segfault.
     keep = avail + ["cs_rank_composite", "future_20d_excess_return"]
     panel = panel[[c for c in keep if c in panel.columns]].copy()
-    import gc; gc.collect()
+    gc.collect()
 
     # Fence to tuning era
     panel = panel[panel.index.get_level_values(date_level) <= pd.Timestamp("2023-12-31")]
@@ -220,6 +226,7 @@ def main() -> None:
     fold_results = run_wf_cv(panel, avail, fold_years=[2018, 2019, 2020, 2021, 2022, 2023])
 
     # ── Summary ──────────────────────────────────────────────────
+    import numpy as np
     ics     = [r["mean_ic"]        for r in fold_results if not np.isnan(r["mean_ic"])]
     top_dec = [r["top_decile_exc"] for r in fold_results if not np.isnan(r["top_decile_exc"])]
     n       = len(ics)

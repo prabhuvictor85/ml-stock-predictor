@@ -381,6 +381,9 @@ class ICTFeatureEngine:
         fvg_min_gap_atr: float = 0.1,
         ob_bos_hard_gate: bool = False,
         fvg_bos_hard_gate: bool = False,
+        ob_pd_hard_gate: bool = False,
+        fvg_pd_hard_gate: bool = False,
+        fvg_sweep_hard_gate: bool = False,
     ) -> pd.DataFrame:
         """
         Parameters
@@ -388,8 +391,14 @@ class ICTFeatureEngine:
         grp           : OHLCV DataFrame for a SINGLE symbol, sorted by time ascending.
                         Must contain: open, high, low, close, atr_14.
         implementation_mode : "legacy" (default) keeps backward-compatible
-                        behavior; "institutional" enables stricter OB/FVG
-                        structure defaults (BOS hard gates on).
+                        behavior; "institutional" enables BOS hard gates only
+                        (OB/FVG must form near a recent break of structure);
+                        "strict" matches the full reference Pine "Strict ICT
+                        Mode" — BOS gate + premium/discount alignment gate
+                        (bull OB/FVG only valid in discount, bear only in
+                        premium) + FVG opposite-side sweep confirmation gate.
+                        "institutional" alone is a partial replication of the
+                        reference strict logic; use "strict" for the full set.
         pct_more      : OB body size multiplier threshold (default 20%).
         eq_thresh_atr : ATR multiples within which two swing points are "equal" for
                         liquidity detection.
@@ -407,18 +416,30 @@ class ICTFeatureEngine:
         bos_lookback : bars to look back for recent BOS context used by
                         OB/FVG BOS-conditioned companion features.
         fvg_min_gap_atr : minimum FVG gap size in ATR units (default 0.1).
-        ob_bos_hard_gate : if True, OB triggers require same-bar BOS.
-        fvg_bos_hard_gate : if True, FVG triggers require same-bar BOS.
+        ob_bos_hard_gate : if True, OB triggers require a recent BOS.
+        fvg_bos_hard_gate : if True, FVG triggers require a recent BOS.
+        ob_pd_hard_gate : if True, bull OB requires price in discount,
+                        bear OB requires price in premium.
+        fvg_pd_hard_gate : if True, bull FVG requires price in discount,
+                        bear FVG requires price in premium.
+        fvg_sweep_hard_gate : if True, bull FVG requires a recent SSL sweep,
+                        bear FVG requires a recent BSL sweep.
         """
         self._assert_single_symbol(grp)
         mode = implementation_mode.lower().strip()
-        if mode not in ("legacy", "institutional"):
-            raise ValueError("implementation_mode must be 'legacy' or 'institutional'")
+        if mode not in ("legacy", "institutional", "strict"):
+            raise ValueError("implementation_mode must be 'legacy', 'institutional', or 'strict'")
 
         # Mode presets; explicit flags can still force stricter behavior.
         if mode == "institutional":
             ob_bos_hard_gate = True
             fvg_bos_hard_gate = True
+        elif mode == "strict":
+            ob_bos_hard_gate = True
+            fvg_bos_hard_gate = True
+            ob_pd_hard_gate = True
+            fvg_pd_hard_gate = True
+            fvg_sweep_hard_gate = True
 
         original_index = grp.index
         grp = grp.copy().reset_index(drop=True)
@@ -628,6 +649,33 @@ class ICTFeatureEngine:
         if fvg_bos_hard_gate:
             is_bull_fvg = is_bull_fvg & _recent_bull_bos
             is_bear_fvg = is_bear_fvg & _recent_bear_bos
+
+        # Premium/discount alignment gate (matches reference Pine "Strict ICT
+        # Mode" strictRequirePDForOBFVG): bull setups only count when price is
+        # in discount (cheap side of the dealing range), bear only in premium.
+        # NaN-safe: an undefined _pdr (no confirmed swing range yet) fails
+        # both sides, which is correct — no range means no premium/discount
+        # context to validate against.
+        _in_discount = ~np.isnan(_pdr) & (_pdr < 0.5)
+        _in_premium  = ~np.isnan(_pdr) & (_pdr > 0.5)
+        if ob_pd_hard_gate:
+            is_bob = is_bob & _in_discount
+            is_sob = is_sob & _in_premium
+        if fvg_pd_hard_gate:
+            is_bull_fvg = is_bull_fvg & _in_discount
+            is_bear_fvg = is_bear_fvg & _in_premium
+
+        # FVG opposite-side sweep confirmation gate (matches Pine
+        # strictRequireSweepForFVG): a bull FVG only counts if sell-side
+        # liquidity was recently swept (stop-hunt before the reversal up),
+        # bear FVG only if buy-side liquidity was recently swept. Computed
+        # here (not just in the companion-feature section below) so the
+        # gate can actually constrain is_bull_fvg/is_bear_fvg themselves.
+        _recent_ssl_swept_gate = _recent_true(ssl_swept, int(fvg_sweep_lookback))
+        _recent_bsl_swept_gate = _recent_true(bsl_swept, int(fvg_sweep_lookback))
+        if fvg_sweep_hard_gate:
+            is_bull_fvg = is_bull_fvg & _recent_ssl_swept_gate
+            is_bear_fvg = is_bear_fvg & _recent_bsl_swept_gate
 
         # ── 5. Zone Priority Deduplication ────────────────────────────────────
         # When multiple signal types fire on the same candle, keep highest priority only.
@@ -923,10 +971,10 @@ class ICTFeatureEngine:
             np.clip((c - _eq_level) / safe_atr, -20.0, 20.0), 0.0)
 
         # High-conviction FVG trigger: require recent opposite-side sweep.
-        recent_ssl_swept = _recent_true(ssl_swept, int(fvg_sweep_lookback))
-        recent_bsl_swept = _recent_true(bsl_swept, int(fvg_sweep_lookback))
-        grp["ict_bullfvg_sweep_conf"] = (is_bull_fvg & recent_ssl_swept).astype(float)
-        grp["ict_bearfvg_sweep_conf"] = (is_bear_fvg & recent_bsl_swept).astype(float)
+        # Reuses the gate-section computation (same fvg_sweep_lookback) —
+        # see _recent_ssl_swept_gate/_recent_bsl_swept_gate above.
+        grp["ict_bullfvg_sweep_conf"] = (is_bull_fvg & _recent_ssl_swept_gate).astype(float)
+        grp["ict_bearfvg_sweep_conf"] = (is_bear_fvg & _recent_bsl_swept_gate).astype(float)
 
         # BOS-conditioned companion features (additive context, no hard gate).
         # _recent_bull/bear_bos was already computed above for the hard gate.
@@ -939,6 +987,28 @@ class ICTFeatureEngine:
         # Recent-window BOS state: smoother than the event, more useful as a direct feature
         grp["ict_bull_bos_recent"] = recent_bull_bos.astype(float)
         grp["ict_bear_bos_recent"] = recent_bear_bos.astype(float)
+
+        # Macro trend regime — consecutive BOS streak counters.
+        # Mirrors the Pine macro filter (bearBosCount/bullBosCount) but as features,
+        # not hard gates. High bear_streak = sustained downtrend context (long signals
+        # historically weak). High bull_streak = sustained uptrend (short signals weak).
+        # macro_regime is signed: positive = bullish trend, negative = bearish trend.
+        _bear_streak = np.zeros(n, dtype=np.float32)
+        _bull_streak = np.zeros(n, dtype=np.float32)
+        _bc, _uc = 0, 0
+        for _i in range(n):
+            if bear_bos_evt[_i]:
+                _bc += 1
+                _uc  = 0
+            elif bull_bos_evt[_i]:
+                _uc += 1
+                _bc  = 0
+            _bear_streak[_i] = _bc
+            _bull_streak[_i] = _uc
+        grp["ict_bear_bos_streak"] = _bear_streak
+        grp["ict_bull_bos_streak"] = _bull_streak
+        grp["ict_macro_regime"]    = (_bull_streak - _bear_streak).astype(np.float32)
+
         # True confluence: both zones active AND both within 5 ATR of current price.
         # Without the proximity check, an OB at $100 and FVG at $150 with price at $120
         # both show active=1 and trigger confluence — the zones are structurally unrelated.

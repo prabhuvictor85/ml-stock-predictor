@@ -74,7 +74,7 @@ def cs_rank_to_label(cs_rank, n_bins: int = 100):
 
 
 def main() -> None:
-    panel_path = "/mnt/data/artefacts/us_local/checkpoints/panel_targets.pkl"
+    panel_path = "/mnt/data/artefacts/us_lockbox_v2/us_local/checkpoints/panel_targets.pkl"
     out_path   = "/mnt/data/artefacts/experiments/model_a_lockbox_results.json"
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 

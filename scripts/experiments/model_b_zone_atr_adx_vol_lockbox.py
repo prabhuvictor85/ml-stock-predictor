@@ -74,9 +74,10 @@ def cs_rank_to_label(cs_rank, n_bins: int = 100):
 
 
 def main() -> None:
-    panel_path = "/mnt/data/artefacts/us_lockbox_v2/us_local/checkpoints/panel_targets.pkl"
-    out_path   = "/mnt/data/artefacts/experiments/model_b_lockbox_results.json"
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    panel_path = "/mnt/data/artefacts/us_local/checkpoints/panel_targets.pkl"
+    out_dir    = "/mnt/data/artefacts/us_lockbox_v3/experiments"
+    out_path   = os.path.join(out_dir, "model_b_lockbox_results.json")
+    os.makedirs(out_dir, exist_ok=True)
 
     print("=" * 64)
     print("  MODEL_B — All non-ICT features — Walk-forward lockbox")

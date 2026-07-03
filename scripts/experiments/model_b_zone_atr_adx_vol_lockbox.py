@@ -13,7 +13,9 @@ Same static-split lockbox protocol as model_a_zone_core_lockbox.py:
   - One shot, no periodic retraining
 
 Feature count is auto-discovered from the panel at runtime so it stays in sync
-with any future panel rebuilds.
+with any future panel rebuilds. Explicitly excluded: return_1d and return_5d
+(near-zero predictive power for a 20d target — microstructure noise, not
+momentum signal; meaningful lookbacks are return_20d and return_60d).
 
 Run on Theralytics:
     cd /root/ml-stock-predictor
@@ -103,10 +105,17 @@ def main() -> None:
     panel = pd.read_pickle(panel_path)
     date_level = "date" if "date" in panel.index.names else panel.index.names[0]
 
-    # Auto-discover: all features_* columns EXCEPT features_ict_*
+    # Excluded explicitly: short-horizon returns have near-zero predictive power
+    # for a 20d forward target (microstructure noise, not momentum signal).
+    # Meaningful momentum lookbacks are return_20d and return_60d.
+    _EXCLUDE = {"features_return_1d", "features_return_5d"}
+
+    # Auto-discover: all features_* columns EXCEPT features_ict_* and _EXCLUDE
     avail = sorted([
         c for c in panel.columns
-        if c.startswith("features_") and not c.startswith("features_ict_")
+        if c.startswith("features_")
+        and not c.startswith("features_ict_")
+        and c not in _EXCLUDE
     ])
     ict_excluded = [c for c in panel.columns if c.startswith("features_ict_")]
 

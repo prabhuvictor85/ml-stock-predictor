@@ -287,6 +287,13 @@ def parse_args() -> argparse.Namespace:
                         "drift parquet is a single shared file (race under "
                         "parallelism) and lockbox runs would otherwise pollute the "
                         "production drift history. Scores/watchlists are unaffected.")
+    p.add_argument("--no_ict", action="store_true",
+                   help="Exclude all features_ict_* columns from HPO, feature "
+                        "selection, and model training. Use for the no-ICT lockbox "
+                        "experiment — zones, ATR, ADX, volume, returns, regime "
+                        "features remain; ICT OB/FVG/BOS/sweeps are excluded. "
+                        "Feature engineering still runs (ICT cols stay in the panel "
+                        "for scoring inspection) but the model never sees them.")
     return p.parse_args()
 
 
@@ -588,7 +595,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
           mode_artefacts_dir: Optional[Path] = None,
           n_jobs: int = 1,
           as_of: Optional[str] = None,
-          train_end: Optional[str] = None) -> dict:
+          train_end: Optional[str] = None,
+          no_ict: bool = False) -> dict:
     """Full train: features → targets → CV → Optuna → models → calibration.
 
     mode: "legacy" | "momentum" | "reversal"
@@ -720,6 +728,15 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         # through the CV/HPO loop. It is reloaded from the checkpoint at return.
         scoring_panel = None
         import gc as _gc_fence; _gc_fence.collect()
+
+    # --no_ict: drop ICT columns from the feature pool before HPO/selection/fit.
+    # Feature engineering still computed them (they stay in the panel for
+    # inspection), but the model never trains on them.
+    if no_ict:
+        _before_ict = len(feat_cols)
+        feat_cols = [f for f in feat_cols if not f.startswith("features_ict_")]
+        print(f"      [no_ict] excluded {_before_ict - len(feat_cols)} ICT features "
+              f"→ {len(feat_cols)} remaining for HPO/selection/fit")
 
     # Leakage tests — run AFTER targets are built so cs_rank_20d is present
     suite = LeakageTestSuite(panel, feat_cols)
@@ -1043,8 +1060,10 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                     continue
 
                 scores = pd.Series(ranker.predict(te_univ[sf_te2]), index=te_univ.index)
+                _bm_20d = (te_univ["benchmark_20d_return"]
+                           .groupby(level="date").first().fillna(0))
                 m = compute_fold_metrics(te_univ, scores, sf_te2,
-                                         benchmark_close.pct_change().fillna(0),
+                                         _bm_20d,
                                          cfg.commission_bps, cfg.get_slippage_bps(cfg.min_adv_usd),
                                          invert_relevance=(mode == "reversal"))
                 fold_ndcg = m["mean_ndcg_at_10"]
@@ -1192,7 +1211,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     # HPO tuned LGBM hyperparameters; this validates the FULL ensemble (LGBM + inv-vol)
     # on each held-out fold so we have honest out-of-sample combined metrics.
     print("\n      [Ensemble CV] Validating ensemble on each held-out fold ...")
-    bm_rets     = benchmark_close.pct_change().fillna(0)
+    bm_rets     = (train_panel["benchmark_20d_return"]
+                   .groupby(level="date").first().fillna(0))
     slip        = cfg.get_slippage_bps(cfg.min_adv_usd)
     dates_level = train_panel.index.get_level_values("date")
     ens_ndcg_vals, ens_top_dec_vals = [], []
@@ -2659,6 +2679,7 @@ def main() -> None:
                         n_jobs=args.n_jobs,
                         as_of=args.as_of,
                         train_end=args.train_end,
+                        no_ict=getattr(args, "no_ict", False),
                     )
                 panel = artefacts["panel"]   # feature-engineered panel — required for score_and_rank
                 results_by_mode[m] = {

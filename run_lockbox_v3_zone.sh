@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
-# run_lockbox_v3_no_ict.sh — Zone/ATR/ADX/Vol lockbox (ICT excluded from model)
+# run_lockbox_v3_zone.sh — Pure-zone lockbox (--feature_set zone)
 #
-# Identical procedure to the lockbox v2 script but with --no_ict:
-#   - Feature engineering runs normally (ICT cols computed, stay in panel)
-#   - HPO, FeatureSelector, and all training see ZERO features_ict_* columns
-#   - Walk-forward cadence and fence date are unchanged
+# Identical procedure to the lockbox v2 script.
+# Feature engineering runs in full; HPO/FeatureSelector/training see only
+# features_sdz_* / ssz_* / dz_* / sz_* / zone_* columns.
 #
 # Usage:
 #   cd /root/ml-stock-predictor
-#   nohup bash run_lockbox_v3_no_ict.sh > /tmp/lockbox_v3.log 2>&1 &
+#   nohup bash run_lockbox_v3_zone.sh > /tmp/lockbox_v3_zone.log 2>&1 &
 #   echo "PID: $!"
-#   tail -f /tmp/lockbox_v3.log
+#   tail -f /tmp/lockbox_v3_zone.log
 #
 set -uo pipefail
 
@@ -34,9 +33,10 @@ fail() { notify "ABORT: $1"; kill "${HB_PID:-0}" 2>/dev/null; exit 1; }
 set_step() { echo "$1" > "$ROOT/.step"; }
 
 cd "$REPO" || fail "no repo at $REPO"
-git pull origin master || fail "git pull failed"
+# Do NOT auto-pull — caller controls the exact commit to pin to.
+# Pull manually before running this script, verify the hash, then launch.
 HASH=$(git rev-parse --short HEAD)
-notify "PREFLIGHT OK | commit=$HASH | root=$ROOT | fence=$FENCE | ICT=EXCLUDED (--no_ict)"
+notify "PREFLIGHT OK | commit=$HASH | root=$ROOT | fence=$FENCE | ZONE-ONLY (--feature_set zone) | NO auto-pull"
 
 set_step init
 heartbeat() {
@@ -49,23 +49,23 @@ heartbeat() {
 heartbeat & HB_PID=$!
 trap 'kill $HB_PID 2>/dev/null' EXIT
 
-# ── STEP 1: Fenced HPO + feature selection + train (no ICT) ─────────────────
+# ── STEP 1: Fenced HPO + feature selection + train (zone only) ──────────────
 set_step step1
-notify "STEP 1 START — fenced HPO+selection+train (<= $FENCE) with --no_ict"
+notify "STEP 1 START — fenced HPO+selection+train (<= $FENCE) with --feature_set zone"
 python3 run_sp500_local.py \
     --mode momentum \
     --train_start 2010-01-01 \
     --train_end "$FENCE" \
     --as_of 2023-12-29 \
     --n_trials 40 \
-    --no_ict \
+    --feature_set zone \
     > "$ROOT/step1.log" 2>&1 || fail "step1 failed — see $ROOT/step1.log"
 
 grep -q "LOCKBOX FENCE ACTIVE" "$ROOT/step1.log" \
     || fail "fence banner missing in step1.log — training NOT capped at $FENCE"
-grep -q "\[no_ict\]" "$ROOT/step1.log" \
-    || fail "no_ict banner missing in step1.log — ICT exclusion may not have applied"
-notify "STEP 1 DONE — fence verified, ICT exclusion confirmed"
+grep -q "\[feature_set=zone\]" "$ROOT/step1.log" \
+    || fail "feature_set=zone banner missing — zone filter may not have applied"
+notify "STEP 1 DONE — fence verified, zone-only confirmed"
 
 # ── STEP 2: Walk forward 2024-01-12 → 2026-05-04 ────────────────────────────
 set_step step2

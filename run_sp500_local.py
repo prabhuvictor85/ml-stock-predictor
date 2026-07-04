@@ -287,13 +287,26 @@ def parse_args() -> argparse.Namespace:
                         "drift parquet is a single shared file (race under "
                         "parallelism) and lockbox runs would otherwise pollute the "
                         "production drift history. Scores/watchlists are unaffected.")
-    p.add_argument("--no_ict", action="store_true",
-                   help="Exclude all features_ict_* columns from HPO, feature "
-                        "selection, and model training. Use for the no-ICT lockbox "
-                        "experiment — zones, ATR, ADX, volume, returns, regime "
-                        "features remain; ICT OB/FVG/BOS/sweeps are excluded. "
-                        "Feature engineering still runs (ICT cols stay in the panel "
-                        "for scoring inspection) but the model never sees them.")
+    p.add_argument("--feature_set",
+                   choices=["all", "zone", "ict", "pivot"],
+                   default="all",
+                   help=(
+                       "Feature family the model trains on. Feature engineering "
+                       "always runs in full (all families computed and stored in the "
+                       "panel); this flag restricts what HPO, FeatureSelector, and "
+                       "the final fit actually see. "
+                       "'all'   = every features_* column (default — production). "
+                       "'zone'  = only features_sdz_*/ssz_*/dz_*/sz_*/zone_*. "
+                       "'ict'   = only features_ict_*. "
+                       "'pivot' = only features_pivot_* (add when pivot FE lands). "
+                       "Use one lockbox per family to isolate each signal cleanly."
+                   ))
+    p.add_argument("--stop_after_targets", action="store_true",
+                   help="Build the features+targets checkpoint (panel_targets.pkl), "
+                        "run the leakage suite, then exit BEFORE any CV/HPO/fit. "
+                        "Runner control only — NOT recipe-affecting. Used to produce "
+                        "a feature panel for the MODEL_* isolation experiments "
+                        "(e.g. PIVOT_FEATURES=1 ... --stop_after_targets).")
     return p.parse_args()
 
 
@@ -596,7 +609,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
           n_jobs: int = 1,
           as_of: Optional[str] = None,
           train_end: Optional[str] = None,
-          no_ict: bool = False) -> dict:
+          feature_set: str = "all",
+          stop_after_targets: bool = False) -> dict:
     """Full train: features → targets → CV → Optuna → models → calibration.
 
     mode: "legacy" | "momentum" | "reversal"
@@ -729,18 +743,33 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         scoring_panel = None
         import gc as _gc_fence; _gc_fence.collect()
 
-    # --no_ict: drop ICT columns from the feature pool before HPO/selection/fit.
-    # Feature engineering still computed them (they stay in the panel for
-    # inspection), but the model never trains on them.
-    if no_ict:
-        _before_ict = len(feat_cols)
-        feat_cols = [f for f in feat_cols if not f.startswith("features_ict_")]
-        print(f"      [no_ict] excluded {_before_ict - len(feat_cols)} ICT features "
-              f"→ {len(feat_cols)} remaining for HPO/selection/fit")
+    # --feature_set: restrict the feature pool before HPO/selection/fit.
+    _FEATURE_SET_PREFIXES = {
+        "zone":  ("features_sdz_", "features_ssz_", "features_dz_",
+                  "features_sz_",  "features_zone_"),
+        "ict":   ("features_ict_",),
+        "pivot": ("features_pivot_",),
+    }
+    if feature_set != "all":
+        _prefixes = _FEATURE_SET_PREFIXES[feature_set]
+        _before_fs = len(feat_cols)
+        feat_cols = [f for f in feat_cols if f.startswith(_prefixes)]
+        print(f"      [feature_set={feature_set}] kept {len(feat_cols)}/{_before_fs} features "
+              f"→ prefixes={_prefixes}")
 
     # Leakage tests — run AFTER targets are built so cs_rank_20d is present
     suite = LeakageTestSuite(panel, feat_cols)
     suite.run_all()
+
+    # --stop_after_targets: the features+targets checkpoint is now written and
+    # leakage-checked. Exit before CV/HPO/fit — the MODEL_* isolation experiments
+    # consume this checkpoint directly. No model artefacts are produced.
+    if stop_after_targets:
+        print(f"\n*** --stop_after_targets: checkpoint ready at {targets_ckpt}")
+        print(f"    panel: {panel.shape[0]:,} rows × {len(feat_cols)} features "
+              f"({sum(c.startswith(FEATURE_PREFIX + 'pivot_') for c in feat_cols)} pivot). Exiting.")
+        import sys as _sys
+        _sys.exit(0)
 
     # ── Universe filter: restrict training rows based on mode ─────────────
     # Feature engineering runs on the full panel (shared checkpoint).
@@ -2679,7 +2708,8 @@ def main() -> None:
                         n_jobs=args.n_jobs,
                         as_of=args.as_of,
                         train_end=args.train_end,
-                        no_ict=getattr(args, "no_ict", False),
+                        feature_set=getattr(args, "feature_set", "all"),
+                        stop_after_targets=getattr(args, "stop_after_targets", False),
                     )
                 panel = artefacts["panel"]   # feature-engineered panel — required for score_and_rank
                 results_by_mode[m] = {

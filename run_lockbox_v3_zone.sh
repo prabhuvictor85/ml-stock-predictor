@@ -77,6 +77,7 @@ python3 run_walkforward_sp500.py \
     --mode momentum \
     --train_end "$FENCE" \
     --no_drift_retrain \
+    --feature_set zone \
     --log_dir "$ROOT/us_local" \
     > "$ROOT/step2.log" 2>&1 || fail "step2 failed — see $ROOT/step2.log"
 notify "STEP 2 DONE"

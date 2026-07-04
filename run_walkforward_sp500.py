@@ -209,6 +209,12 @@ def parse_args() -> argparse.Namespace:
                    help="ntfy.sh topic for phone alerts (or set $NTFY_TOPIC).")
     p.add_argument("--dry_run", action="store_true",
                    help="Print the schedule and the exact commands, then exit.")
+    p.add_argument("--feature_set",
+                   choices=["all", "zone", "ict", "pivot"],
+                   default="all",
+                   help="Feature family forwarded to every run_sp500_local.py retrain "
+                        "AND inference step. Must match the --feature_set used when "
+                        "training the seed model (step 1). Default 'all' = production.")
     p.add_argument("--pit_universe", action="store_true",
                    help="Survivorship-free universe: forward --pit_universe to every "
                         "run_sp500_local.py retrain AND inference step (point-in-time "
@@ -583,6 +589,8 @@ def main() -> None:
     args = parse_args()
     # Forward universe selection to every child run_sp500_local.py (retrain + inference)
     # so the walk-forward stays consistent with the fenced seed.
+    if args.feature_set != "all":
+        _RUNNER_PASSTHROUGH.extend(["--feature_set", args.feature_set])
     if args.pit_universe:
         _RUNNER_PASSTHROUGH.append("--pit_universe")
         if args.membership_csv:

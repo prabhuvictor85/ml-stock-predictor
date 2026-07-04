@@ -23,6 +23,9 @@ from pipeline.features.zone_features import (
     _ZONE_PROXIMITY_PCT,
 )
 from pipeline.features.structure_features import structure_feature_frame
+from pipeline.features.pivots import (
+    PivotFeatureEngine, pivot_features_enabled, PIVOT_WINSORIZE_EXCLUDE,
+)
 from pipeline.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -93,6 +96,9 @@ _WINSORIZE_EXCLUDE = {
     f"{FEATURE_PREFIX}adx_bull",
     f"{FEATURE_PREFIX}adx_bear",
 }
+# Pivot streaks/counts/ages/percentile are bounded-by-construction or discrete-
+# integer ranges the auto-detector misses (0..60) — no per-date outliers to clip.
+_WINSORIZE_EXCLUDE |= PIVOT_WINSORIZE_EXCLUDE
 
 
 def _is_discrete_feature(values: np.ndarray) -> bool:
@@ -147,6 +153,7 @@ class FeatureEngineer:
         self.benchmark_close = benchmark_close
         self._ict = ICTFeatureEngine()
         self._mtf = MultiTFMerger()
+        self._pivot = PivotFeatureEngine()
 
     def build(self, panel: pd.DataFrame) -> pd.DataFrame:
         """
@@ -547,6 +554,22 @@ class FeatureEngineer:
                 (sdz_score + ssz_score + dz_score + sz_score) > 0
             ).astype(np.float32)
 
+            # ── Pivot features (floor / CPR / Camarilla) — toggle ────────────
+            # OFF by default (env PIVOT_FEATURES unset) → zero baseline impact.
+            # Truncation-invariant (pure trailing functions of OHLC), so no
+            # per-fold recompute is needed — see recompute_fold_features().
+            if pivot_features_enabled():
+                try:
+                    pv = self._pivot.compute(
+                        grp[["open", "high", "low", "close"]], safe_atr=safe_atr
+                    )
+                    # Add all 69 at once (concat, not per-column insert) to avoid
+                    # DataFrame fragmentation; rename raw pivot_* → features_pivot_*.
+                    pv = pv.add_prefix(FEATURE_PREFIX)
+                    grp = pd.concat([grp, pv], axis=1)
+                except Exception as e:
+                    log.warning(f"{ticker}: pivot features failed ({e}) — skipped")
+
             # Re-attach ticker level
             grp.index = pd.MultiIndex.from_arrays(
                 [grp.index, [ticker] * len(grp)], names=["date", "ticker"]
@@ -755,6 +778,16 @@ class FeatureEngineer:
             # Slice up to cutoff — used for both ICT and MTF ICT
             grp_cut    = grp[grp.index <= cutoff_date].copy()
             ohlcv_cut  = grp_cut[["open", "high", "low", "close", "volume"]].copy()
+
+            # NOTE: features_pivot_* columns are intentionally NOT recomputed here.
+            # Every pivot feature is a pure trailing-window function of OHLC through
+            # each row's own date (shift(1) levels, trailing rolling windows,
+            # backward virgin scan, period-END MTF resample + backward merge_asof
+            # with allow_exact_matches=False). Truncating future rows cannot change
+            # a past row's value — proven by tests/test_pivot_features.py::
+            # test_truncation_invariance — unlike ICT/zone state, which is revised
+            # retroactively by post-cutoff price action. So the existing columns on
+            # `grp` pass through untouched (this loop only overwrites ICT/zone cols).
 
             # ── 1. ICT daily recompute ────────────────────────────────────
             # Compute on training slice, ffill last state to test rows.

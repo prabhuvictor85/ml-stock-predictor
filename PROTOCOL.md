@@ -136,6 +136,76 @@ Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
   `lag=0` (matches the label's `close[t]` entry); `--fill_lag` drives only the
   separate realistic-fill diagnostic, so the primary ruler stays bit-equal.
 
+- **2026-06-30 — New knob `ICT_IMPLEMENTATION_MODE` (OB/FVG trigger strictness).**
+  `ICTFeatureEngine.compute()` accepts `implementation_mode="legacy"|"institutional"`
+  (`engineer.py:52`, constant `_ICT_IMPL_MODE`). "institutional" hard-gates OB/FVG
+  triggers to require a recent Break-of-Structure event within `bos_lookback`
+  bars (`ob_bos_hard_gate`/`fvg_bos_hard_gate=True`), filtering out 2-candle
+  patterns not tied to a confirmed structural break. **Frozen default =
+  "legacy"** (unchanged from prior behavior). This is a **tuning-era A/B
+  candidate only**: institutional mode likely raises OB/FVG signal-to-noise,
+  but the gate is still BOS-conditioned — a trend-confirmation concept — so it
+  may not fix the regime-dependence found in the MODEL_C ICT-only audit
+  (legacy ICT, 66-feature subset: walk-forward mean IC = -0.00002, t = -0.01;
+  full 88-feature v2 decomposition: 63% train→lockbox sign-flip rate vs 0% for
+  the 16 zone-core features). Evaluate legacy vs institutional on ≤2023
+  walk-forward CV before any lockbox use; do not tune this against 2024-2026.
+
+- **2026-07-04 — New knob `PIVOT_FEATURES` (floor-pivot / CPR / Camarilla family).**
+  New module `pipeline/features/pivots.py` (`PivotFeatureEngine`) wired into
+  `engineer.py` `build()` (per-ticker) and gated by env `PIVOT_FEATURES`
+  (call-time read, TWAP pattern; `pivot_features_enabled()`). **Frozen default =
+  OFF** — with the knob unset the production panel, `selected_features.txt`, HPO
+  recipe and all model artifacts are bit-identical to before (verified: default-off
+  build adds zero columns; `tests/test_pivot_features.py::test_default_off_no_pivot_columns`).
+  When ON, adds **69** `features_pivot_*` columns (vocabulary frozen in
+  `pivots.PIVOT_FEATURE_COLS`): ATR-normalized level distances (floor PP/R1/S1,
+  CPR TC/BC, Camarilla H3/H4/H5/L3/L4/L5), CPR width regime, virgin-CPR tracking,
+  Camarilla behavior flags, opening relationships, two-day CPR relationship +
+  bias confirm/reject, pivot trend side/streak + PP slope, PP acceptance, nearest
+  level/support/resistance, and weekly/monthly/yearly pivots. All formulas per
+  *Secrets of a Pivot Boss* (Camarilla 1.1/12…1.1/2, H5=(H/L)·C,
+  TC=(Pivot−BC)+Pivot). Three deliberate deviations from the source draft, each
+  documented in `pivots.py`: (i) TC/BC min/max-normalization applied everywhere
+  (the book's own caveat; draft did it in only one place); (ii) trend side fixed
+  so inside-band = Neutral; (iii) two-day relationship uses the book's overlap
+  definition so all seven states are reachable (draft's if-order left the
+  overlapping states unreachable).
+  *Recompute:* pivot features are **truncation-invariant** (pure trailing
+  functions of OHLC through each row's own date), so per-fold recompute is a
+  documented no-op — enforced by
+  `tests/test_pivot_features.py::test_truncation_invariance`.
+  *Degrees of freedom:* the family's internal parameters (width lookback 60d,
+  regime cutoffs 0.25/0.75/0.10, virgin lookback 60d, PP-slope windows 3/5d,
+  acceptance windows 5/10d, Camarilla multiplier 1.1) are book/draft defaults —
+  **prevalence-style, NOT outcome-validated.** Counted here as ONE family entry in
+  the ledger pending the MODEL_D verdict. Also added: runner flag
+  `run_sp500_local.py --stop_after_targets` (build features+targets checkpoint,
+  run the leakage suite, then exit — runner control only, not recipe-affecting)
+  to produce the pivot-enabled panel the experiment consumes.
+  **This is a tuning-era experiment candidate only (MODEL_D). Do NOT enable
+  `PIVOT_FEATURES` in a lockbox/production run before a positive tuning-era
+  verdict is recorded below.**
+
+  *MODEL_D pivot-only pre-registration (criteria fixed BEFORE the run):*
+  - Harness: expanding-window walk-forward CV, yearly folds 2018–2023, LGBM
+    lambdarank ndcg@10, num_leaves=31, features = all `features_pivot_*`, label =
+    `cs_rank_composite`, metric = per-date rank-IC vs `future_20d_excess_return`
+    (`scripts/experiments/model_d_pivot_only.py`). Identical to the MODEL_A/C audit.
+  - Benchmarks: MODEL_A zone-core CV IC = +0.1441 (t=+8.53); MODEL_C ICT-only
+    CV IC = −0.00002 (t=−0.01).
+  - **Adopt for further work** iff CV **mean IC ≥ +0.03 AND IC t-stat ≥ 2.0 AND
+    ≥ 4 of 6 folds positive** (the script computes and prints this gate).
+  - **Lockbox static split** (`model_d_pivot_only_lockbox.py`, train ≤2023-12-31,
+    score 2024→panel end) runs **ONCE, only if the CV gate passes.** Consistency
+    bar: lockbox IC ≥ 50% of CV IC, same sign. This consumes one look at the
+    2024–26 window (one-shot rule, §6) and is a diagnostic peek, not the
+    production verdict. Record the read here after running.
+  - **Otherwise:** pivots stay OFF (frozen default). Any re-cut of the 69-column
+    v1 list is a new ledger entry and re-registration.
+  - Result (fill after run): CV mean IC `____` t `____` folds+ `__/6` |
+    gate `PASS/FAIL` | lockbox IC `____` | git commit `________`.
+
 ---
 
 ## 4. Procedure (all on Hetzner; isolated via ML_ARTEFACTS_ROOT)

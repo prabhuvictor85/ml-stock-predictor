@@ -882,10 +882,30 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         #   - Same features  → cache hit across retrains (Sep/Dec reuse Jun folds)
         #   - New feature added → cache miss → fold rebuilt with new column
         import hashlib as _hashlib
-        _feat_hash = _hashlib.md5(
-            ",".join(sorted(c for c in train_panel.columns
-                            if c.startswith("features_"))).encode()
-        ).hexdigest()[:8]
+        import lz4.frame as _lz4
+        # Fold caches are lz4-compressed and column-slimmed. Each fold's tr_grp/
+        # te_univ are the FULL ~300-col panel slice, but a trial only ever reads
+        # the pre-selection pool (sf_trial = _forced_pre + _ordinary_pre[:top_k],
+        # top_k<=50 ⊆ pre_selected) plus the label / a few grading columns. Storing
+        # only those drops the ~150-220 never-selected features_*, OHLCV, the
+        # zone_type_*/sector object strings, and spare targets — the bulk of the
+        # size — with no effect on HPO results.
+        # The cache key hashes the pre-selection SET (not all features): a retrain
+        # whose pool differs gets a different feat_hash → clean rebuild, so a slimmed
+        # fold is never reused by a run that needs a column it doesn't contain.
+        _feat_hash = _hashlib.md5(",".join(sorted(pre_selected)).encode()).hexdigest()[:8]
+        # Keep-lists are literal — the slice below gates on tr_grp/te_univ.columns,
+        # so a column added after this point (e.g. group_date, assigned during
+        # universe/group setup) is still retained, and a genuinely absent one is
+        # simply skipped. te_univ's extras are exactly what compute_fold_metrics
+        # grades on (group_date, in_universe, cs_rank_20d, top/bot_quintile,
+        # future_20d_return/excess) plus benchmark_20d_return used in objective().
+        _TR_CACHE_COLS = list(pre_selected) + ["cs_rank_composite"]
+        _TE_CACHE_COLS = list(pre_selected) + [
+            "group_date", "in_universe", "cs_rank_20d", "top_quintile",
+            "bot_quintile", "future_20d_excess_return", "future_20d_return",
+            "benchmark_20d_return",
+        ]
 
         def _fold_cache_path(fold_id: int) -> "Path":
             return FOLD_CACHE_DIR / f"fold_{fold_id}.pkl"
@@ -895,25 +915,24 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             if not p.exists():
                 return None
             try:
-                with open(p, "rb") as f:
+                with _lz4.open(p, "rb") as f:   # lz4-compressed pickle
                     cached = pickle.load(f)
                 base_match = (cached.get("train_end") == spec.train_end and
                               cached.get("test_end")  == spec.test_end)
                 if not base_match:
                     return None
-                # New format: validate feat_hash
+                # feat_hash pins the pre-selection pool the fold was slimmed to.
                 if "feat_hash" in cached:
                     return cached["data"] if cached["feat_hash"] == _feat_hash else None
-                # Legacy format (saved with as_of key): accept if train/test dates
-                # match — historical fold data is immutable across retrains.
                 return cached["data"]
             except Exception:
-                pass
-            return None
+                # Unreadable, or a legacy uncompressed/full-column file → treat as a
+                # miss so the fold is rebuilt and overwritten in the slim lz4 format.
+                return None
 
         def _save_fold_cache(fold_id: int, spec, data: dict) -> None:
             try:
-                with open(_fold_cache_path(fold_id), "wb") as f:
+                with _lz4.open(_fold_cache_path(fold_id), "wb") as f:
                     pickle.dump({
                         "train_end": spec.train_end,
                         "test_end":  spec.test_end,
@@ -975,9 +994,9 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 continue
 
             fold_data = {
-                "tr_grp":    tr_grp,
+                "tr_grp":    tr_grp[[c for c in _TR_CACHE_COLS if c in tr_grp.columns]],
                 "tr_groups": tr_groups,
-                "te_univ":   te_univ,
+                "te_univ":   te_univ[[c for c in _TE_CACHE_COLS if c in te_univ.columns]],
             }
             _save_fold_cache(spec.fold_id, spec, fold_data)
             fold_cache[spec.fold_id] = True   # marker only — data saved to disk, free RAM

@@ -138,6 +138,26 @@ def _winsorize_per_date(panel: pd.DataFrame, feature_cols: List[str], lo: float 
     return panel
 
 
+# Low-cardinality string columns (sector: ~11 values; zone_type_*: SDZ/SSZ/DZ/SZ/"")
+# stored as plain object dtype cost ~80 bytes/cell (Python string object + pointer)
+# on a multi-million-row panel — at 8.1M rows that's ~3.9GB across these 6 columns
+# alone. category dtype stores one small integer code per cell into a shared,
+# deduplicated category array, cutting that to well under 100MB. Every downstream
+# consumer either casts to str before comparing (this file's own zone-score
+# blocks: `grp[tf_col].astype(str)...`) or just reads the value for CSV/JSON
+# output (portfolio construction, evaluate_forward_performance) — both behave
+# identically on category vs object dtype, so this is a pure memory win.
+_CATEGORICAL_COLS = ["sector", "zone_type_1d", "zone_type_1wk", "zone_type_1mo",
+                     "zone_type_3mo", "zone_type_1y"]
+
+
+def _cast_categorical(panel: pd.DataFrame) -> pd.DataFrame:
+    for col in _CATEGORICAL_COLS:
+        if col in panel.columns and str(panel[col].dtype) != "category":
+            panel[col] = panel[col].astype("category")
+    return panel
+
+
 class FeatureEngineer:
     """
     Computes all features from §5.2.  All per-ticker computations use groupby.
@@ -148,9 +168,11 @@ class FeatureEngineer:
     benchmark_close   : daily benchmark close Series indexed by date
     """
 
-    def __init__(self, cfg: MarketConfig, benchmark_close: pd.Series) -> None:
+    def __init__(self, cfg: MarketConfig, benchmark_close: pd.Series,
+                 skip_ict: bool = False) -> None:
         self.cfg = cfg
         self.benchmark_close = benchmark_close
+        self.skip_ict = skip_ict
         self._ict = ICTFeatureEngine()
         self._mtf = MultiTFMerger()
         self._pivot = PivotFeatureEngine()
@@ -341,133 +363,112 @@ class FeatureEngineer:
             beta = beta.clip(-2, 4)
             grp[f"{FEATURE_PREFIX}rolling_beta_60d"] = beta.values
 
-            # ── ICT features ──────────────────────────────────────────────
-            # proximity_pct: same per-TF "price left the zone behind" gate the
-            # ZoneAnalyzer uses — keeps the two zone engines' semantics aligned.
-            grp = self._ict.compute(grp,
-                                    implementation_mode=_ICT_IMPL_MODE,
-                                    disp_mult=_ICT_DISP_MULT["1d"],
-                                    proximity_pct=_ZONE_PROXIMITY_PCT["1d"])
+            # ── ICT features (skipped when skip_ict=True e.g. feature_set=zone) ──
+            if not self.skip_ict:
+                grp = self._ict.compute(grp,
+                                        implementation_mode=_ICT_IMPL_MODE,
+                                        disp_mult=_ICT_DISP_MULT["1d"],
+                                        proximity_pct=_ZONE_PROXIMITY_PCT["1d"])
 
-            # ── ICT signal counts (debug logging) ────────────────────────
-            _n_bob     = int(grp.get("ict_bob_active",     pd.Series(0)).sum())
-            _n_sob     = int(grp.get("ict_sob_active",     pd.Series(0)).sum())
-            _n_bullbb  = int(grp.get("ict_bullrb_active",  pd.Series(0)).sum())
-            _n_bearbb  = int(grp.get("ict_bearrb_active",  pd.Series(0)).sum())
-            _n_bullfvg = int(grp.get("ict_bullfvg_active", pd.Series(0)).sum())
-            _n_bearfvg = int(grp.get("ict_bearfvg_active", pd.Series(0)).sum())
-            _n_bsl     = int(grp.get("ict_bsl_swept",      pd.Series(0)).sum())
-            _n_ssl     = int(grp.get("ict_ssl_swept",      pd.Series(0)).sum())
-            if (_ti + 1) % 100 == 0 or _n_bob + _n_bullbb + _n_bullfvg == 0:
-                log.info(
-                    f"{ticker} ICT | bars={len(grp)} | "
-                    f"BullOB={_n_bob} BearOB={_n_sob} | "
-                    f"BullBB={_n_bullbb} BearBB={_n_bearbb} | "
-                    f"BullFVG={_n_bullfvg} BearFVG={_n_bearfvg} | "
-                    f"BSL_swept={_n_bsl} SSL_swept={_n_ssl}"
-                )
-            if _n_bob == 0 and _n_bullbb == 0 and _n_bullfvg == 0:
-                log.warning(f"{ticker}: NO bull ICT signals detected in {len(grp)} bars — check OHLCV quality")
+                _n_bob     = int(grp.get("ict_bob_active",     pd.Series(0)).sum())
+                _n_sob     = int(grp.get("ict_sob_active",     pd.Series(0)).sum())
+                _n_bullbb  = int(grp.get("ict_bullrb_active",  pd.Series(0)).sum())
+                _n_bearbb  = int(grp.get("ict_bearrb_active",  pd.Series(0)).sum())
+                _n_bullfvg = int(grp.get("ict_bullfvg_active", pd.Series(0)).sum())
+                _n_bearfvg = int(grp.get("ict_bearfvg_active", pd.Series(0)).sum())
+                _n_bsl     = int(grp.get("ict_bsl_swept",      pd.Series(0)).sum())
+                _n_ssl     = int(grp.get("ict_ssl_swept",      pd.Series(0)).sum())
+                if (_ti + 1) % 100 == 0 or _n_bob + _n_bullbb + _n_bullfvg == 0:
+                    log.info(
+                        f"{ticker} ICT | bars={len(grp)} | "
+                        f"BullOB={_n_bob} BearOB={_n_sob} | "
+                        f"BullBB={_n_bullbb} BearBB={_n_bearbb} | "
+                        f"BullFVG={_n_bullfvg} BearFVG={_n_bearfvg} | "
+                        f"BSL_swept={_n_bsl} SSL_swept={_n_ssl}"
+                    )
+                if _n_bob == 0 and _n_bullbb == 0 and _n_bullfvg == 0:
+                    log.warning(f"{ticker}: NO bull ICT signals detected in {len(grp)} bars — check OHLCV quality")
 
-            # Prefix every 1d ICT feature column dynamically. ICTFeatureEngine emits
-            # many families (zones, BOS/CHoCH, premium/discount, liquidity pools,
-            # fill/rejection, prior-session levels). A hardcoded list here drifted
-            # out of sync as ICT features were added — silently leaking the new
-            # columns into the panel unprefixed, so the model never saw them (and
-            # the raw-ICT-leak guard test failed). Materialise the column list FIRST
-            # (so grp isn't mutated mid-iteration), then prefix all ict_* columns.
-            # HTF ICT columns are added below already prefixed, so only raw 1d
-            # columns are caught here.
-            for ict_col in [c for c in grp.columns
-                            if c.startswith("ict_") and not c.startswith(FEATURE_PREFIX)]:
-                grp[f"{FEATURE_PREFIX}{ict_col}"] = grp.pop(ict_col)
+                for ict_col in [c for c in grp.columns
+                                if c.startswith("ict_") and not c.startswith(FEATURE_PREFIX)]:
+                    grp[f"{FEATURE_PREFIX}{ict_col}"] = grp.pop(ict_col)
 
-            # ── Multi-timeframe ICT (1wk / 1mo / 3mo / 1y) ───────────────────
-            # For each HTF: resample OHLCV → compute ATR → run ICT engine →
-            # carry active flags + zone priority back to daily via merge_asof.
-            # Composite scores weight higher TFs more (same scheme as zones).
-            try:
-                ohlcv_d   = grp[["open", "high", "low", "close", "volume"]].copy()
-                daily_idx = ohlcv_d.index
+                try:
+                    ohlcv_d   = grp[["open", "high", "low", "close", "volume"]].copy()
+                    daily_idx = ohlcv_d.index
 
-                # Start HTF composite accumulators (will include 1d below)
-                ict_bull_htf = np.zeros(len(grp), dtype=np.float32)
-                ict_bear_htf = np.zeros(len(grp), dtype=np.float32)
+                    ict_bull_htf = np.zeros(len(grp), dtype=np.float32)
+                    ict_bear_htf = np.zeros(len(grp), dtype=np.float32)
 
-                # 1d contribution to composite (already computed above)
-                for _prio_col, _acc in [
-                    (f"{FEATURE_PREFIX}ict_bull_zone_priority", ict_bull_htf),
-                    (f"{FEATURE_PREFIX}ict_bear_zone_priority", ict_bear_htf),
-                ]:
-                    if _prio_col in grp.columns:
-                        _acc += (_ICT_HTF_W["1d"] *
-                                 grp[_prio_col].fillna(0).values.astype(np.float32)
-                                 / _ICT_PRIORITY_MAX)
+                    for _prio_col, _acc in [
+                        (f"{FEATURE_PREFIX}ict_bull_zone_priority", ict_bull_htf),
+                        (f"{FEATURE_PREFIX}ict_bear_zone_priority", ict_bear_htf),
+                    ]:
+                        if _prio_col in grp.columns:
+                            _acc += (_ICT_HTF_W["1d"] *
+                                     grp[_prio_col].fillna(0).values.astype(np.float32)
+                                     / _ICT_PRIORITY_MAX)
 
-                for tf_label, rule in _ICT_HTF_RESAMPLE.items():
-                    try:
-                        htf = ohlcv_d.resample(rule).agg({
-                            "open": "first", "high": "max",
-                            "low": "min",   "close": "last", "volume": "sum",
-                        }).dropna(subset=["close"])
+                    for tf_label, rule in _ICT_HTF_RESAMPLE.items():
+                        try:
+                            htf = ohlcv_d.resample(rule).agg({
+                                "open": "first", "high": "max",
+                                "low": "min",   "close": "last", "volume": "sum",
+                            }).dropna(subset=["close"])
 
-                        if len(htf) < 5:
-                            continue
+                            if len(htf) < 5:
+                                continue
 
-                        # Wilder ATR on the resampled TF
-                        htf["atr_14"] = _wilder_atr(
-                            htf["high"].values.astype(float),
-                            htf["low"].values.astype(float),
-                            htf["close"].values.astype(float), 14,
-                        )
+                            htf["atr_14"] = _wilder_atr(
+                                htf["high"].values.astype(float),
+                                htf["low"].values.astype(float),
+                                htf["close"].values.astype(float), 14,
+                            )
 
-                        # Run ICT engine on HTF bars with timeframe-appropriate zone expiry + displacement gate
-                        htf_ict = self._ict.compute(
-                            htf,
-                            implementation_mode=_ICT_IMPL_MODE,
-                            zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label],
-                            disp_mult=_ICT_DISP_MULT[tf_label],
-                            proximity_pct=_ZONE_PROXIMITY_PCT[tf_label],
-                        )
+                            htf_ict = self._ict.compute(
+                                htf,
+                                implementation_mode=_ICT_IMPL_MODE,
+                                zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label],
+                                disp_mult=_ICT_DISP_MULT[tf_label],
+                                proximity_pct=_ZONE_PROXIMITY_PCT[tf_label],
+                            )
 
-                        # Carry active cols back to daily via merge_asof (backward fill)
-                        htf_reset = htf_ict.reset_index()
-                        date_col  = htf_reset.columns[0]
-                        htf_reset = htf_reset.rename(columns={date_col: "date"}).sort_values("date")
-                        carry     = [c for c in _ICT_CARRY_COLS if c in htf_reset.columns]
+                            htf_reset = htf_ict.reset_index()
+                            date_col  = htf_reset.columns[0]
+                            htf_reset = htf_reset.rename(columns={date_col: "date"}).sort_values("date")
+                            carry     = [c for c in _ICT_CARRY_COLS if c in htf_reset.columns]
 
-                        daily_r = pd.DataFrame({"date": daily_idx}).sort_values("date")
-                        merged  = pd.merge_asof(
-                            daily_r,
-                            htf_reset[["date"] + carry],
-                            on="date", direction="backward",
-                        ).set_index("date")
+                            daily_r = pd.DataFrame({"date": daily_idx}).sort_values("date")
+                            merged  = pd.merge_asof(
+                                daily_r,
+                                htf_reset[["date"] + carry],
+                                on="date", direction="backward",
+                            ).set_index("date")
 
-                        w = _ICT_HTF_W[tf_label]
-                        for col in carry:
-                            vals = merged[col].reindex(daily_idx).fillna(0).values.astype(np.float32)
-                            grp[f"{FEATURE_PREFIX}{col}_{tf_label}"] = vals
+                            w = _ICT_HTF_W[tf_label]
+                            for col in carry:
+                                vals = merged[col].reindex(daily_idx).fillna(0).values.astype(np.float32)
+                                grp[f"{FEATURE_PREFIX}{col}_{tf_label}"] = vals
 
-                            # Accumulate composite using zone priority
-                            if col == "ict_bull_zone_priority":
-                                ict_bull_htf += w * vals / _ICT_PRIORITY_MAX
-                            elif col == "ict_bear_zone_priority":
-                                ict_bear_htf += w * vals / _ICT_PRIORITY_MAX
+                                if col == "ict_bull_zone_priority":
+                                    ict_bull_htf += w * vals / _ICT_PRIORITY_MAX
+                                elif col == "ict_bear_zone_priority":
+                                    ict_bear_htf += w * vals / _ICT_PRIORITY_MAX
 
-                    except Exception as _e:
-                        log.debug(f"{ticker} ICT HTF {tf_label}: {_e}")
+                        except Exception as _e:
+                            log.debug(f"{ticker} ICT HTF {tf_label}: {_e}")
 
-                grp[f"{FEATURE_PREFIX}ict_bull_htf_score"] = (
-                    ict_bull_htf / _ICT_SIGNAL_MAX
-                ).clip(0, 1).astype(np.float32)
-                grp[f"{FEATURE_PREFIX}ict_bear_htf_score"] = (
-                    ict_bear_htf / _ICT_SIGNAL_MAX
-                ).clip(0, 1).astype(np.float32)
+                    grp[f"{FEATURE_PREFIX}ict_bull_htf_score"] = (
+                        ict_bull_htf / _ICT_SIGNAL_MAX
+                    ).clip(0, 1).astype(np.float32)
+                    grp[f"{FEATURE_PREFIX}ict_bear_htf_score"] = (
+                        ict_bear_htf / _ICT_SIGNAL_MAX
+                    ).clip(0, 1).astype(np.float32)
 
-            except Exception as e:
-                log.warning(f"{ticker}: MTF ICT failed ({e}) — using zeros")
-                grp[f"{FEATURE_PREFIX}ict_bull_htf_score"] = np.float32(0.0)
-                grp[f"{FEATURE_PREFIX}ict_bear_htf_score"] = np.float32(0.0)
+                except Exception as e:
+                    log.warning(f"{ticker}: MTF ICT failed ({e}) — using zeros")
+                    grp[f"{FEATURE_PREFIX}ict_bull_htf_score"] = np.float32(0.0)
+                    grp[f"{FEATURE_PREFIX}ict_bear_htf_score"] = np.float32(0.0)
 
             # ── HTF Zone features (via ZoneAnalyzer — full RBR/DBD/SDZ/SSZ pipeline) ──
             # Zones are computed from OHLCV using the same market-vision logic.
@@ -655,6 +656,7 @@ class FeatureEngineer:
         panel = _winsorize_per_date(panel, feat_cols)
 
         log.info(f"Features computed: {len(feat_cols)} feature columns")
+        panel = _cast_categorical(panel)
         return panel
 
     def _add_sector_rs(self, panel: pd.DataFrame) -> pd.DataFrame:
@@ -987,6 +989,7 @@ class FeatureEngineer:
             - result[f"{FEATURE_PREFIX}ict_bear_htf_score"]
         ).astype(np.float32)
 
+        result = _cast_categorical(result)
         return result
 
     def recompute_zones(

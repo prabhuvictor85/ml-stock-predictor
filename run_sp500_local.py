@@ -640,7 +640,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     CKPT.mkdir(parents=True, exist_ok=True)
 
     # FeatureEngineer is always instantiated — needed for per-fold zone recompute
-    fe = FeatureEngineer(cfg, benchmark_close)
+    fe = FeatureEngineer(cfg, benchmark_close,
+                         skip_ict=(feature_set in ("zone", "pivot")))
     _train_perf = PerfTimer()
 
     # ── Checkpoints 1+2: features + targets ──────────────────────────────
@@ -2663,7 +2664,9 @@ def main() -> None:
                               f"(prevents look-ahead in zone/ICT state).")
                 print("Re-running feature engineering on fresh panel ...")
                 from pipeline.features.engineer import FeatureEngineer, FEATURE_PREFIX
-                fe = FeatureEngineer(cfg, benchmark_close)
+                _fs = getattr(args, "feature_set", "all")
+                fe = FeatureEngineer(cfg, benchmark_close,
+                                     skip_ict=(_fs in ("zone", "pivot")))
                 panel = fe.build(panel)
                 print(f"  Features ready. Panel date range: "
                       f"{panel.index.get_level_values('date').min().date()} → "

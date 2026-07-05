@@ -40,6 +40,10 @@ ZONE_PREFIXES = (
     "features_dz_",
     "features_sz_",
     "features_zone_",
+    "features_weekly_trend",
+    "features_monthly_trend",
+    "features_quarterly_trend",
+    "features_yearly_trend",
 )
 
 
@@ -153,7 +157,7 @@ def main() -> None:
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     print("=" * 60)
-    print("  MODEL_A — Zone Only (apple-to-apple vs MODEL_D)")
+    print("  MODEL_A — Zone + Trend (apple-to-apple vs MODEL_D)")
     print("=" * 60)
 
     print(f"\nLoading panel: {panel_path}")
@@ -215,7 +219,7 @@ def main() -> None:
           f"{'PASS' if gate_pass else 'FAIL'}")
 
     output = {
-        "model":        "MODEL_A_zone_only",
+        "model":        "MODEL_A_zone_trend",
         "n_features":   len(zone_cols),
         "features":     zone_cols,
         "fold_results": fold_results,

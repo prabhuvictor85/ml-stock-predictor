@@ -38,6 +38,9 @@ log = get_logger(__name__)
 # ── Zone / OB features that must always be selected ─────────────────────────
 # Edit this set to control which features are protected from elimination.
 ALWAYS_INCLUDE: set = {
+    # Zone proximity — #1 feature by importance; has >5% NaN (stocks not near any
+    # zone get NaN) so must be protected from the NaN-drop gate in Step 1.
+    "features_zone_dist_atr",
     # Demand zone scores
     "features_sdz_htf_score",
     "features_dz_raw_score",
@@ -164,9 +167,13 @@ class FeatureSelector:
                     imp1 = quick_imp.get(f1, 0)
                     imp2 = quick_imp.get(f2, 0)
                     loser = f2 if imp1 >= imp2 else f1
-                    # Never drop a forced feature regardless of importance
+                    winner = f1 if loser == f2 else f2
+                    # Never drop a forced feature regardless of importance.
+                    # If both are forced, skip — keep both (correlation accepted).
                     if loser in ALWAYS_INCLUDE:
-                        loser = f1 if loser == f2 else f2
+                        if winner in ALWAYS_INCLUDE:
+                            continue
+                        loser = winner
                     to_drop.add(loser)
 
         features = [f for f in features if f not in to_drop]

@@ -747,7 +747,9 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     # --feature_set: restrict the feature pool before HPO/selection/fit.
     _FEATURE_SET_PREFIXES = {
         "zone":  ("features_sdz_", "features_ssz_", "features_dz_",
-                  "features_sz_",  "features_zone_"),
+                  "features_sz_",  "features_zone_",
+                  "features_weekly_trend", "features_monthly_trend",
+                  "features_quarterly_trend", "features_yearly_trend"),
         "ict":   ("features_ict_",),
         "pivot": ("features_pivot_",),
     }

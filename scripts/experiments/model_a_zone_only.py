@@ -44,6 +44,10 @@ ZONE_PREFIXES = (
     "features_monthly_trend",
     "features_quarterly_trend",
     "features_yearly_trend",
+    "features_adx_bull",
+    "features_adx_bear",
+    "features_vol_contraction",
+    "features_compression_score",
 )
 
 
@@ -157,7 +161,7 @@ def main() -> None:
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
 
     print("=" * 60)
-    print("  MODEL_A — Zone + Trend (apple-to-apple vs MODEL_D)")
+    print("  MODEL_A — Zone + Trend + ADX + Vol (apple-to-apple vs MODEL_D)")
     print("=" * 60)
 
     print(f"\nLoading panel: {panel_path}")

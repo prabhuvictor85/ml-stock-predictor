@@ -1,5 +1,15 @@
 # Feature Addition Roadmap — Zone Model Incremental Testing
 
+> **⚠ LEAKAGE CAVEAT (2026-07-07):** All IC numbers in this document are measured on
+> `panel_targets.pkl`, whose zone columns were built by `compute_zone_features(ohlcv)`
+> with **no cutoff_date** (engineer.py:488). ZoneAnalyzer retroactively rewrites zone
+> validity using future data (formation `shift(-1)`, SDZ/SSZ breach checks, base
+> eliminator) — empirically up to 94% of 2018-2020 days change zone state for
+> regime-change tickers (XOM) when post-2021 data is added. Every zone IC here is
+> therefore an inflated upper bound; treat bucket deltas as screening-grade only.
+> The pivot numbers (MODEL_D) are causal and honest. Decision-grade zone numbers
+> require per-fold-cutoff zone recomputation. See memory: zone-lookahead-leak.
+
 **Baseline (2026-07-05):** Zone model (MODEL_A) achieves IC=+0.1922, t=+9.11, 6/6 folds positive on 2018-2023 tuning era using 30 zone features.
 
 **Protocol:** Each bucket must be tested via the `model_a_zone_only.py` harness on the same 2018-2023 tuning era. A new bucket is added only after the previous one is evaluated. Record IC, t-stat, and delta vs baseline before moving to the next. Do NOT test on the 2024-2026 lockbox window — that is reserved for the final verdict.

@@ -203,8 +203,53 @@ Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
     production verdict. Record the read here after running.
   - **Otherwise:** pivots stay OFF (frozen default). Any re-cut of the 69-column
     v1 list is a new ledger entry and re-registration.
-  - Result (fill after run): CV mean IC `____` t `____` folds+ `__/6` |
-    gate `PASS/FAIL` | lockbox IC `____` | git commit `________`.
+  - Result (2026-07-06): CV mean IC `+0.0092` t `+1.10` folds+ `4/6` |
+    gate **FAIL** | lockbox: NOT RUN (gate failed — 2024-26 window preserved) |
+    results: `/mnt/data/artefacts/experiments/model_d_results.json`.
+    Pivots stay OFF. Post-hoc note: the MODEL_A benchmark quoted above
+    (+0.1441) was later found to be leaked — see the 2026-07-08 entry; the
+    MODEL_D number itself is honest (pivot features are truncation-invariant).
+
+- **2026-07-08 — Zone look-ahead leak: discovery, audit, fixes, causal verdict.**
+  *Discovery:* the panel build called `compute_zone_features(ohlcv)` with **no
+  cutoff** (`engineer.py:488`), so ZoneAnalyzer saw each ticker's full CSV
+  history (~2026-04) and backdated verdicts into every historical row via three
+  mechanisms: formation `shift(-1)`, SDZ/SSZ breach scans over all future data,
+  and `_base_eliminator` deleting any zone a future candle overlaps. Every
+  zone feature therefore encoded "levels the future respected."
+  *Audit (truncation-invariance, 5 tickers, cut at 2021, window 2018-2020):*
+  ZONE 14/33 columns measurably rewritten (worst `features_zone_dist_atr`
+  47.2% of cells; family guilty by generator), **ICT 0/153 exercised columns
+  changed, PIVOT 0/68, BASE 0/37** — corruption confined to the zone family.
+  MODEL_C and MODEL_D verdicts stand (their features were honest).
+  **All previously recorded zone CV numbers (incl. the +0.1441 zone-core
+  benchmark cited in the MODEL_D entry and the +0.1920 30-feature baseline of
+  the 2026-07 bucket sweep) are VOID — leaked.**
+  *Fixes (commit 3389c34):* (i) `--train_end` fence now REDRAWS zone columns
+  with cutoff=train_end after row-fencing (row-slicing alone left leaked
+  values in pre-fence rows); (ii) `recompute_fold_features` honors `skip_ict`
+  (+ guard against double-multiplying ICT×trend scores); (iii) new
+  decision-grade harness `scripts/experiments/model_a_causal_cv.py` (per-fold
+  zone redraw at each fold's own cutoff; test rows = frozen-carry state →
+  conservative lower bound). Separate fix in progress for the HPO fold loop's
+  `te_panel` cutoff=test_end leak (task spun off 2026-07-07).
+  *MODEL_A causal verdict (one run, 2026-07-08, same harness/gate as C/D):*
+  | Config | n | mean IC | t | minIC | folds+ | leaked ref | inflation |
+  |---|---|---|---|---|---|---|---|
+  | Z zone-only | 30 | **+0.0069** | +1.98 | −0.0098 | 5/6 | +0.1920 | +0.1851 |
+  | Z+B1 trend | 34 | +0.0074 | +1.12 | −0.0254 | 4/6 | +0.1969 | +0.1895 |
+  | Z+B7 returns | 34 | +0.0090 | +1.19 | −0.0267 | 4/6 | +0.1983 | +0.1893 |
+  | Z+B1+B7 | 38 | +0.0078 | +0.97 | −0.0294 | 4/6 | — | — |
+  **GATE FAIL, all configs** (bar: IC ≥ 0.03, t ≥ 2.0, ≥ 4/6 folds+). ~96% of
+  the leaked zone signal was the eraser. Honest three-family scoreboard:
+  ICT −0.00002 (t −0.01) | pivots +0.0092 (t +1.10) | zones +0.0069 (t +1.98).
+  *Decision:* zone lockbox CANCELLED (recipe was tuned on leaked numbers; the
+  2024-26 window remains unspent). Zones stay out of production candidates
+  until a pre-registered v2 (timeline-causal generator, event-dated
+  invalidation) earns a new test. Next family: **MODEL_E momentum + base
+  features, pre-registered BEFORE results in `docs/MODEL_E_PREREGISTRATION.md`
+  (commit ee634df).** Results file:
+  `/mnt/data/artefacts/experiments/causal_zone_cv_results.json`.
 
 ---
 

@@ -92,5 +92,5 @@ thresholds, or horizons after seeing results = new experiment, new document.
 | MODEL_C ICT-only | ~115 | −0.00002 | −0.01 | honest (audited) | FAIL |
 | MODEL_D pivot-only | 69 | +0.0092 | +1.10 | honest (proven) | FAIL |
 | MODEL_A zone-only (leaked) | 30 | +0.1920 | +9.12 | LEAKED | void |
-| MODEL_A zone-only (causal) | 30 | _fill after run_ | — | honest | _fill_ |
+| MODEL_A zone-only (causal) | 30 | +0.0069 | +1.98 | honest | FAIL (2026-07-08) |
 | MODEL_E configs | 4–40 | _this experiment_ | — | honest | — |

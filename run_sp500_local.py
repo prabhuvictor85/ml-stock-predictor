@@ -697,11 +697,14 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
     # ── Lockbox fence ─────────────────────────────────────────────────────
     # Applied AFTER the feature/target checkpoint is loaded, so a pre-existing
-    # full-panel checkpoint cannot silently defeat the fence. Features are
-    # causal per-ticker (each row uses only its own past), so building them on
-    # the full panel and then dropping post-fence rows leaves the surviving
-    # training rows identical to a fenced-from-scratch build. Everything
-    # downstream — CV, HPO, feature selection, final fit — sees only <= train_end.
+    # full-panel checkpoint cannot silently defeat the fence. Base / ICT /
+    # pivot features are truncation-invariant (audited 2026-07-07: full-history
+    # build == fenced-from-scratch build, cell for cell), so for them dropping
+    # post-fence rows is sufficient. Zone features are NOT — ZoneAnalyzer
+    # backdates breach/eliminator verdicts, so pre-fence rows built on full
+    # history carry post-fence knowledge. They are redrawn as-of the fence
+    # below. Everything downstream — CV, HPO, feature selection, final fit —
+    # then sees only what a retrain at train_end could have known.
     # The full feature+target panel is what scoring needs (all dates, incl. the
     # holdout period). In a NON-fenced run we just return it. In a fenced run we
     # must NOT hold it alongside the fenced training panel through the whole
@@ -739,6 +742,52 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                   f"columns for {int(_bmask.sum()):,} rows in the last "
                   f"{MAX_FORWARD_HORIZON} trading days (labels would have used "
                   f"post-fence prices).")
+
+        # ── Zone redraw as-of the fence ───────────────────────────────────
+        # Zone columns are the one feature family that is NOT truncation-
+        # invariant: the full-history build let ZoneAnalyzer backdate verdicts
+        # from post-fence price action into pre-fence rows (measured: up to
+        # 47% of zone_dist_atr cells rewritten). Redraw them with the analyzer
+        # blindfolded at the fence. Column-sliced (~45 cols) so the recompute
+        # never holds a second full-width panel; skip_ict always — ICT/pivot
+        # are truncation-invariant and pass through untouched.
+        from pipeline.features.zone_features import _ZONE_COLS
+        _zone_feat_cols = [c for c in panel.columns if c.startswith((
+            f"{FEATURE_PREFIX}sdz_", f"{FEATURE_PREFIX}ssz_",
+            f"{FEATURE_PREFIX}dz_",  f"{FEATURE_PREFIX}sz_",
+            f"{FEATURE_PREFIX}zone_", f"{FEATURE_PREFIX}any_valid",
+        ))]
+        if _zone_feat_cols:
+            _need = [c for c in ("open", "high", "low", "close", "volume",
+                                 "weekly_trend", "monthly_trend",
+                                 "quarterly_trend", "yearly_trend")
+                     if c not in panel.columns]
+            if _need:
+                raise RuntimeError(
+                    f"[train_end] zone redraw needs columns missing from panel: {_need} "
+                    f"— cannot fence zone features honestly; aborting rather than "
+                    f"training on leaked zone columns.")
+            print(f"      [train_end] redrawing {len(_zone_feat_cols)} zone feature "
+                  f"columns as-of {_te.date()} (~10-15 min for a full universe) ...")
+            _slice_cols = (["open", "high", "low", "close", "volume",
+                            "weekly_trend", "monthly_trend",
+                            "quarterly_trend", "yearly_trend"]
+                           + [c for c in _ZONE_COLS if c in panel.columns]
+                           + _zone_feat_cols)
+            _zslice = panel[list(dict.fromkeys(_slice_cols))].copy()
+            # Leak-safety: blank raw zone cols so a per-ticker recompute failure
+            # yields empty zones, never the leaked full-history values.
+            for _c in [c for c in _ZONE_COLS if c in _zslice.columns]:
+                _zslice[_c] = "" if "type" in _c else np.nan
+            _zfe = FeatureEngineer(cfg, benchmark_close, skip_ict=True)
+            _zslice = _zfe.recompute_fold_features(_zslice, cutoff_date=_te)
+            for _c in _zone_feat_cols + [c for c in _ZONE_COLS if c in _zslice.columns]:
+                panel[_c] = _zslice[_c].reindex(panel.index).values
+            del _zslice, _zfe
+            import gc as _gc_zone; _gc_zone.collect()
+            print(f"      [train_end] zone redraw complete — pre-fence rows now "
+                  f"reflect only pre-fence zone knowledge.")
+
         # Release the full panel so only the fenced training panel is resident
         # through the CV/HPO loop. It is reloaded from the checkpoint at return.
         scoring_panel = None

@@ -794,7 +794,8 @@ class FeatureEngineer:
             # ── 1. ICT daily recompute ────────────────────────────────────
             # Compute on training slice, ffill last state to test rows.
             # atr_14 already present from engineer.build() — no recompute needed.
-            if len(grp_cut) >= 10:
+            # Skipped when skip_ict=True (zone/pivot panels carry no ICT columns).
+            if not self.skip_ict and len(grp_cut) >= 10:
                 try:
                     ict_result   = self._ict.compute(grp_cut, disp_mult=_ICT_DISP_MULT["1d"],
                                                      proximity_pct=_ZONE_PROXIMITY_PCT["1d"])
@@ -811,82 +812,83 @@ class FeatureEngineer:
                 except Exception as e:
                     log.warning(f"{ticker}: ICT daily recompute failed ({e}) — keeping existing values")
 
-            # ── 2. MTF ICT recompute ─────────────────────────────────────
-            try:
-                ict_bull_htf = np.zeros(len(grp), dtype=np.float32)
-                ict_bear_htf = np.zeros(len(grp), dtype=np.float32)
+            # ── 2. MTF ICT recompute (skipped when skip_ict=True) ────────
+            if not self.skip_ict:
+                try:
+                    ict_bull_htf = np.zeros(len(grp), dtype=np.float32)
+                    ict_bear_htf = np.zeros(len(grp), dtype=np.float32)
 
-                # 1d contribution (freshly recomputed above)
-                for _prio_col, _acc in [
-                    (f"{FEATURE_PREFIX}ict_bull_zone_priority", ict_bull_htf),
-                    (f"{FEATURE_PREFIX}ict_bear_zone_priority", ict_bear_htf),
-                ]:
-                    if _prio_col in grp.columns:
-                        _acc += (
-                            _ICT_HTF_W["1d"]
-                            * grp[_prio_col].fillna(0).values.astype(np.float32)
-                            / _ICT_PRIORITY_MAX
-                        )
+                    # 1d contribution (freshly recomputed above)
+                    for _prio_col, _acc in [
+                        (f"{FEATURE_PREFIX}ict_bull_zone_priority", ict_bull_htf),
+                        (f"{FEATURE_PREFIX}ict_bear_zone_priority", ict_bear_htf),
+                    ]:
+                        if _prio_col in grp.columns:
+                            _acc += (
+                                _ICT_HTF_W["1d"]
+                                * grp[_prio_col].fillna(0).values.astype(np.float32)
+                                / _ICT_PRIORITY_MAX
+                            )
 
-                for tf_label, rule in _ICT_HTF_RESAMPLE.items():
-                    try:
-                        htf = ohlcv_cut.resample(rule).agg({
-                            "open": "first", "high": "max",
-                            "low": "min",    "close": "last", "volume": "sum",
-                        }).dropna(subset=["close"])
+                    for tf_label, rule in _ICT_HTF_RESAMPLE.items():
+                        try:
+                            htf = ohlcv_cut.resample(rule).agg({
+                                "open": "first", "high": "max",
+                                "low": "min",    "close": "last", "volume": "sum",
+                            }).dropna(subset=["close"])
 
-                        if len(htf) < 5:
-                            continue
+                            if len(htf) < 5:
+                                continue
 
-                        htf["atr_14"] = _wilder_atr(
-                            htf["high"].values.astype(float),
-                            htf["low"].values.astype(float),
-                            htf["close"].values.astype(float), 14,
-                        )
+                            htf["atr_14"] = _wilder_atr(
+                                htf["high"].values.astype(float),
+                                htf["low"].values.astype(float),
+                                htf["close"].values.astype(float), 14,
+                            )
 
-                        htf_ict   = self._ict.compute(
-                            htf,
-                            zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label],
-                            disp_mult=_ICT_DISP_MULT[tf_label],
-                            proximity_pct=_ZONE_PROXIMITY_PCT[tf_label],
-                        )
-                        htf_reset = htf_ict.reset_index()
-                        date_col  = htf_reset.columns[0]
-                        htf_reset = (htf_reset
-                                     .rename(columns={date_col: "date"})
-                                     .sort_values("date"))
-                        carry     = [c for c in _ICT_CARRY_COLS if c in htf_reset.columns]
+                            htf_ict   = self._ict.compute(
+                                htf,
+                                zone_expiry_bars=_ICT_ZONE_EXPIRY[tf_label],
+                                disp_mult=_ICT_DISP_MULT[tf_label],
+                                proximity_pct=_ZONE_PROXIMITY_PCT[tf_label],
+                            )
+                            htf_reset = htf_ict.reset_index()
+                            date_col  = htf_reset.columns[0]
+                            htf_reset = (htf_reset
+                                         .rename(columns={date_col: "date"})
+                                         .sort_values("date"))
+                            carry     = [c for c in _ICT_CARRY_COLS if c in htf_reset.columns]
 
-                        daily_r = pd.DataFrame({"date": full_index}).sort_values("date")
-                        merged  = pd.merge_asof(
-                            daily_r,
-                            htf_reset[["date"] + carry],
-                            on="date", direction="backward",
-                        ).set_index("date")
+                            daily_r = pd.DataFrame({"date": full_index}).sort_values("date")
+                            merged  = pd.merge_asof(
+                                daily_r,
+                                htf_reset[["date"] + carry],
+                                on="date", direction="backward",
+                            ).set_index("date")
 
-                        w = _ICT_HTF_W[tf_label]
-                        for col in carry:
-                            vals     = merged[col].reindex(full_index).fillna(0).values.astype(np.float32)
-                            feat_col = f"{FEATURE_PREFIX}{col}_{tf_label}"
-                            if feat_col in grp.columns:
-                                grp[feat_col] = vals
-                            if col == "ict_bull_zone_priority":
-                                ict_bull_htf += w * vals / _ICT_PRIORITY_MAX
-                            elif col == "ict_bear_zone_priority":
-                                ict_bear_htf += w * vals / _ICT_PRIORITY_MAX
+                            w = _ICT_HTF_W[tf_label]
+                            for col in carry:
+                                vals     = merged[col].reindex(full_index).fillna(0).values.astype(np.float32)
+                                feat_col = f"{FEATURE_PREFIX}{col}_{tf_label}"
+                                if feat_col in grp.columns:
+                                    grp[feat_col] = vals
+                                if col == "ict_bull_zone_priority":
+                                    ict_bull_htf += w * vals / _ICT_PRIORITY_MAX
+                                elif col == "ict_bear_zone_priority":
+                                    ict_bear_htf += w * vals / _ICT_PRIORITY_MAX
 
-                    except Exception as _e:
-                        log.debug(f"{ticker} ICT HTF {tf_label} recompute: {_e}")
+                        except Exception as _e:
+                            log.debug(f"{ticker} ICT HTF {tf_label} recompute: {_e}")
 
-                grp[f"{FEATURE_PREFIX}ict_bull_htf_score"] = (
-                    ict_bull_htf / _ICT_SIGNAL_MAX
-                ).clip(0, 1).astype(np.float32)
-                grp[f"{FEATURE_PREFIX}ict_bear_htf_score"] = (
-                    ict_bear_htf / _ICT_SIGNAL_MAX
-                ).clip(0, 1).astype(np.float32)
+                    grp[f"{FEATURE_PREFIX}ict_bull_htf_score"] = (
+                        ict_bull_htf / _ICT_SIGNAL_MAX
+                    ).clip(0, 1).astype(np.float32)
+                    grp[f"{FEATURE_PREFIX}ict_bear_htf_score"] = (
+                        ict_bear_htf / _ICT_SIGNAL_MAX
+                    ).clip(0, 1).astype(np.float32)
 
-            except Exception as e:
-                log.warning(f"{ticker}: MTF ICT recompute failed ({e})")
+                except Exception as e:
+                    log.warning(f"{ticker}: MTF ICT recompute failed ({e})")
 
             # ── 3. Zone recompute (cutoff guard) ─────────────────────────
             try:
@@ -974,20 +976,26 @@ class FeatureEngineer:
         # carry no trend context. Apply the same up_mult/dn_mult so bullish ICT
         # is amplified in uptrends and bearish ICT in downtrends — identical to
         # how sdz_htf_score and ssz_htf_score are treated.
-        ict_bull_r = result.get(f"{FEATURE_PREFIX}ict_bull_htf_score",
-                                pd.Series(0.0, index=result.index))
-        ict_bear_r = result.get(f"{FEATURE_PREFIX}ict_bear_htf_score",
-                                pd.Series(0.0, index=result.index))
-        result[f"{FEATURE_PREFIX}ict_bull_htf_score"] = (
-            ict_bull_r * up_mult).clip(0, 1).astype(np.float32)
-        result[f"{FEATURE_PREFIX}ict_bear_htf_score"] = (
-            ict_bear_r * dn_mult).clip(0, 1).astype(np.float32)
-        # Signed confluence: positive = bullish ICT dominates, negative = bearish.
-        # Mirrors zone_htf_confluence; gives the model a single sided ICT signal.
-        result[f"{FEATURE_PREFIX}ict_htf_confluence"] = (
-            result[f"{FEATURE_PREFIX}ict_bull_htf_score"]
-            - result[f"{FEATURE_PREFIX}ict_bear_htf_score"]
-        ).astype(np.float32)
+        # Guarded twice: (a) skip_ict runs leave existing ICT columns untouched —
+        # they already carry the build-time trend multiplier, and multiplying
+        # again would double-scale them; (b) column presence keeps the
+        # no-added-columns invariant (test_critical_invariants) on panels that
+        # never had ICT columns.
+        if not self.skip_ict and f"{FEATURE_PREFIX}ict_bull_htf_score" in result.columns:
+            ict_bull_r = result.get(f"{FEATURE_PREFIX}ict_bull_htf_score",
+                                    pd.Series(0.0, index=result.index))
+            ict_bear_r = result.get(f"{FEATURE_PREFIX}ict_bear_htf_score",
+                                    pd.Series(0.0, index=result.index))
+            result[f"{FEATURE_PREFIX}ict_bull_htf_score"] = (
+                ict_bull_r * up_mult).clip(0, 1).astype(np.float32)
+            result[f"{FEATURE_PREFIX}ict_bear_htf_score"] = (
+                ict_bear_r * dn_mult).clip(0, 1).astype(np.float32)
+            # Signed confluence: positive = bullish ICT dominates, negative = bearish.
+            # Mirrors zone_htf_confluence; gives the model a single sided ICT signal.
+            result[f"{FEATURE_PREFIX}ict_htf_confluence"] = (
+                result[f"{FEATURE_PREFIX}ict_bull_htf_score"]
+                - result[f"{FEATURE_PREFIX}ict_bear_htf_score"]
+            ).astype(np.float32)
 
         result = _cast_categorical(result)
         return result

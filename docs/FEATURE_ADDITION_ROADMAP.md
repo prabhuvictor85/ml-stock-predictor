@@ -209,7 +209,15 @@ Requires panel rebuilt with `PIVOT_FEATURES=1`.
 
 **Decision rule:** A bucket is worth keeping if it adds ≥ +0.005 IC without dropping t-stat below 8.0. Noise features will show up as t-stat degradation (higher std_ic) even if mean_ic is flat.
 
-**Bulk sweep:** `scripts/experiments/model_a_bucket_sweep.py` tests all buckets (B1-B8) independently against the zone-only baseline in one unattended run (~90 min). Results saved to `/mnt/data/artefacts/experiments/bucket_sweep_results.json`.
+**Bulk sweep:** `scripts/experiments/model_a_bucket_sweep.py` runs three phases in one unattended session (typical 2-3.5 hrs; `--skip_greedy` cuts to ~100 min):
+
+1. **Individual** — zone + each bucket alone (main effects)
+2. **Greedy forward selection** — adds the best remaining bucket each round while it improves IC ≥ 0.005; captures interactions with the selected set
+3. **ALL combined** — ceiling check; if ALL beats the greedy final by ≥ 0.005, hidden positive interactions exist among dropped buckets → investigate pairs
+
+Known limits (documented in the script docstring): feature-count bias (bigger buckets have more capacity — compare `d/feat` too), greedy misses neither-alone-both-together pairs, buckets are internally correlated. Summary reports per-fold min IC and folds-positive so an erratic bucket (`+0.35/−0.02/+0.31/...`) can't hide behind the same mean as a stable one.
+
+Results saved to `/mnt/data/artefacts/experiments/bucket_sweep_results.json` (includes per-fold ICs and the greedy path).
 
 ```bash
 cd /root/ml-stock-predictor

@@ -88,6 +88,7 @@ LGBM_PARAMS = dict(
     learning_rate=0.05, n_estimators=400, colsample_bytree=0.9,
     subsample=0.8, reg_alpha=0.05, reg_lambda=0.1,
     verbosity=-1, n_jobs=4,
+    seed=42, feature_fraction_seed=42, bagging_seed=42, data_random_seed=42,
 )
 FOLD_YEARS = [2018, 2019, 2020, 2021, 2022, 2023]
 
@@ -192,8 +193,14 @@ def main():
     # ── Per-bucket tests (zone + each bucket) ────────────────────────────────
     for bucket_name, bucket_cols in BUCKETS.items():
         avail = [c for c in bucket_cols if c in panel.columns]
+        missing = [c for c in bucket_cols if c not in panel.columns]
         if not avail:
             print(f"{bucket_name}: no columns found in panel — skipping\n")
+            continue
+        if missing:
+            print(f"  WARNING {bucket_name}: {len(missing)}/{len(bucket_cols)} columns absent "
+                  f"from panel — results NOT comparable to full-bucket run: {missing}")
+            print(f"  SKIPPING {bucket_name} to keep experiments comparable\n")
             continue
 
         features = zone_cols + avail
@@ -231,14 +238,18 @@ def main():
     print("=" * 64)
     print("  SUMMARY")
     print("=" * 64)
-    print(f"  {'Config':<28} {'IC':>7} {'t':>6} {'delta':>7} {'top-dec':>8}")
-    print("  " + "-" * 58)
+    print(f"  {'Config':<28} {'n_zone':>6} {'n_bkt':>6} {'n_tot':>6} {'IC':>7} {'t':>6} {'delta':>7} {'top-dec':>8}")
+    print("  " + "-" * 74)
+    n_zone = len(zone_cols)
     for key, r in results.items():
         verdict = ""
         if key != "BASELINE_zone" and key != "ALL_combined":
-            verdict = " ✓" if r.get("delta_ic", 0) >= 0.005 else (" ~" if r.get("delta_ic", 0) > 0 else " ✗")
-        print(f"  {key:<28} {r['mean_ic']:>+7.4f} {r['t_stat']:>+6.2f} "
-              f"{r.get('delta_ic', 0.0):>+7.4f} {r['mean_top_decile_exc']:>+8.4f}{verdict}")
+            verdict = " KEEP" if r.get("delta_ic", 0) >= 0.005 else (" MARG" if r.get("delta_ic", 0) > 0 else " DROP")
+        n_bkt = len(r.get("bucket_cols", [])) if key != "BASELINE_zone" else 0
+        n_tot = r["n_features"]
+        print(f"  {key:<28} {n_zone:>6} {n_bkt:>6} {n_tot:>6} {r['mean_ic']:>+7.4f} "
+              f"{r['t_stat']:>+6.2f} {r.get('delta_ic', 0.0):>+7.4f} "
+              f"{r['mean_top_decile_exc']:>+8.4f}{verdict}")
 
     with open(OUT_PATH, "w") as fh:
         json.dump(results, fh, indent=2, default=str)

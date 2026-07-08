@@ -20,9 +20,13 @@ from pipeline.utils.logging import get_logger
 
 log = get_logger(__name__)
 
-MAX_FORWARD_HORIZON = 60   # covers longest horizon (60d)
-PURGE_HORIZON       = 80   # conservative purge for CV
-HORIZONS            = [20, 40, 60]   # trading days
+# Horizons are env-overridable for horizon-sweep experiments (MODEL_E3).
+# Default is the production set [20,40,60] — unchanged unless TARGET_HORIZONS
+# is set, so all existing runs are bit-identical. MAX/PURGE derive from the set.
+HORIZONS            = [int(h) for h in
+                      os.environ.get("TARGET_HORIZONS", "20,40,60").split(",")]
+MAX_FORWARD_HORIZON = max(HORIZONS)          # covers the longest horizon
+PURGE_HORIZON       = MAX_FORWARD_HORIZON + 20   # conservative purge for CV
 
 
 def _hit_target(

@@ -294,6 +294,23 @@ Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
   missing names are ALL symbol-reuse traps — never bulk-download them.)
   Results: `/mnt/data/artefacts/experiments/model_e2_results.json`.
 
+- **2026-07-08 — IC t-stat inflated ~9.5% campaign-wide: ddof=0 bug
+  (user-flagged "IC computation issue").**
+  Every experiment script computed the cross-fold IC t-stat with
+  `np.std(ics)` (population std, ddof=0) instead of sample std (ddof=1).
+  For N=6 folds this inflates every reported t by exactly √(6/5)=1.0954.
+  Verified numerically against `scipy.stats.ttest_1samp` (exact match at
+  ddof=1). The per-date IC itself is CORRECT — an injected near-perfect
+  signal on a shuffled index recovers IC=+0.9991 (index alignment sound);
+  the bug is confined to the t-stat denominator.
+  **No verdict flips:** every config failed the IC≥0.03 prong regardless of
+  t, and no corrected t reaches the 2.0 bar. Corrected t-stats (reported→fixed):
+  MODEL_C ICT −0.01→−0.009 | MODEL_D pivots +1.10→**+1.00** | MODEL_E
+  short-mom −0.66→−0.60 | E2 KERNEL +1.60→+1.46 | E2 KERNEL+S +1.93→**+1.76**
+  | E2 KERNEL+V +0.54→+0.49 | E2 KERNEL+V+S +0.98→+0.90. All prior t-stats in
+  this ledger should be read ÷1.0954. *Fix (commit below):* ddof=1 in all 8
+  experiment scripts (C, D, E, E2, bucket_sweep, causal, zone_only, zone_core).
+
 - **2026-07-08 — MODEL_A causal verdict SUSPENDED: lambdarank group
   misalignment in the causal harness (user-flagged).**
   LightGBM `group=` arrays require date-major contiguous rows — the pipeline's

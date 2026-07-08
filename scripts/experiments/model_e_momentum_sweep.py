@@ -165,7 +165,8 @@ def run_cv(panel: pd.DataFrame, features: list, date_level: str) -> dict:
         if n == 0:
             return {"mean_ic": float("nan"), "t_stat": 0.0, "n_folds": 0,
                     "n_folds_positive": 0, "min_fold_ic": float("nan")}
-        m, s = float(np.mean(vals)), float(np.std(vals))
+        m = float(np.mean(vals))
+        s = float(np.std(vals, ddof=1)) if n > 1 else float("nan")   # sample std for 1-sample t
         return {
             "mean_ic": m, "std_ic": s,
             "t_stat": float(m / (s / np.sqrt(n))) if n > 1 and s > 0 else 0.0,

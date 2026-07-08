@@ -232,7 +232,7 @@ def main() -> None:
     n       = len(ics)
 
     mean_ic    = float(np.mean(ics))
-    std_ic     = float(np.std(ics))
+    std_ic     = float(np.std(ics, ddof=1)) if n > 1 else float("nan")   # sample std for 1-sample t
     t_stat     = float(mean_ic / (std_ic / np.sqrt(n))) if n > 1 and std_ic > 0 else 0.0
     mean_topd  = float(np.mean(top_dec)) if top_dec else np.nan
 

@@ -189,7 +189,7 @@ def main() -> None:
     n       = len(ics)
 
     mean_ic   = float(np.mean(ics))                                    if n     else float("nan")
-    std_ic    = float(np.std(ics))                                     if n     else float("nan")
+    std_ic    = float(np.std(ics, ddof=1)) if n > 1 else float("nan")   # sample std for 1-sample t
     t_stat    = float(mean_ic / (std_ic / np.sqrt(n))) if n > 1 and std_ic > 0 else 0.0
     mean_topd = float(np.mean(top_dec))                                if top_dec else float("nan")
     n_pos     = int(sum(1 for x in ics if x > 0))

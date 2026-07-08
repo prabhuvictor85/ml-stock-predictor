@@ -130,6 +130,11 @@ def run_cv(panel: pd.DataFrame, features: list, date_level: str) -> dict:
         if len(tr) < 5000 or len(te) < 500:
             continue
 
+        # Group-contiguity invariant (bug class found 2026-07-08): lambdarank
+        # group arrays require date-major contiguous rows. Fail loudly.
+        if not tr.index.get_level_values(date_level).is_monotonic_increasing:
+            raise RuntimeError("train slice not date-major — sort before training")
+
         model = lgb.train(
             LGBM_PARAMS,
             lgb.Dataset(

@@ -98,6 +98,12 @@ def eval_fold(tr: pd.DataFrame, te: pd.DataFrame, features: list, date_level: st
     if len(tr) < 5000 or len(te) < 500:
         return None
 
+    # Group-contiguity invariant: rows must be date-major or the lambdarank
+    # group array silently misaligns. Fail loudly, never train on garbage.
+    if not tr.index.get_level_values(date_level).is_monotonic_increasing:
+        raise RuntimeError("train slice is not date-major contiguous — "
+                           "lambdarank groups would misalign; sort before training")
+
     model = lgb.train(
         LGBM_PARAMS,
         lgb.Dataset(
@@ -190,6 +196,12 @@ def main():
         print(f"\n─── fold {test_year}: recomputing zones with cutoff={cutoff.date()} "
               f"on {fold.shape[0]:,} rows ...", flush=True)
         fold = fe.recompute_fold_features(fold, cutoff_date=cutoff)
+        # recompute_fold_features returns TICKER-major order; LightGBM group
+        # arrays require DATE-major contiguous rows (cv.build_group_array
+        # re-sorts for exactly this reason). Without this reorder the
+        # lambdarank groups are misaligned — bug found 2026-07-08, which
+        # invalidated the first causal run's verdict.
+        fold = fold.reorder_levels([date_level, "ticker"]).sort_index()
         print(f"    recompute done in {(time.time()-t0)/60:.1f} min", flush=True)
 
         fdates = fold.index.get_level_values(date_level)

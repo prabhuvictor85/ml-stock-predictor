@@ -288,7 +288,30 @@ Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
   the pre-declared narrow-fail band (0.015–0.03) → the **dead-ticker (Norgate)
   backfill is now the blocking task**; ONE sanctioned E2 re-run on the
   completed universe follows. No other E2 variant may run before that.
+  (2026-07-08 update: backfill DEFERRED by user for cost; E2 re-run parked.
+  Scope precisely quantified from stock_lists probe files: 187 Yahoo-dead
+  ex-members = 14.5% of 2010-26 membership-days; the 34 "Yahoo-has-data"
+  missing names are ALL symbol-reuse traps — never bulk-download them.)
   Results: `/mnt/data/artefacts/experiments/model_e2_results.json`.
+
+- **2026-07-08 — MODEL_A causal verdict SUSPENDED: lambdarank group
+  misalignment in the causal harness (user-flagged).**
+  LightGBM `group=` arrays require date-major contiguous rows — the pipeline's
+  own `cv.build_group_array` re-sorts for this (cv.py:258), but the standalone
+  causal harness trained directly on `recompute_fold_features()` output, which
+  is TICKER-major (engineer.py reorders to ["ticker","date"] before concat).
+  All 24 causal fits therefore trained with garbage query groups. Empirically
+  verified on a synthetic end-to-end build: `panel_targets.pkl` is date-major
+  (**sweeps, MODEL_A-leaked, C, D, E, E2 groups were all CORRECT — those
+  verdicts stand**); only the causal zone run is affected. The **+0.0069 zone
+  verdict and the ~96% inflation figure are VOID** pending a re-run: honest
+  zone IC is currently UNKNOWN (mis-trained model = loose lower bound only).
+  *Fix (this commit):* causal harness reorders to date-major after recompute;
+  ALL four experiment harnesses now hard-fail if the train slice is not
+  date-major (invariant assertion before every `lgb.train`).
+  *Action:* re-run `model_a_causal_cv.py` once, unchanged spec; record the
+  corrected verdict here. The zone funeral is postponed, not cancelled —
+  the features' non-causality finding (leak, audit, fence fix) is unaffected.
 
 ---
 

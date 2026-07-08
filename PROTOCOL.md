@@ -251,6 +251,45 @@ Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
   (commit ee634df).** Results file:
   `/mnt/data/artefacts/experiments/causal_zone_cv_results.json`.
 
+- **2026-07-08 — MODEL_E (short-window momentum): GATE FAIL.**
+  Pre-registered ee634df. Baseline B7 (returns 1d/5d/20d/60d, audited causal):
+  **IC20 = −0.0017, t = −0.66, GATE FAIL** — all six folds printed; verdict
+  final and deterministic (seeded). Phase-1 bucket deltas (B3 +0.0095,
+  B4 +0.0131, B8 +0.0065, B9 +0.0054) are single-fold artifacts — every one
+  carried by 2020 alone; no config plausibly near the family gate. First run
+  aborted mid-phase-2 by infrastructure (two identical nohup instances raced;
+  a chained `poweroff` from the dead twin killed the survivor) — clean rerun
+  launched for the complete record (`/tmp/model_e_sweep2.log`; fill summary
+  when it lands). *Pre-registration lesson:* the relative KEEP t-guard
+  (baseline_t − 1.0) is toothless when baseline t is negative — repaired in
+  MODEL_E2 as max(2.0, baseline_t − 1.0). *Interpretation:* sub-month
+  formation windows carry no momentum signal here, consistent with the
+  literature (short horizon = weak reversal, not momentum).
+
+- **2026-07-08 — MODEL_E2 (formation-window momentum): GATE FAIL, narrow-fail
+  rule TRIGGERED.**
+  Pre-registered 0414307 (kernel = 3/6/12-month returns skipping 21d,
+  computed from close in-script; truncation-invariance verified in a synthetic
+  smoke test before the run). One run, as specified:
+  | Config | n | IC20 | t | minIC | f+ | IC40 | IC60 | PIT20 | verdict |
+  |---|---|---|---|---|---|---|---|---|---|
+  | KERNEL | 3 | +0.0136 | +1.60 | −0.0103 | 5 | +0.0106 | +0.0037 | +0.0047 | GATE FAIL |
+  | KERNEL+V | 6 | +0.0056 | +0.54 | −0.0344 | 4 | +0.0088 | +0.0113 | +0.0019 | DROP |
+  | **KERNEL+S** | 7 | **+0.0168** | **+1.93** | −0.0101 | 5 | +0.0159 | +0.0104 | +0.0117 | MARG / GATE FAIL |
+  | KERNEL+V+S | 10 | +0.0106 | +0.98 | −0.0275 | 4 | +0.0142 | +0.0156 | +0.0014 | DROP |
+  Fold structure is literature-consistent (2021 momentum-crash year negative
+  in every config; post-crash 2020 strongest), vol-scaling hurts at 20d, and
+  the PIT split shows the signal is stronger in the broad ~1591-name
+  cross-section (+0.0168) than in the S&P-500 core (+0.0117) — crowding-
+  consistent. **Honest kernel ladder (same panel/harness):** short-momentum
+  −0.0017 < zones +0.0069 < pivots +0.0092 < formation momentum +0.0136 <
+  formation+short +0.0168.
+  **Decision (rule frozen pre-run, §6 of the E2 doc):** KERNEL+S landed inside
+  the pre-declared narrow-fail band (0.015–0.03) → the **dead-ticker (Norgate)
+  backfill is now the blocking task**; ONE sanctioned E2 re-run on the
+  completed universe follows. No other E2 variant may run before that.
+  Results: `/mnt/data/artefacts/experiments/model_e2_results.json`.
+
 ---
 
 ## 4. Procedure (all on Hetzner; isolated via ML_ARTEFACTS_ROOT)

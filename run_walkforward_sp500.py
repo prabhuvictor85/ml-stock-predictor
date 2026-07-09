@@ -523,9 +523,16 @@ def run_retrain(as_of: pd.Timestamp, train_start: str, mode: str,
            "--as_of", as_of.strftime("%Y-%m-%d"),
            "--mode", mode,
            "--n_jobs", str(n_jobs)] + _RUNNER_PASSTHROUGH
-    # Lockbox fence: when set, EVERY retrain re-fits only on data <= train_end,
-    # so the recipe + weights never see the holdout period even as the walk
-    # rolls forward. Inference steps still score forward on the full panel.
+    # Fence semantics:
+    #  - Fixed lockbox fence (explicit --train_end): every retrain re-fits only
+    #    on data <= that date, so recipe + weights never see the holdout period.
+    #  - Moving causal fence (default, train_end == as_of): each retrain fences
+    #    at its OWN step date. This caps training at as_of AND triggers the
+    #    per-fold zone redraw (run_sp500_local.py:716) so zone features in the
+    #    training panel are causal — otherwise, when local CSVs already extend
+    #    past as_of (backtest / walk re-run), zones would be built with post-
+    #    as_of knowledge and the retrain would leak. In a true live run
+    #    (as_of == latest bar) the fence drops nothing — it is a safe no-op.
     if train_end:
         cmd += ["--train_end", train_end]
     return run_cmd(cmd, step_log)
@@ -704,7 +711,7 @@ def main() -> None:
             _STATUS["action"] = "retrain"; _STATUS["action_start"] = datetime.now()
             rc = run_retrain(d, args.train_start, args.mode, args.n_jobs,
                              log_dir / f"wf_{dkey}_retrain.log",
-                             train_end=args.train_end)
+                             train_end=(args.train_end or dkey))
             did_retrain = True
         else:
             # 2b. Inference-only — model frozen
@@ -739,7 +746,7 @@ def main() -> None:
                 _STATUS["action"] = "retrain"; _STATUS["action_start"] = datetime.now()
                 rc = run_retrain(d, args.train_start, args.mode, args.n_jobs,
                                  log_dir / f"wf_{dkey}_drift_retrain.log",
-                                 train_end=args.train_end)
+                                 train_end=(args.train_end or dkey))
                 did_retrain = True
 
         if rc != 0:

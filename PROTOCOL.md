@@ -294,6 +294,32 @@ Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
   missing names are ALL symbol-reuse traps — never bulk-download them.)
   Results: `/mnt/data/artefacts/experiments/model_e2_results.json`.
 
+- **2026-07-09 — MODEL_E3 (horizon × TWAP sweep): PRIMARY GATE FAIL;
+  horizon dimension EXHAUSTED.**
+  Pre-registered 59d8fe2 (doc) + harness 25849c9; both bug-class fixes carried
+  (date-major groups, ddof=1). 12-cell grid, KERNEL+S, train on
+  cs_rank_composite, grade at {20,40,60,80,100,120} × TWAP {1,5}.
+  | horizon | 20d | 40d | 60d | 80d | 100d | 120d |
+  |---|---|---|---|---|---|---|
+  | mean IC (w1) | +0.0168 | +0.0159 | +0.0104 | +0.0074 | +0.0054 | +0.0046 |
+  | t (ddof=1) | +1.8 | +1.3 | +0.7 | +0.4 | +0.2 | +0.2 |
+  TWAP=5 differs from TWAP=1 only in the 3rd decimal (terminal smoothing
+  immaterial here). **PRIMARY (TWAP5×60d): IC=+0.0106, t=+0.78, 4/6 folds —
+  GATE FAIL.** No exploratory cell cleared the Bonferroni bar (t≥4.22), as the
+  §4 power caveat predicted.
+  *Findings:* (1) longer horizons do NOT help — mean IC decays monotonically
+  and t collapses; (2) the decay is driven by exploding regime-dependence at
+  long holds (2020 IC120=+0.099 & 2023 +0.037 vs 2019/2021/2022 −0.04…−0.05) —
+  extending the horizon buys a trend-continuation bet, not edge; (3) 20d is the
+  most STABLE horizon and remains momentum's honest number (~+0.0168).
+  My E2-motivated "longer horizons may be stronger" hypothesis is FALSIFIED —
+  the exploratory→confirmatory discipline worked as intended.
+  *Decision (§6):* horizon extension exhausted; do not push further. Campaign
+  best honest config unchanged = E2/E3 20d KERNEL+S ~+0.0168 (narrow fail,
+  pending the shared Norgate backfill). Next: honest all-features pipeline CV
+  (after te_panel fix), then NSE universe port.
+  Results: `/mnt/data/artefacts/experiments/model_e3_results.json`.
+
 - **2026-07-08 — IC t-stat inflated ~9.5% campaign-wide: ddof=0 bug
   (user-flagged "IC computation issue").**
   Every experiment script computed the cross-fold IC t-stat with

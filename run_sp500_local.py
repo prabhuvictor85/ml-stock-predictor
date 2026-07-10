@@ -1034,8 +1034,21 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 print(f"        Fold {spec.fold_id}: avg_group={avg_group_size:.1f} < 10 — skipping", flush=True)
                 continue
 
-            te_panel = train_panel.iloc[te_idx]
-            te_panel = fe.recompute_fold_features(te_panel, cutoff_date=spec.test_end)
+            # Causal test features (fixes a within-fold look-ahead): recompute on
+            # history THROUGH test_end but with cutoff=fold_cutoff, so each test
+            # row's zone/ICT state is frozen at TRAIN END and carried forward —
+            # matching live inference. The previous cutoff=test_end let an early
+            # test row see state built from the END of the test window (leak).
+            # Test rows alone would starve the analyzer of pre-cutoff history, so
+            # recompute on <=test_end then extract the test rows. Memory envelope
+            # matches the tr recompute above (tr already freed at del tr).
+            te_rows_idx = train_panel.index[te_idx]
+            _te_hist = train_panel[train_panel.index.get_level_values("date") <= spec.test_end]
+            _te_hist = fe.recompute_fold_features(_te_hist, cutoff_date=fold_cutoff)
+            _te_hist = _te_hist.reorder_levels(train_panel.index.names)
+            te_panel = _te_hist.reindex(te_rows_idx)
+            del _te_hist
+            _gc.collect()
             te_univ  = te_panel[te_panel["in_universe"] == True]
             del te_panel
             _gc.collect()

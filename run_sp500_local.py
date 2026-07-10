@@ -926,41 +926,45 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         FOLD_CACHE_DIR = _art_dir / "fold_cache"
         FOLD_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
-        # Cache key: hash of feature column names.
-        # Historical fold data (tr_grp, tr_groups, te_univ) is identical across
-        # retrains as long as the feature set hasn't changed — as_of is irrelevant
-        # for folds whose test_end is well before the current run date.
-        # Using feat_hash means:
-        #   - Same features  → cache hit across retrains (Sep/Dec reuse Jun folds)
-        #   - New feature added → cache miss → fold rebuilt with new column
-        import hashlib as _hashlib
+        # Cache key: (train_end, test_end) ONLY.
+        # Historical fold data (tr_grp, tr_groups, te_univ) is IDENTICAL across
+        # retrains whenever a fold's calendar window repeats (confirmed live:
+        # fold 1 is always train[2010-07-02 -> 2012-11-27]/test[2013 -> 2014],
+        # regardless of whether the current retrain's as_of is 2023 or 2026) —
+        # as_of only changes how many folds EXIST, not the definition of the
+        # early ones.
+        #
+        # Previously the cache was ALSO gated on a hash of the pre-selection
+        # feature SET, and column-slimmed to just that set. FeatureSelector
+        # reruns fresh every retrain and is measurably volatile (85 vs 94
+        # "unstable features" between two consecutive quarterly retrains in
+        # this project) — any difference invalidated the ENTIRE cache, forcing
+        # every historical fold to redo its ~7-15 min causal zone/ICT recompute
+        # on every single retrain, even though that recompute never depended on
+        # which features got selected (recompute_fold_features rebuilds the
+        # full causal column set regardless; only the SAVE step was narrowing
+        # it). Fix: cache at FULL feature width (`feat_cols`, the complete
+        # engineered set, stable regardless of selection), so any retrain can
+        # reuse a historical fold's causal data and just column-select whatever
+        # subset IT needs in memory — same pattern the Optuna trial loop
+        # already uses one level down (sf_trial ⊆ pre_selected).
+        # Cost: ~3x larger fold files (full ~250-col slice vs ~80-col slimmed).
+        # Acceptable given the disk guard and the redundant recompute avoided.
         import lz4.frame as _lz4
-        # Fold caches are lz4-compressed and column-slimmed. Each fold's tr_grp/
-        # te_univ are the FULL ~300-col panel slice, but a trial only ever reads
-        # the pre-selection pool (sf_trial = _forced_pre + _ordinary_pre[:top_k],
-        # top_k<=50 ⊆ pre_selected) plus the label / a few grading columns. Storing
-        # only those drops the ~150-220 never-selected features_*, OHLCV, the
-        # zone_type_*/sector object strings, and spare targets — the bulk of the
-        # size — with no effect on HPO results.
-        # The cache key hashes the pre-selection SET (not all features): a retrain
-        # whose pool differs gets a different feat_hash → clean rebuild, so a slimmed
-        # fold is never reused by a run that needs a column it doesn't contain.
-        _feat_hash = _hashlib.md5(",".join(sorted(pre_selected)).encode()).hexdigest()[:8]
-        # Keep-lists are literal — the slice below gates on tr_grp/te_univ.columns,
-        # so a column added after this point (e.g. group_date, assigned during
-        # universe/group setup) is still retained, and a genuinely absent one is
-        # simply skipped. te_univ's extras are exactly what compute_fold_metrics
-        # grades on (group_date, in_universe, cs_rank_20d, top/bot_quintile,
-        # future_20d_return/excess) plus benchmark_20d_return used in objective().
-        _TR_CACHE_COLS = list(pre_selected) + ["cs_rank_composite"]
-        _TE_CACHE_COLS = list(pre_selected) + [
+        _TR_CACHE_COLS = list(feat_cols) + ["cs_rank_composite"]
+        _TE_CACHE_COLS = list(feat_cols) + [
             "group_date", "in_universe", "cs_rank_20d", "top_quintile",
             "bot_quintile", "future_20d_excess_return", "future_20d_return",
             "benchmark_20d_return",
         ]
 
         def _fold_cache_path(fold_id: int) -> "Path":
-            return FOLD_CACHE_DIR / f"fold_{fold_id}.pkl"
+            # _v2 suffix: the old narrow, feat_hash-gated cache format is
+            # column-incomplete for a differently-selected retrain and must
+            # NEVER be silently reused as if it were wide — a versioned name
+            # makes old files simply invisible (cache miss, safe rebuild)
+            # rather than requiring a migration or a fragile content check.
+            return FOLD_CACHE_DIR / f"fold_{fold_id}_v2.pkl"
 
         def _load_fold_cache(fold_id: int, spec) -> dict | None:
             p = _fold_cache_path(fold_id)
@@ -971,15 +975,9 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                     cached = pickle.load(f)
                 base_match = (cached.get("train_end") == spec.train_end and
                               cached.get("test_end")  == spec.test_end)
-                if not base_match:
-                    return None
-                # feat_hash pins the pre-selection pool the fold was slimmed to.
-                if "feat_hash" in cached:
-                    return cached["data"] if cached["feat_hash"] == _feat_hash else None
-                return cached["data"]
+                return cached["data"] if base_match else None
             except Exception:
-                # Unreadable, or a legacy uncompressed/full-column file → treat as a
-                # miss so the fold is rebuilt and overwritten in the slim lz4 format.
+                # Unreadable → treat as a miss so the fold is rebuilt.
                 return None
 
         def _save_fold_cache(fold_id: int, spec, data: dict) -> None:
@@ -988,7 +986,6 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                     pickle.dump({
                         "train_end": spec.train_end,
                         "test_end":  spec.test_end,
-                        "feat_hash": _feat_hash,
                         "data":      data,
                     }, f, protocol=4)
             except Exception as e:

@@ -619,6 +619,26 @@ def main() -> None:
     if args.quarterly_retrain:
         retrain_dates += _quarter_ends(args.start, args.end)
 
+    # ── Seed-model guard ────────────────────────────────────────────────────
+    # build_schedule only forces `end` into the retrain set; `start` defaults to
+    # "infer" (--skip_train), which loads ensemble.pkl/selected_features.txt.
+    # If no model has ever been trained for this mode (fresh artefacts dir, or
+    # deliberately cleaned after a leak fix), step 1 fails with exit 1 before
+    # any real work happens. Detect that and force the FIRST step to a retrain
+    # instead of silently crashing 105 steps in on a missing artefact.
+    submodes = {"all": ["momentum", "reversal"]}.get(args.mode, [args.mode])
+    def _mode_dir(sm: str) -> Path:
+        return artefacts_dir / sm if sm != "legacy" else artefacts_dir
+    _missing_seed = any(
+        not (_mode_dir(sm) / "ensemble.pkl").exists() for sm in submodes
+    )
+    start_ts = pd.Timestamp(args.start)
+    if _missing_seed and start_ts not in retrain_dates:
+        print(f"  [seed guard] no existing ensemble.pkl for mode(s) {submodes} — "
+              f"forcing a retrain at start ({args.start}) instead of inference "
+              f"on a model that doesn't exist.")
+        retrain_dates.append(start_ts)
+
     schedule = build_schedule(
         args.start, args.end, args.cadence_days,
         retrain_dates=retrain_dates if retrain_dates else None,

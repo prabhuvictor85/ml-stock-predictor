@@ -392,6 +392,38 @@ Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
   fixed in 3f8c91c (2026-07-10) after the doc froze. The standalone harness
   is retained regardless, for comparability with the C/D/E/E2 references.
 
+- **2026-07-12 — MODEL_F (all-causal-features): GATE FAIL, no config beats
+  MOM; momentum-ceiling branch of the frozen decision tree taken.**
+  One run as pre-registered (doc + §8 amendment; run commit d9d18bc; panel
+  freshly rebuilt by user post zone-fence fix, 4,715,464 rows × 299 cols;
+  60-td purge active on every fold — printed per-fold).
+  | Config | n | IC20 | t | minIC | f+ | IC40 | IC60 | PIT20 | ΔMOM | verdict |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | MOM | 7 | +0.0140 | +1.18 | −0.0232 | 5 | +0.0130 | +0.0082 | +0.0077 | — | diagnostic |
+  | ALL | 293 | +0.0120 | +0.90 | −0.0189 | 3 | +0.0191 | +0.0218 | +0.0119 | −0.0020 | **GATE FAIL** |
+  | BASE+MOM | 40 | +0.0154 | +0.96 | −0.0135 | 3 | +0.0231 | +0.0275 | +0.0166 | +0.0014 | diagnostic |
+  | ALL+SELECT | 293→40 | +0.0145 | +1.01 | −0.0105 | 4 | +0.0212 | +0.0221 | +0.0161 | +0.0005 | **GATE FAIL** |
+  *Findings:* (1) the kitchen sink UNDERPERFORMS momentum-only (ALL − MOM =
+  −0.0020) — noise drag confirmed, as the zone sweep's 66-feature ALL cell
+  predicted; ICT+pivots contribute nothing incrementally on top of momentum;
+  (2) ALL+SELECT − MOM = +0.0005, far below the pre-declared +0.005
+  focused-follow-up trigger — fold-local selection recovers the drag but
+  extracts no incremental signal; (3) fold structure unchanged (2020
+  dominates everything, 2021 momentum-crash negative everywhere); (4) the MOM
+  reference reads +0.0140 (t +1.18) vs the E2 ledger value +0.0168 (t +1.76)
+  — the delta bundles the new 60-td purge AND the rebuilt panel, so it is an
+  upper bound on the purge-gap optimism, not a clean attribution; the
+  campaign's honest momentum number under the tightened harness is
+  **+0.0140**. (5) IC40/IC60 > IC20 for BASE+MOM is noted but NOT actionable
+  — E3 already falsified horizon extension (regime-dependence).
+  *Decision (frozen §6, third branch):* momentum is the ceiling; the existing
+  daily-bar technical feature library (base+ICT+pivots) is EXHAUSTED on this
+  universe. Zones remain the one unresolved family (MODEL_A causal re-run
+  still pending). Next per doc: NSE port; Norgate backfill if funded. Any new
+  factor family (e.g. residual momentum) requires a fresh pre-registration —
+  it is new-hypothesis work, not a re-tune of this failure.
+  Results: `/mnt/data/artefacts/experiments/model_f_results.json`.
+
 ---
 
 ## 4. Procedure (all on Hetzner; isolated via ML_ARTEFACTS_ROOT)

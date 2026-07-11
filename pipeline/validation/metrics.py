@@ -82,6 +82,7 @@ def compute_fold_metrics(
 
     ndcg_values: List[float] = []
     prec_values: List[float] = []
+    rank_ic_values: List[float] = []
     hit_values: List[float] = []
     weekly_gross_rets: List[float] = []
     weekly_net_rets: List[float] = []
@@ -112,8 +113,17 @@ def compute_fold_metrics(
             sc_k = _gk["_score"].values
             _q_col = "bot_quintile" if invert_relevance else "top_quintile"
             top_q = _gk[_q_col].fillna(0).astype(int).values
+            
+            # NDCG and Precision
             ndcg_values.append(ndcg_at_k(rel, sc_k, k=10))
             prec_values.append(precision_at_k(top_q, sc_k, k=10))
+            
+            # Spearman Rank IC
+            from scipy.stats import spearmanr
+            if sc_k.std() > 1e-9:
+                ic, _ = spearmanr(sc_k, _gk["future_20d_return"].fillna(0))
+                if invert_relevance: ic = -ic
+                if not np.isnan(ic): rank_ic_values.append(ic)
 
         # Select top-N for this week
         top_idx = np.argsort(sc)[::-1][:top_n]
@@ -141,6 +151,9 @@ def compute_fold_metrics(
     std_ndcg = float(np.std(ndcg_values)) if ndcg_values else 0.0
     mean_prec = float(np.mean(prec_values)) if prec_values else 0.0
     mean_hit = float(np.mean(hit_values)) if hit_values else 0.0
+    mean_rank_ic = float(np.mean(rank_ic_values)) if rank_ic_values else 0.0
+    std_rank_ic = float(np.std(rank_ic_values)) if rank_ic_values else 0.0
+    icir = mean_rank_ic / std_rank_ic if std_rank_ic > 0 else 0.0
 
     # Net Sharpe — align lengths before array subtraction to avoid shape mismatch
     # (weekly_net_rets and weekly_bm_rets can differ if some group_dates are
@@ -172,6 +185,8 @@ def compute_fold_metrics(
             top_decile_exc = -top_decile_exc  # positive = stocks declined more than benchmark
 
     return {
+        "mean_rank_ic": mean_rank_ic,
+        "icir": icir,
         "mean_ndcg_at_10": mean_ndcg,
         "std_ndcg_at_10": std_ndcg,
         "precision_at_10": mean_prec,

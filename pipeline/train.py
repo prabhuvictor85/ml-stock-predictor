@@ -191,10 +191,10 @@ def make_optuna_objective(
                 cfg.commission_bps,
                 cfg.get_slippage_bps(cfg.min_adv_usd),
             )
-            ndcg_list.append(metrics["mean_ndcg_at_10"])
-            top_dec_list.append(metrics["top_decile_excess_return"])
+            ndcg_list.append(metrics["mean_rank_ic"])
+            top_dec_list.append(metrics["icir"])
 
-            trial.report(metrics["mean_ndcg_at_10"], step=fold_spec.fold_id)
+            trial.report(metrics["mean_rank_ic"], step=fold_spec.fold_id)
             if trial.should_prune():
                 raise optuna.exceptions.TrialPruned()
 
@@ -202,13 +202,15 @@ def make_optuna_objective(
         if len(ndcg_list) < 3:
             raise optuna.exceptions.TrialPruned()
 
-        mean_ndcg = float(np.mean(ndcg_list))
-        std_ndcg  = float(np.std(ndcg_list))
-
+        mean_rank_ic = float(np.mean(ndcg_list))
+        # penalize IC curve volatility (ICIR logic)
+        std_ic  = max(float(np.std(ndcg_list)), 1e-6)
+        
+        # Penalize if average ICIR < 0
         if np.mean(top_dec_list) <= 0:
             raise optuna.exceptions.TrialPruned()
 
-        return mean_ndcg - 0.5 * std_ndcg
+        return mean_rank_ic - 0.5 * std_ic
 
     return objective
 

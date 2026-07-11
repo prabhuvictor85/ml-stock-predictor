@@ -73,3 +73,28 @@ gain top-40, no peeking at test folds.
 | zone-only causal (A) | pending | — | — |
 | momentum KERNEL+S (E2/E3) | +0.0168 | +1.76 | FAIL |
 | MODEL_F | _this experiment_ | — | — |
+
+---
+
+## 8. Pre-run amendment (2026-07-11 — before any MODEL_F execution)
+
+Recorded in the PROTOCOL.md ledger (same date). No MODEL_F configuration has
+run; amending before first execution preserves the freeze discipline.
+
+1. **Fold-boundary purge.** The train slice for test year Y now ends
+   MAX_FORWARD_HORIZON (60) trading days before Y's first trading day, so no
+   train label window (`cs_rank_composite` looks up to 60 td ahead) overlaps
+   test-period returns. This is the only harness change vs the C/D/E/E2
+   pattern. The §7 reference numbers were produced WITHOUT the gap and are
+   marginally optimistic — treated as a caveat, not re-run.
+2. **§2 rationale update.** The te_panel leak cited there as unfixed was fixed
+   in commit 3f8c91c (2026-07-10), after this doc froze. The standalone
+   harness is retained regardless, for comparability with the §7 references.
+3. **NaN handling pinned.** Train/test rows are dropped only on the momentum
+   kernel columns + the required label (matching E2's effective row set, since
+   kernel non-null implies short-return non-null); all other features stay
+   NaN-native for LGBM. No fillna anywhere.
+4. **Selection determinism pinned.** ALL+SELECT ranks by LGBM gain importance
+   from a seeded preliminary fit on the train fold only, keeps the top 40,
+   then refits on those 40 with the same seeds. Selected lists are recorded
+   per fold in the results JSON.

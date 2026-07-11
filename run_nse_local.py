@@ -635,7 +635,13 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
     with _train_perf.stage("[3/6] Walk-forward CV setup"):
         print(f"[3/6] Walk-forward CV ({n_folds} folds) ...")
-        cv = PurgedWalkForwardCV(n_folds=n_folds, min_train_window=378)
+        # Purge must cover the longest label horizon: cs_rank_composite blends
+        # 20/40/60d forward ranks, so a train row within 60 trading days of
+        # test_start has label components realized inside the test window.
+        # The CV default (40) under-purges; PURGE_HORIZON = max(HORIZONS)+20.
+        from pipeline.targets.builder import PURGE_HORIZON
+        cv = PurgedWalkForwardCV(n_folds=n_folds, min_train_window=378,
+                                 purge_window=PURGE_HORIZON)
         fold_specs = cv.get_fold_specs(train_panel)
         print(f"      {len(fold_specs)} folds generated")
 

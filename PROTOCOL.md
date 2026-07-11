@@ -356,6 +356,35 @@ Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
   corrected verdict here. The zone funeral is postponed, not cancelled —
   the features' non-causality finding (leak, audit, fence fix) is unaffected.
 
+- **2026-07-11 — CV boundary purge gap (Phase 0 audit finding): runners fixed,
+  MODEL_F harness amended PRE-RUN.**
+  The training label `cs_rank_composite` blends 20/40/60d forward ranks
+  (builder.py:276), so a label looks up to **60 trading days** ahead. Two
+  harnesses under-purged against that horizon: (i) **production CV** — all
+  three runners constructed `PurgedWalkForwardCV` with the default
+  `purge_window=40` (+5 embargo = 45 td removed); `PURGE_HORIZON=80`
+  (builder.py:29) was defined and exported but never consumed, so train rows
+  in the ~15 td before each purge zone carried 60d label components realized
+  inside the test window; (ii) **standalone harnesses** (C/D/E/E2/E3 — the
+  honest-ladder source) split `year < test_year` vs `year == test_year` with
+  NO purge — the last ~60 td of each train era have 20/40/60d label windows
+  extending into the test year. Bias direction UP, magnitude small (≲60
+  contaminated td of ≥2,000 train td; only the earliest test weeks exposed).
+  **No verdict flips** — every config already FAILED its gate and true values
+  are, if anything, lower; the E2 KERNEL+S +0.0168 headline is marginally
+  optimistic. Recorded ladder numbers stand with this caveat; they are NOT
+  re-run.
+  *Fixes (this commit):* all three runners now pass
+  `purge_window=PURGE_HORIZON` (recipe-affecting: each fold's train window
+  ends 40 td earlier than before — artifacts predating this commit reproduce
+  the old recipe); the MODEL_F harness gains a MAX_FORWARD_HORIZON (60 td)
+  gap before each test year, recorded as a **pre-run amendment** to the
+  frozen MODEL_F spec (legitimate: no MODEL_F result has ever been computed;
+  see doc §8 addendum).
+  *Also noted:* MODEL_F doc §2's "te_panel leak unfixed" rationale is stale —
+  fixed in 3f8c91c (2026-07-10) after the doc froze. The standalone harness
+  is retained regardless, for comparability with the C/D/E/E2 references.
+
 ---
 
 ## 4. Procedure (all on Hetzner; isolated via ML_ARTEFACTS_ROOT)

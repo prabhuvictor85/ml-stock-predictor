@@ -81,6 +81,13 @@ LGBM_PARAMS = dict(
 )
 FOLD_YEARS = [2018, 2019, 2020, 2021, 2022, 2023]
 
+# Label purge at the fold boundary (2026-07-12 pre-run amendment, PROTOCOL
+# ledger; mirrors MODEL_F §8.1): cs_rank_composite looks up to 60 td ahead,
+# so train rows in the last 60 td of year Y-1 have label windows realized
+# inside test year Y. Legitimate to amend: the first causal run's verdict is
+# VOID (group misalignment), so no result has ever been seen under any spec.
+PURGE_TD = 60
+
 # Leaked-panel references for the comparison table (2026-07 bucket sweep).
 LEAKED_REF = {"Z": 0.1920, "Z+B1": 0.1969, "Z+B7": 0.1983, "Z+B1+B7": None}
 
@@ -205,8 +212,19 @@ def main():
         print(f"    recompute done in {(time.time()-t0)/60:.1f} min", flush=True)
 
         fdates = fold.index.get_level_values(date_level)
-        tr = fold[fdates.year < test_year]
+        # Label purge (PURGE_TD): the zone-redraw cutoff above is UNCHANGED
+        # (features-at-cutoff = live-retrain semantics); only rows whose label
+        # windows cross into the test year are dropped from training.
+        fold_udates = np.array(sorted(fdates.unique()))
+        boundary_pos = int(np.searchsorted(fold_udates,
+                                           pd.Timestamp(f"{test_year}-01-01")))
+        purge_cutoff = pd.Timestamp(fold_udates[boundary_pos - PURGE_TD])
+        tr = fold[fdates <= purge_cutoff]
         te = fold[fdates.year == test_year]
+        tr_max = tr.index.get_level_values(date_level).max()
+        assert tr_max <= purge_cutoff, "purge gap violated"
+        print(f"    label purge: train<={purge_cutoff.date()} "
+              f"({PURGE_TD} td before {test_year})")
 
         for name, feats in configs.items():
             r = eval_fold(tr, te, feats, date_level)

@@ -424,6 +424,19 @@ Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
   it is new-hypothesis work, not a re-tune of this failure.
   Results: `/mnt/data/artefacts/experiments/model_f_results.json`.
 
+- **2026-07-12 — MODEL_A re-run spec: 60-td label purge added PRE-RUN
+  (deviation from "unchanged spec", recorded).**
+  The suspended causal zone harness had the same fold-boundary label overlap
+  as the other standalone harnesses (train = `year < Y`, no purge). Since the
+  first run's verdict is VOID (group misalignment — no result has ever been
+  seen under any spec), adding the purge before the re-run carries the same
+  legitimacy as MODEL_F's §8.1 amendment, and keeps the zone number
+  comparable to the purged MODEL_F ladder. Zone-redraw cutoff semantics
+  UNCHANGED (features drawn at (Y−1)-12-31 = live-retrain emulation); only
+  train rows whose label windows cross into year Y are dropped
+  (`PURGE_TD=60`, printed per fold). Everything else identical to the
+  2026-07-08 suspension entry's instructions: one run, record verdict here.
+
 ---
 
 ## 4. Procedure (all on Hetzner; isolated via ML_ARTEFACTS_ROOT)

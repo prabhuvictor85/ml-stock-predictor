@@ -324,8 +324,8 @@ def test_ict_output_has_required_columns():
     required = [
         "ict_bob_active",    "ict_bob_atr_dist",
         "ict_sob_active",    "ict_sob_atr_dist",
-        "ict_bullbb_active", "ict_bullbb_atr_dist",
-        "ict_bearbb_active", "ict_bearbb_atr_dist",
+        "ict_bullrb_active", "ict_bullrb_atr_dist",
+        "ict_bearrb_active", "ict_bearrb_atr_dist",
         "ict_bullfvg_active","ict_bullfvg_atr_dist",
         "ict_bearfvg_active","ict_bearfvg_atr_dist",
         "ict_bull_zone_priority", "ict_bear_zone_priority",

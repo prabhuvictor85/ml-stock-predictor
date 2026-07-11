@@ -104,7 +104,7 @@ class PurgedWalkForwardCV:
             )
             self.n_folds = max(possible_folds, MIN_FOLDS)
 
-        first_test_start_idx = self.min_train_window
+        first_test_start_idx = self.min_train_window + self.purge_window + self.embargo_window
         folds: List[FoldSpec] = []
 
         for fold_id in range(self.n_folds):

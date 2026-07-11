@@ -381,6 +381,13 @@ Recipe-affecting code/config changes, dated. The fenced run's git commit (§3)
   gap before each test year, recorded as a **pre-run amendment** to the
   frozen MODEL_F spec (legitimate: no MODEL_F result has ever been computed;
   see doc §8 addendum).
+  *Ported from the source repo's uncommitted working tree (2026-07-11):*
+  (i) cv.py first-fold offset — `first_test_start_idx` now adds
+  purge+embargo so fold 0 keeps its full `min_train_window` after purging
+  (recipe-affecting: all fold test windows shift later by purge+embargo td);
+  (ii) tests/test_regression_guards.py ICT column rename bullbb→bullrb —
+  the committed test expected Breaker Block columns the engine never emitted
+  under that name; committed master failed its own suite until this fix.
   *Also noted:* MODEL_F doc §2's "te_panel leak unfixed" rationale is stale —
   fixed in 3f8c91c (2026-07-10) after the doc froze. The standalone harness
   is retained regardless, for comparability with the C/D/E/E2 references.

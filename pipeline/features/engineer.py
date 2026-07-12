@@ -10,6 +10,7 @@ RULE: Winsorize every feature at [1, 99] percentile per date.
 """
 from __future__ import annotations
 
+import os
 import warnings
 from typing import List
 
@@ -56,6 +57,23 @@ _ICT_IMPL_MODE   = "legacy"  # switch to "institutional" for stricter OB/FVG def
 _ICT_HTF_W        = {"1d": 1, "1wk": 2, "1mo": 3, "3mo": 4, "1y": 5}
 _ICT_SIGNAL_MAX   = float(sum(_ICT_HTF_W.values()))   # 15.0
 _ICT_PRIORITY_MAX = 4.0   # max ZonePriority value (BK = 4)
+
+# ── Phase-4 feature families (Exp-401..404) ────────────────────────────────
+# GK vol, skew/kurt, VWAP/CMF/OBV, residual momentum, choppiness, variance
+# ratio, cross-sectional z-scores, A/D thrust. Gated by env PHASE4_FEATURES
+# (read at call time, same pattern as PIVOT_FEATURES/TARGET_TWAP_WINDOW).
+# Default ON — the alpha-research-v2 model includes them; set PHASE4_FEATURES=0
+# to build the pre-Phase-4 panel for a with/without A/B.
+PHASE4_FEATURE_COLS = [
+    "gk_vol_20d", "ret_skew_20d", "ret_kurt_20d",
+    "vwap_dist_20d", "cmf_20d", "obv_osc_20d",
+    "residual_mom_20d", "residual_mom_60d",
+    "chop_idx_14d", "var_ratio_5d", "ad_thrust_10d",
+]  # cross-sectional *_csz / *_sec_csz columns are additionally gated with these
+
+
+def phase4_features_enabled() -> bool:
+    return os.environ.get("PHASE4_FEATURES", "1").strip().lower() not in {"0", "false", "off", "no"}
 
 # Columns carried from each HTF ICT run back to the daily index
 _ICT_CARRY_COLS = [
@@ -158,6 +176,21 @@ def _winsorize_per_date(panel: pd.DataFrame, feature_cols: List[str], lo: float 
 # identically on category vs object dtype, so this is a pure memory win.
 _CATEGORICAL_COLS = ["sector", "zone_type_1d", "zone_type_1wk", "zone_type_1mo",
                      "zone_type_3mo", "zone_type_1y"]
+
+
+def _downcast_and_defragment(panel: pd.DataFrame) -> pd.DataFrame:
+    """Defragment DataFrame and downcast float64 to float32 to save memory."""
+    # A single copy defragments the DataFrame (resolving PerformanceWarnings)
+    panel = panel.copy()
+    
+    # Downcast floats
+    float_cols = panel.select_dtypes(include=['float64']).columns
+    if len(float_cols) > 0:
+        # Cast using a dictionary to avoid fragmentation during assignment
+        cast_dict = {c: np.float32 for c in float_cols}
+        panel = panel.astype(cast_dict)
+        
+    return panel
 
 
 def _cast_categorical(panel: pd.DataFrame) -> pd.DataFrame:
@@ -288,6 +321,22 @@ class FeatureEngineer:
                 log_ret_s.rolling(20, min_periods=10).std() * np.sqrt(252)
             ).values
 
+            # ── Extreme Volatility & Distribution (Phase 4) ───────────────
+            if phase4_features_enabled():
+                # Garman-Klass Volatility (20-day, annualized)
+                log_hl = np.log(np.where((h > 0) & (l > 0) & (h >= l), h / l, 1.0))
+                log_co = np.log(np.where((c > 0) & (o > 0), c / o, 1.0))
+                gk_daily = 0.5 * (log_hl ** 2) - (2 * np.log(2) - 1) * (log_co ** 2)
+                # Clip negative values that can arise from float precision before sqrt
+                gk_daily = np.clip(gk_daily, 0, None)
+                grp[f"{FEATURE_PREFIX}gk_vol_20d"] = np.sqrt(
+                    pd.Series(gk_daily).rolling(20, min_periods=10).mean() * 252
+                ).values
+
+                # Rolling Skew and Kurtosis (20d)
+                grp[f"{FEATURE_PREFIX}ret_skew_20d"] = log_ret_s.rolling(20, min_periods=15).skew().values
+                grp[f"{FEATURE_PREFIX}ret_kurt_20d"] = log_ret_s.rolling(20, min_periods=15).kurt().values
+
             # ── 52-week high distance ─────────────────────────────────────
             rolling_252_high = pd.Series(h).rolling(252, min_periods=126).max().values
             grp[f"{FEATURE_PREFIX}high_52w_dist"] = np.where(
@@ -363,6 +412,30 @@ class FeatureEngineer:
             grp[f"{FEATURE_PREFIX}vol_ratio_5d"] = np.where(vol_ma20 > 0, v / vol_ma20, np.nan)
             grp[f"{FEATURE_PREFIX}vol_ratio_20d"] = np.where(vol_ma60 > 0, vol_ma5 / vol_ma60, np.nan)
 
+            # ── Volume Microstructure (Phase 4) ──────────────────────────────────────
+            if phase4_features_enabled():
+                # 1. VWAP Distance (ATR-normalized)
+                tp = (h + l + c) / 3.0
+                tp_v = pd.Series(tp * v)
+                vwap_20d = tp_v.rolling(20, min_periods=10).sum() / vs.rolling(20, min_periods=10).sum()
+                grp[f"{FEATURE_PREFIX}vwap_dist_20d"] = (c - vwap_20d.values) / safe_atr
+
+                # 2. Chaikin Money Flow (CMF 20d)
+                range_hl = h - l
+                range_hl_safe = np.where(range_hl == 0, 1e-8, range_hl)
+                mf_mult = ((c - l) - (h - c)) / range_hl_safe
+                mf_vol = pd.Series(mf_mult * v)
+                cmf_20d = mf_vol.rolling(20, min_periods=10).sum() / vs.rolling(20, min_periods=10).sum()
+                grp[f"{FEATURE_PREFIX}cmf_20d"] = cmf_20d.values
+
+                # 3. Normalized OBV Oscillator
+                v_sign = np.sign(np.append([0], np.diff(c)))
+                obv_s = pd.Series(np.cumsum(v_sign * v))
+                obv_sma20 = obv_s.rolling(20, min_periods=10).mean()
+                v_sma20_s = pd.Series(vol_ma20)
+                obv_osc = (obv_s - obv_sma20) / np.where(v_sma20_s > 0, v_sma20_s * 20, np.nan)
+                grp[f"{FEATURE_PREFIX}obv_osc_20d"] = obv_osc.values
+
             # ── Rolling beta vs benchmark ──────────────────────────────────
             ticker_log_rets = pd.Series(np.log(np.where(c > 0, c, np.nan))).diff()
             ticker_log_rets.index = grp.index
@@ -371,6 +444,28 @@ class FeatureEngineer:
             # Winsorize beta at [-2, 4]
             beta = beta.clip(-2, 4)
             grp[f"{FEATURE_PREFIX}rolling_beta_60d"] = beta.values
+
+            # ── Residual Momentum (Phase 4) ──────────────────────────────────
+            if phase4_features_enabled():
+                residual_rets = ticker_log_rets - beta * bm_aligned
+                grp[f"{FEATURE_PREFIX}residual_mom_20d"] = residual_rets.rolling(20, min_periods=10).sum().values
+                grp[f"{FEATURE_PREFIX}residual_mom_60d"] = residual_rets.rolling(60, min_periods=30).sum().values
+
+                # ── Trend Persistence & Fractal Dimension (Exp-404) ────────────
+                n_chop = 14
+                atr_sum_14 = pd.Series(atr14).rolling(n_chop, min_periods=n_chop//2).sum()
+                high_max_14 = pd.Series(h).rolling(n_chop, min_periods=n_chop//2).max()
+                low_min_14 = pd.Series(l).rolling(n_chop, min_periods=n_chop//2).min()
+                chop_range = high_max_14 - low_min_14
+                chop_range_safe = np.where(chop_range == 0, 1e-8, chop_range)
+                chop_idx = 100.0 * np.log10(atr_sum_14 / chop_range_safe) / np.log10(n_chop)
+                grp[f"{FEATURE_PREFIX}chop_idx_14d"] = chop_idx.values
+
+                # Variance Ratio (Hurst proxy): Var(5d_ret) / (5 * Var(1d_ret))
+                var_1d = log_ret_s.rolling(20, min_periods=10).var()
+                var_5d = pd.Series(log_close, index=grp.index).diff(5).rolling(20, min_periods=10).var()
+                vr_5d = var_5d / (5 * var_1d.replace(0, np.nan))
+                grp[f"{FEATURE_PREFIX}var_ratio_5d"] = vr_5d.values
 
             # ── ICT features (skipped when skip_ict=True e.g. feature_set=zone) ──
             if not self.skip_ict:
@@ -607,6 +702,10 @@ class FeatureEngineer:
         # ── Regime label ──────────────────────────────────────────────────
         panel = self._add_regime(panel)
 
+        # ── Cross-Sectional Z-Scores (Exp-403) ────────────────────────────
+        if phase4_features_enabled():
+            panel = self._add_cross_sectional_zscores(panel)
+
         # ── Multi-timeframe trends ────────────────────────────────────────
         panel = self._mtf.merge(panel)
 
@@ -666,6 +765,7 @@ class FeatureEngineer:
 
         log.info(f"Features computed: {len(feat_cols)} feature columns")
         panel = _cast_categorical(panel)
+        panel = _downcast_and_defragment(panel)
         return panel
 
     def _add_sector_rs(self, panel: pd.DataFrame) -> pd.DataFrame:
@@ -706,6 +806,27 @@ class FeatureEngineer:
         panel[f"{FEATURE_PREFIX}market_breadth"] = (
             panel.index.get_level_values("date").map(breadth).values
         )
+
+        # ── Advance/Decline Thrust (Exp-404) ──────────────────────────────
+        if phase4_features_enabled():
+            # Sign of the 1d move: reuse the per-ticker return_1d feature
+            # (log return / pct-ATR — the strictly-positive denominator
+            # preserves sign) instead of a second full-panel groupby pass.
+            ret1 = panel[f"{FEATURE_PREFIX}return_1d"]
+            advancing = (ret1 > 0) & (panel["in_universe"] == True)
+            declining = (ret1 < 0) & (panel["in_universe"] == True)
+
+            adv_count = advancing.groupby(level="date").sum()
+            dec_count = declining.groupby(level="date").sum()
+            total_ad  = adv_count + dec_count
+
+            # 0/0 → NaN: a date with no known movers is unknown, not "balanced".
+            ad_ratio_s = adv_count / total_ad
+            ad_thrust_10d = ad_ratio_s.ewm(span=10, adjust=False).mean()
+            panel[f"{FEATURE_PREFIX}ad_thrust_10d"] = (
+                panel.index.get_level_values("date").map(ad_thrust_10d).values
+            )
+
         return panel
 
     def _add_regime(self, panel: pd.DataFrame) -> pd.DataFrame:
@@ -733,6 +854,45 @@ class FeatureEngineer:
         panel[f"{FEATURE_PREFIX}regime_bull"] = (regime_arr == 2).astype(np.float32)
         panel[f"{FEATURE_PREFIX}regime_choppy"] = (regime_arr == 1).astype(np.float32)
         panel[f"{FEATURE_PREFIX}regime_bear"] = (regime_arr == 0).astype(np.float32)
+        return panel
+
+    def _add_cross_sectional_zscores(self, panel: pd.DataFrame) -> pd.DataFrame:
+        """
+        Cross-Sectional Z-Scores (Exp-403)
+        Standardizes selected metrics cross-sectionally per date to isolate pure
+        relative edges and strip out shifting market baseline volatility.
+
+        Where the cross-sectional std is undefined — 0, or fewer than 2 members
+        in the (date) / (date, sector) group — the z-score is NaN: unknown, not
+        "exactly average" (NaN-native convention; 0.0 would fabricate a neutral
+        observation, systematically for singleton sectors).
+        """
+        log.info("Computing cross-sectional Z-scores...")
+        cols_to_zscore = [
+            f"{FEATURE_PREFIX}return_20d",
+            f"{FEATURE_PREFIX}return_60d",
+            f"{FEATURE_PREFIX}vol_ratio_20d",
+            f"{FEATURE_PREFIX}residual_mom_20d",
+            f"{FEATURE_PREFIX}residual_mom_60d"
+        ]
+
+        panel["_date_tmp"] = panel.index.get_level_values("date")
+        specs = [(["_date_tmp"], "_csz")]                      # market-neutral
+        if "sector" in panel.columns:
+            specs.append((["_date_tmp", "sector"], "_sec_csz"))  # sector-neutral
+
+        for col in cols_to_zscore:
+            if col not in panel.columns:
+                continue
+            for keys, suffix in specs:
+                g     = panel.groupby(keys)[col]
+                mean  = g.transform("mean")
+                std_  = g.transform("std")
+                panel[f"{col}{suffix}"] = np.where(
+                    std_ > 0, (panel[col] - mean) / std_, np.nan
+                )
+
+        panel.drop(columns=["_date_tmp"], inplace=True)
         return panel
 
     def recompute_fold_features(
@@ -1007,6 +1167,7 @@ class FeatureEngineer:
             ).astype(np.float32)
 
         result = _cast_categorical(result)
+        result = _downcast_and_defragment(result)
         return result
 
     def recompute_zones(

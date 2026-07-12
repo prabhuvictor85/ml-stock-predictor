@@ -37,8 +37,10 @@ def _make_panel(n_tickers: int = 5, n_days: int = 300, seed: int = 42) -> pd.Dat
     open_  = close * (1 + rng.uniform(-0.005, 0.005, n))
     volume = rng.integers(50_000, 500_000, n).astype(float)
 
-    # Assign sectors round-robin so sector RS features have cross-sectional signal
-    sector_map = {f"T{i}": ["IT", "Finance", "Energy", "FMCG", "Auto"][i % 5]
+    # Two sectors so each has >=2 members with the default 5 tickers: sector RS
+    # features get cross-sectional signal AND sector-neutral z-scores are
+    # defined (a singleton sector has no cross-sectional std → NaN by design).
+    sector_map = {f"T{i}": ["IT", "Finance"][i % 2]
                   for i in range(n_tickers)}
     sectors = [sector_map[t] for _, t in idx]
 

@@ -65,7 +65,9 @@ quick_*.py
 smoke_*.py
 profile_*.py
 preview_*.py
-test*.py
+# Root-level scratch only — unanchored `test*.py` silently ignored every NEW
+# file under tests/ (existing ones were tracked before the pattern landed).
+/test*.py
 main.py
 out*.txt
 err.txt

@@ -11,19 +11,19 @@ While it attempts to capture regime and trend, it lacks rigorous statistical pro
 
 ## Prioritized Experiment Backlog
 
-### Exp-401: Volume Microstructure & Price-Volume Agreement
+### Exp-401: Volume Microstructure & Price-Volume Agreement [DONE]
 - **Description:** Implement Volume-Weighted Average Price (VWAP) distance, Relative Volume (RVOL), On-Balance Volume (OBV), and Chaikin Money Flow (CMF).
 - **Hypothesis:** Tracking whether price closes above/below VWAP alongside institutional relative volume identifies genuine accumulation vs. retail noise.
 - **Expected Impact:** High. Volume confirms price action.
 - **Estimation:** 1 day of implementation/testing.
 
-### Exp-402: Extreme Volatility & Distribution Estimation
+### Exp-402: Extreme Volatility & Distribution Estimation [DONE]
 - **Description:** Implement Parkinson, Garman-Klass, and Yang-Zhang volatility estimators. Track rolling skew and kurtosis over 20d/60d horizons.
 - **Hypothesis:** Yang-Zhang volatility captures both overnight gaps and continuous intraday variance, providing a superior risk adjuster than basic ATR. Positive skew signals lottery-ticket stocks which tend to underperform long-term.
 - **Expected Impact:** Medium-High. Improves risk-adjusted IC by filtering out high-volatility traps.
 - **Estimation:** 1 day.
 
-### Exp-403: Cross-Sectional & Residual Momentum
+### Exp-403: Cross-Sectional & Residual Momentum [DONE]
 - **Description:** Implement Beta-neutralized and Sector-neutralized momentum (Residual Momentum) using rolling linear regression against benchmark and sector means. Convert base features to Cross-Sectional Z-Scores (Standardized).
 - **Hypothesis:** Raw momentum is heavily exposed to market beta. Isolating idiosyncratic return (residual momentum) provides purer alpha and creates a market-neutral signal edge.
 - **Expected Impact:** High. Crucial for stability in varying market regimes.

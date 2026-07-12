@@ -175,13 +175,24 @@ def compute_fold_metrics(
     mean_hit = float(np.mean(hit_values)) if hit_values else 0.0
 
     mean_rank_ic = float(np.mean(rank_ic_values)) if rank_ic_values else 0.0
-    # Overlapping 20-day labels inflate ICIR if we use raw daily standard deviation.
-    # We sample every 20th day (non-overlapping) to get the uninflated true sample std
-    # or adjust it. Here we use non-overlapping points for std_rank_ic.
-    if len(rank_ic_values) > 20:
-        std_rank_ic = float(np.std(rank_ic_values[::20], ddof=1))
+    # Adjacent daily ICs share 19/20 of their 20d label window, so the series
+    # is smooth/autocorrelated and its short-sample std underestimates the
+    # marginal IC dispersion — flattering the ICIR. Estimate the std from
+    # non-overlapping subseries instead, POOLED across all 20 phase offsets:
+    # a single offset (e.g. [::20]) keeps ~5% of the points and makes the
+    # ICIR depend on which weekday the fold happens to start on.
+    _n_ic = len(rank_ic_values)
+    if _n_ic >= 40:  # ≥ ~2 points in every offset subseries
+        _ic_arr = np.asarray(rank_ic_values, dtype=float)
+        _ss, _dof = 0.0, 0
+        for _k in range(20):
+            _sub = _ic_arr[_k::20]
+            if len(_sub) > 1:
+                _ss  += float(np.var(_sub, ddof=1)) * (len(_sub) - 1)
+                _dof += len(_sub) - 1
+        std_rank_ic = float(np.sqrt(_ss / _dof)) if _dof > 0 else 0.0
     else:
-        std_rank_ic = float(np.std(rank_ic_values, ddof=1)) if len(rank_ic_values) > 1 else 0.0
+        std_rank_ic = float(np.std(rank_ic_values, ddof=1)) if _n_ic > 1 else 0.0
 
     icir = mean_rank_ic / std_rank_ic if std_rank_ic > 0 else 0.0
 

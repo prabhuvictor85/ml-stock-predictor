@@ -95,13 +95,19 @@ def compute_fold_metrics(
 
     # --- Per-date Rank IC computation ---
     # To get a statistically sound ICIR, we compute IC across ALL test dates
-    # with sufficient observations, not just group_dates.
+    # with sufficient observations, not just group_dates. Universe-filtered to
+    # match the labels (cs_rank is built on in_universe rows only). Single
+    # boolean filter + groupby instead of a per-date .loc loop — this runs
+    # once per fold per Optuna trial, so the loop shape matters.
+    # Interpretation note: adjacent daily ICs share 19/20 of the 20d label
+    # window (autocorrelated series) — confirm any "ICIR > 1.0" claim on
+    # non-overlapping dates before treating it as met.
     rank_ic_values: List[float] = []
-    _dates = panel_test.index.get_level_values("date").unique()
-    for d in sorted(_dates):
-        # We need known outcome rows only, and must be in_universe
-        grp_d = panel_test.loc[(d, slice(None))]
-        _gk_d = grp_d[(grp_d["future_20d_excess_return"].notna()) & (grp_d["in_universe"] == True)]
+    _ic_rows = panel_test[
+        panel_test["future_20d_excess_return"].notna()
+        & (panel_test["in_universe"] == True)
+    ]
+    for _d, _gk_d in _ic_rows.groupby(level="date", sort=True):
         if len(_gk_d) >= 5:
             _ic_sc = _gk_d["_score"].values
             if _ic_sc.std() > 1e-9:

@@ -444,3 +444,5 @@ The expected haircut from the §2 baseline is itself a data point: record
 - Overfitting ratio (lockbox / in-sample IC): `______`
 - **Verdict (PASS / MARGINAL / FAIL):** `__________`
 - Notes: `__________`
+
+

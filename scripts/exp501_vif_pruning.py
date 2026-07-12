@@ -26,15 +26,25 @@ def main():
         print(f"Target column '{target_col}' not found. Cannot compute IC tiebreakers.")
         return
 
-    # 1. Compute Univariate Rank IC globally
-    print("Computing out-of-sample (global) Rank IC against target for tiebreakers...")
+    # 1. Compute Univariate Rank IC cross-sectionally on early history
+    print("Computing out-of-sample (cross-sectional) Rank IC against target for tiebreakers...")
     ic_df = pd.DataFrame(index=features)
-    # df.corr computes pairwise spearman ignoring NaNs correctly without global dropna.
-    # To save memory and time, we can compute correlation of features against target directly.
+    
+    # Restrict to early history (first 30% of dates) to avoid looking ahead into 
+    # validation periods while making feature selection decisions.
+    valid_dates = sorted(df.index.get_level_values("date").unique())
+    train_cutoff = valid_dates[int(len(valid_dates) * 0.30)]
+    df_train = df.loc[df.index.get_level_values("date") <= train_cutoff]
+
     ic_vals = {}
     for f in features:
-        # compute spearman corr between feature and target
-        ic_vals[f] = df[f].corr(df[target_col], method="spearman")
+        # Cross-sectional IC: compute spearman per date, then mean
+        def _daily_ic(grp):
+            if len(grp) < 10: return np.nan
+            return grp[f].corr(grp[target_col], method="spearman")
+        
+        daily_ic = df_train.groupby(level="date").apply(_daily_ic).dropna()
+        ic_vals[f] = daily_ic.mean() if not daily_ic.empty else 0.0
         
     ic_series = pd.Series(ic_vals).fillna(0)
 
@@ -116,4 +126,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

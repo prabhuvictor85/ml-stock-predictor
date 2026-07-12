@@ -2719,6 +2719,7 @@ def main() -> None:
                               f"(prevents look-ahead in zone/ICT state).")
                 print("Re-running feature engineering on fresh panel ...")
                 from pipeline.features.engineer import FeatureEngineer, FEATURE_PREFIX
+                _fs = getattr(args, "feature_set", "all")
                 fe = FeatureEngineer(cfg, benchmark_close,
                                      skip_ict=(_fs in ("zone", "pivot")))
                 panel = fe.build(panel)

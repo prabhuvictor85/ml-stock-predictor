@@ -109,7 +109,7 @@ def test_expected_feature_columns_present(built_panel):
         f"{FEATURE_PREFIX}rolling_beta_60d",
         f"{FEATURE_PREFIX}hist_vol_20d",
         f"{FEATURE_PREFIX}ict_bob_active",
-        f"{FEATURE_PREFIX}ict_bullbb_active",
+        f"{FEATURE_PREFIX}ict_bullrb_active",
         f"{FEATURE_PREFIX}ict_bullfvg_active",
         f"{FEATURE_PREFIX}ict_bull_zone_priority",
         f"{FEATURE_PREFIX}ict_bear_zone_priority",
@@ -391,7 +391,7 @@ def test_recompute_fold_features_produces_ict_columns():
 
     required_ict = [
         f"{FEATURE_PREFIX}ict_bob_active",
-        f"{FEATURE_PREFIX}ict_bullbb_active",
+        f"{FEATURE_PREFIX}ict_bullrb_active",
         f"{FEATURE_PREFIX}ict_bull_zone_priority",
         f"{FEATURE_PREFIX}ict_bear_zone_priority",
     ]

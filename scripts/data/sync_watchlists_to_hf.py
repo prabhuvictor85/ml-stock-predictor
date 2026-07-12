@@ -71,10 +71,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_DIR = PROJECT_ROOT / "output"
 
 # Filename patterns:
-#   watchlist_<mode>_<side>_<date>.csv             (main)
-#   watchlist_<mode>_<side>_<tier>_<date>.csv      (per-tier)
+#   watchlist_<mode>_<side>_<date>.csv                       (main)
+#   watchlist_<mode>_<side>_<tier>_<date>.csv                (per-tier)
+#   watchlist_<mode>_<type>_<side>_<date>.csv                (with type e.g. composite/pureml)
+#   watchlist_<mode>_<type>_<side>_<tier>_<date>.csv         (with type + tier)
 _WL_RE = re.compile(
-    r"^watchlist_(?P<mode>momentum|reversal)_(?P<side>bull|bear)"
+    r"^watchlist_(?P<mode>momentum|reversal)"
+    r"(?:_(?P<model_type>composite|pureml|combined))?"   # optional type segment
+    r"_(?P<side>bull|bear)"
     r"(?:_(?P<tier>large|mid|small|micro))?_(?P<date>\d{4}-\d{2}-\d{2})\.csv$"
 )
 
@@ -84,25 +88,49 @@ _WL_RE = re.compile(
 # ─────────────────────────────────────────────────────────────────────────────
 
 def discover_dates(market_dir: Path) -> List[str]:
-    """Return all unique dates found in watchlist filenames, sorted descending."""
+    """Return all unique dates found in watchlist filenames, sorted descending.
+
+    Handles two layouts:
+      - Flat:  output/<market>/watchlist_*_<date>.csv
+      - Nested: output/<market>/<date>/watchlist_*_<date>.csv
+    """
     if not market_dir.is_dir():
         return []
     dates = set()
+    # Flat files directly in market_dir
     for f in market_dir.glob("watchlist_*.csv"):
         m = _WL_RE.match(f.name)
         if m:
             dates.add(m.group("date"))
+    # Files nested inside date sub-folders
+    for sub in market_dir.iterdir():
+        if sub.is_dir():
+            for f in sub.glob("watchlist_*.csv"):
+                m = _WL_RE.match(f.name)
+                if m:
+                    dates.add(m.group("date"))
     return sorted(dates, reverse=True)
 
 
 def list_files_for_date(market_dir: Path, date: str) -> List[Path]:
-    """Return all watchlist CSVs for a given date."""
+    """Return all watchlist CSVs for a given date.
+
+    Searches both flat (market_dir/) and nested (market_dir/<date>/) layouts.
+    """
     out: List[Path] = []
+    # Flat layout
     for f in market_dir.glob(f"watchlist_*_{date}.csv"):
         m = _WL_RE.match(f.name)
         if m and m.group("date") == date:
             out.append(f)
-    return sorted(out)
+    # Nested layout — look inside the matching date subfolder
+    date_sub = market_dir / date
+    if date_sub.is_dir():
+        for f in date_sub.glob(f"watchlist_*_{date}.csv"):
+            m = _WL_RE.match(f.name)
+            if m and m.group("date") == date:
+                out.append(f)
+    return sorted(set(out))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -117,10 +145,13 @@ def csv_to_records(csv_path: Path) -> List[dict]:
     return df.to_dict(orient="records")
 
 
-def out_filename(mode: str, side: str, tier: Optional[str]) -> str:
-    """Frontend-expected filename. e.g. momentum_bull.json or momentum_bull_large.json"""
+def out_filename(side: str, tier: Optional[str]) -> str:
+    """Frontend-expected filename. e.g. bull.json or bull_large.json
+    All modes (momentum/reversal) and types (composite/pureml) are merged
+    into one file per side+tier, tagged with 'mode' and 'model_type' columns.
+    """
     suffix = f"_{tier}" if tier else ""
-    return f"{mode}_{side}{suffix}.json"
+    return f"{side}{suffix}.json"
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -182,23 +213,76 @@ def build_staging(target_markets: List[str], target_date: Optional[str],
             out_market_dir.mkdir(parents=True, exist_ok=True)
             n_written = 0
 
+            # Group files by (side, tier) so we can merge all modes/types
+            # into one JSON file per side+tier, tagged with mode & model_type.
+            from collections import defaultdict
+            groups: dict = defaultdict(list)   # (side, tier) -> list of (mode, model_type, Path)
             for f in files:
                 m = _WL_RE.match(f.name)
                 if not m:
                     continue
-                mode = m.group("mode")
-                side = m.group("side")
-                tier = m.group("tier")  # None for main file
-
+                mode       = m.group("mode")
+                model_type = m.group("model_type") or "default"
+                side       = m.group("side")
+                tier       = m.group("tier")   # None for the overall file
                 modes_found.add(mode)
                 sides_found.add(side)
                 if tier:
                     tiers_found.add(tier)
+                groups[(side, tier)].append((mode, model_type, f))
 
-                records = csv_to_records(f)
-                out_name = out_filename(mode, side, tier)
+            for (side, tier), entries in groups.items():
+                # ── Dedup: one row per (ticker, mode) ─────────────────────
+                # Within each mode, a ticker may appear in both composite
+                # and pureml.  We collapse those into one row and set
+                # model_type = "PureML", "Composite", or "PureML + Composite".
+                from collections import defaultdict as _dd
+
+                # mode -> ticker -> { model_type -> record }
+                mode_ticker_map: dict = _dd(lambda: _dd(dict))
+
+                for mode, model_type, f in entries:
+                    records = csv_to_records(f)
+                    label = (
+                        "PureML"    if model_type == "pureml"    else
+                        "Composite" if model_type == "composite" else
+                        model_type.title()
+                    )
+                    for rec in records:
+                        tkr = str(rec.get("ticker") or rec.get("Ticker") or "")
+                        if not tkr:
+                            continue
+                        rec["mode"] = mode
+                        # Keep the record with the higher score for this type
+                        existing = mode_ticker_map[mode][tkr].get(label)
+                        if existing is None or (rec.get("score") or 0) > (existing.get("score") or 0):
+                            mode_ticker_map[mode][tkr][label] = rec
+
+                merged: List[dict] = []
+                for mode, ticker_map in mode_ticker_map.items():
+                    for tkr, type_records in ticker_map.items():
+                        types = sorted(type_records.keys())          # e.g. ["Composite","PureML"]
+                        label = " + ".join(types)                    # "Composite", "PureML", or "Composite + PureML"
+                        # Use the record with the highest score as the base row
+                        best = max(type_records.values(),
+                                   key=lambda r: r.get("score") or 0)
+                        row = dict(best)
+                        row["model_type"] = label
+                        merged.append(row)
+
+                # Sort: by mode (momentum first) then score descending,
+                # then reassign rank sequentially within each mode so rank
+                # numbers are clean (1, 2, 3 …) after dedup.
+                merged.sort(key=lambda r: (r.get("mode", ""), -(r.get("score") or 0)))
+                mode_counters: dict = {}
+                for row in merged:
+                    m = row.get("mode", "")
+                    mode_counters[m] = mode_counters.get(m, 0) + 1
+                    row["rank"] = mode_counters[m]
+
+                out_name = out_filename(side, tier)
                 (out_market_dir / out_name).write_text(
-                    json.dumps(records, indent=None), encoding="utf-8"
+                    json.dumps(merged, indent=None), encoding="utf-8"
                 )
                 n_written += 1
                 total_written += 1
@@ -342,7 +426,7 @@ def main() -> int:
             f"dates={','.join(sorted({m['latest_date'] for m in manifest['markets']}))}"
         )
         commit_url = upload(stage_root, args.space_id, commit_msg)
-        print(f"\n✓ Uploaded. {commit_url}")
+        print(f"\nUploaded OK. {commit_url}")
         print(f"  Space rebuild will start automatically. Check:")
         print(f"  https://huggingface.co/spaces/{args.space_id}")
         return 0

@@ -639,6 +639,70 @@ def compute_peak_timing(
     return pd.DataFrame(rows)
 
 
+def compute_peak_trough_12m(
+    close_df: pd.DataFrame,
+    base_date: datetime.date,
+    end_date: datetime.date,
+) -> pd.DataFrame:
+    """
+    For each ticker, scan the FULL window [base_date, end_date] (default 12 months)
+    using daily closes and find:
+      - the best moment  (peak_close / peak_date / peak_return_pct)
+      - the worst moment (trough_close / trough_date / trough_return_pct)
+      - the static end-of-window return (final_return_pct) for comparison
+      - gap_pct = peak_return_pct - final_return_pct
+                  ("how much was left on the table" by holding to a fixed date)
+
+    This answers: "what was the max the price reached, and when" — rather than
+    relying on a single static snapshot date, which can dramatically understate
+    (or overstate) what the model's pick was actually capable of.
+
+    Returns a DataFrame with one row per ticker.
+    """
+    rows = []
+    for ticker in close_df.columns:
+        series = close_df[ticker].dropna()
+        in_window = [base_date <= d <= end_date for d in series.index]
+        series = series[in_window]
+        if len(series) < 2:
+            continue
+        base_candidates = [(d, v) for d, v in zip(series.index, series.values)
+                           if d >= base_date]
+        if not base_candidates:
+            continue
+        base_val = float(base_candidates[0][1])
+        if base_val == 0 or pd.isna(base_val):
+            continue
+
+        peak_idx   = series.idxmax()
+        peak_val   = float(series[peak_idx])
+        trough_idx = series.idxmin()
+        trough_val = float(series[trough_idx])
+        final_idx  = series.index[-1]
+        final_val  = float(series.iloc[-1])
+
+        peak_ret   = (peak_val   - base_val) / base_val * 100
+        trough_ret = (trough_val - base_val) / base_val * 100
+        final_ret  = (final_val  - base_val) / base_val * 100
+
+        rows.append({
+            "ticker":              ticker,
+            "peak_close":          round(peak_val, 2),
+            "peak_date":           str(peak_idx),
+            "days_to_peak":        (peak_idx - base_date).days,
+            "peak_return_pct":     round(peak_ret, 2),
+            "trough_close":        round(trough_val, 2),
+            "trough_date":         str(trough_idx),
+            "days_to_trough":      (trough_idx - base_date).days,
+            "trough_return_pct":   round(trough_ret, 2),
+            "final_close":         round(final_val, 2),
+            "final_date":          str(final_idx),
+            "final_return_pct":    round(final_ret, 2),
+            "gap_pct":             round(peak_ret - final_ret, 2),
+        })
+    return pd.DataFrame(rows)
+
+
 # ── Analysis functions ─────────────────────────────────────────────────────────
 
 def rank_bucket_analysis(df_wl: pd.DataFrame) -> pd.DataFrame:
@@ -902,6 +966,7 @@ def run(
     hf_data_dir: Path | None = None,
     cap_tier: str | None = None,
     list_file: Path | None = None,
+    simple: bool = False,
 ):
     cfg        = MARKET_CONFIG[market]
     data_dir   = cfg["data_dir"]
@@ -930,9 +995,10 @@ def run(
     print("=" * 64)
 
     # Intermediate dates
-    date_4w = base_date + datetime.timedelta(weeks=4)
-    date_3m = _add_months(base_date, 3)
-    print(f"  Intermediate : 4-week = {date_4w}  |  3-month = {date_3m}")
+    date_4w  = base_date + datetime.timedelta(weeks=4)
+    date_3m  = _add_months(base_date, 3)
+    date_12m = _add_months(base_date, 12)
+    print(f"  Intermediate : 4-week = {date_4w}  |  3-month = {date_3m}  |  12-month = {date_12m}")
 
     # ── Load ticker list ──────────────────────────────────────────────────
     if custom_tickers:
@@ -1025,21 +1091,33 @@ def run(
     fwd_hit = sum(1 for v in fwd_ohlc_map.values() if v)
     print(f"  -> {fwd_hit}/{total} prices found")
 
-    # Intermediate prices — watchlist tickers only (much faster)
-    ohlc_4w_map: dict = {}
-    ohlc_3m_map: dict = {}
-    if wl_tickers:
+    # Intermediate prices — all tickers in simple mode, watchlist-only otherwise
+    ohlc_4w_map:  dict = {}
+    ohlc_3m_map:  dict = {}
+    ohlc_12m_map: dict = {}
+    inter_tickers = tickers if simple else wl_tickers
+    if inter_tickers:
+        lbl = "all" if simple else "watchlist"
         print(f"\nFetching 4-week prices  ({date_4w})  for "
-              f"{len(wl_tickers)} watchlist tickers ...")
-        ohlc_4w_map = fetch_batch_ohlc(wl_tickers, date_4w, data_dir)
+              f"{len(inter_tickers)} {lbl} tickers ...")
+        ohlc_4w_map = fetch_batch_ohlc(inter_tickers, date_4w, data_dir)
         h4w = sum(1 for v in ohlc_4w_map.values() if v)
-        print(f"  -> {h4w}/{len(wl_tickers)} prices found")
+        print(f"  -> {h4w}/{len(inter_tickers)} prices found")
 
         print(f"Fetching 3-month prices ({date_3m})  for "
-              f"{len(wl_tickers)} watchlist tickers ...")
-        ohlc_3m_map = fetch_batch_ohlc(wl_tickers, date_3m, data_dir)
+              f"{len(inter_tickers)} {lbl} tickers ...")
+        ohlc_3m_map = fetch_batch_ohlc(inter_tickers, date_3m, data_dir)
         h3m = sum(1 for v in ohlc_3m_map.values() if v)
-        print(f"  -> {h3m}/{len(wl_tickers)} prices found")
+        print(f"  -> {h3m}/{len(inter_tickers)} prices found")
+
+        if date_12m <= datetime.date.today():
+            print(f"Fetching 12-month prices ({date_12m}) for "
+                  f"{len(inter_tickers)} {lbl} tickers ...")
+            ohlc_12m_map = fetch_batch_ohlc(inter_tickers, date_12m, data_dir)
+            h12m = sum(1 for v in ohlc_12m_map.values() if v)
+            print(f"  -> {h12m}/{len(inter_tickers)} prices found")
+        else:
+            print(f"  12-month date {date_12m} is in the future — skipping")
 
     # ── Build results DataFrame ───────────────────────────────────────────
     print(f"\nBuilding results ...")
@@ -1074,7 +1152,7 @@ def run(
             "close_pct_change": pct_6m,
         }
 
-        # Intermediate returns (watchlist tickers only)
+        # Intermediate returns (watchlist tickers only, or all in simple mode)
         if ticker in ohlc_4w_map:
             ohlc_4w = ohlc_4w_map.get(ticker)
             row["close_4w"]      = ohlc_4w["close"] if ohlc_4w else None
@@ -1083,6 +1161,10 @@ def run(
             ohlc_3m = ohlc_3m_map.get(ticker)
             row["close_3m"]      = ohlc_3m["close"] if ohlc_3m else None
             row["pct_change_3m"] = _pct(base_close, row["close_3m"])
+        if ticker in ohlc_12m_map:
+            ohlc_12m = ohlc_12m_map.get(ticker)
+            row["close_12m"]      = ohlc_12m["close"] if ohlc_12m else None
+            row["pct_change_12m"] = _pct(base_close, row["close_12m"])
 
         results.append(row)
         status = f"{pct_6m:+.1f}%" if pct_6m is not None else "no data"
@@ -1139,6 +1221,24 @@ def run(
         df_wl["side"] = df_wl["hf_side"]
     if "rank" not in df_wl.columns and "hf_rank" in df_wl.columns:
         df_wl["rank"] = df_wl["hf_rank"]
+
+    # ── Peak / trough analysis over the FULL 12-month window ──────────────
+    # A static snapshot at a fixed forward date can badly understate (or
+    # overstate) what a pick was actually capable of — e.g. a stock that
+    # ran +40% and gave it back by the 6M mark looks like a loser on a
+    # snapshot, but the model's signal was correct; only the exit timing
+    # was wrong. This scans daily closes for the whole 12M window and
+    # records the best/worst moments and when they happened.
+    if simple and wl_tickers and date_12m <= datetime.date.today():
+        print(f"\nFetching daily price history for {len(wl_tickers)} watchlist "
+              f"tickers ({base_date} -> {date_12m}) for peak/trough analysis ...")
+        close_df_12m = fetch_daily_closes(wl_tickers, base_date, date_12m)
+        df_peak = compute_peak_trough_12m(close_df_12m, base_date, date_12m)
+        if not df_peak.empty:
+            print(f"  -> peak/trough computed for {len(df_peak)}/{len(wl_tickers)} tickers")
+            df_wl = df_wl.merge(df_peak, on="ticker", how="left")
+        else:
+            print("  -> no peak/trough data available")
 
     # ── Run analysis ──────────────────────────────────────────────────────
     df_rank     = rank_bucket_analysis(df_wl)
@@ -1197,104 +1297,173 @@ def run(
             f"{suffix}_{int(_time.time())}.xlsx"
         )
 
+    # ── Metadata: read name/sector/indices from the universe list CSV ─────
+    meta_df = pd.DataFrame()
+    meta_list = cfg.get("list_file") or list_file
+    if meta_list and Path(meta_list).exists():
+        _ml = pd.read_csv(Path(meta_list))
+        sym_col = next((c for c in _ml.columns if c.lower() in ("symbol", "ticker")), None)
+        if sym_col:
+            _ml = _ml.rename(columns={sym_col: "ticker"})
+            meta_cols = ["ticker"] + [
+                c for c in ("Name", "Sector", "Indices", "ETF")
+                if c in _ml.columns
+            ]
+            meta_df = _ml[meta_cols].drop_duplicates("ticker")
+
     with pd.ExcelWriter(out_file, engine="openpyxl") as writer:
 
-        # Sheet 1: All Tickers
-        df_result.to_excel(writer, sheet_name="All Tickers", index=False)
+        if simple:
+            # ── SIMPLE MODE: 2 sheets only ────────────────────────────────
 
-        # Sheet 2: Summary
-        exc_wl_mean = round(float(exc_wl.mean()),   2) if len(exc_wl) else None
-        exc_wl_hit  = round(float((exc_wl > 0).mean() * 100), 1) if len(exc_wl) else None
-        exc_all_mean = round(float(exc_all.mean()),   2) if len(exc_all) else None
-        exc_all_hit  = round(float((exc_all > 0).mean() * 100), 1) if len(exc_all) else None
-        stats = {
-            "Metric": [
-                "Total tickers evaluated",
-                "Forward price fetched",
-                "Avg % change (all tickers)",
-                "Median % change (all tickers)",
-                "% positive (gainers)",
-                "% negative (losers)",
-                f"{benchmark} 4-week return (%)",
-                f"{benchmark} 3-month return (%)",
-                f"{benchmark} 6-month return (%)",
-                "Avg excess return — all tickers",
-                "Hit rate (>0 excess) — all tickers",
-                "Watchlist tickers (total picks)",
-                "Watchlist avg excess return (%)",
-                "Watchlist hit rate (>0 excess) (%)",
-                "Best performer",
-                "Best % change",
-                "Worst performer",
-                "Worst % change",
-            ],
-            "Value": [
-                len(df_result),
-                int(df_result["fwd_close"].notna().sum()),
-                round(float(valid.mean()),   2) if len(valid) else None,
-                round(float(valid.median()), 2) if len(valid) else None,
-                round(float((valid > 0).mean() * 100), 1) if len(valid) else None,
-                round(float((valid < 0).mean() * 100), 1) if len(valid) else None,
-                bm_ret_4w,
-                bm_ret_3m,
-                bm_ret_6m,
-                exc_all_mean,
-                exc_all_hit,
-                len(df_wl),
-                exc_wl_mean,
-                exc_wl_hit,
-                df_result.loc[valid.idxmax(), "ticker"] if len(valid) else "N/A",
-                round(float(valid.max()), 2) if len(valid) else None,
-                df_result.loc[valid.idxmin(), "ticker"] if len(valid) else "N/A",
-                round(float(valid.min()), 2) if len(valid) else None,
-            ]
-        }
-        pd.DataFrame(stats).to_excel(writer, sheet_name="Summary", index=False)
+            # Sheet 1 — Watchlist (bull + bear, sorted by side then rank)
+            if not df_wl.empty:
+                wl_out = df_wl.copy()
+                # Merge name/sector/indices
+                if not meta_df.empty:
+                    wl_out = wl_out.merge(meta_df, on="ticker", how="left")
+                rank_sort = "rank" if "rank" in wl_out.columns else None
+                if rank_sort:
+                    wl_out = wl_out.sort_values(
+                        ["side", rank_sort], ascending=[True, True], na_position="last"
+                    )
+                # Select clean columns in order
+                keep = ["ticker"]
+                for c in ("side", "rank", "score", "model", "model_type",
+                          "Name", "Sector", "Indices",
+                          "base_close", "close_4w", "pct_change_4w",
+                          "close_3m", "pct_change_3m",
+                          "fwd_close", "close_pct_change",
+                          "close_12m", "pct_change_12m",
+                          # Peak / trough over the full 12M window — the
+                          # "right view" of what the pick was capable of,
+                          # vs. a single static snapshot date.
+                          "peak_close", "peak_date", "days_to_peak", "peak_return_pct",
+                          "trough_close", "trough_date", "days_to_trough", "trough_return_pct",
+                          "gap_pct"):
+                    if c in wl_out.columns:
+                        keep.append(c)
+                wl_out = wl_out[keep].rename(columns={"close_pct_change": "pct_change_6m"})
+                wl_out.to_excel(writer, sheet_name="Watchlist", index=False)
+            else:
+                pd.DataFrame(columns=["ticker","side","rank","pct_change_4w",
+                                       "pct_change_3m","pct_change_6m"]).to_excel(
+                    writer, sheet_name="Watchlist", index=False)
 
-        # Sheets 3-4: Top/Bottom performers
-        df_result.nlargest(50, "close_pct_change").to_excel(
-            writer, sheet_name="Top 50 Gainers", index=False)
-        df_result.nsmallest(50, "close_pct_change").to_excel(
-            writer, sheet_name="Top 50 Losers", index=False)
+            # Sheet 2 — All Tickers
+            price_cols = [c for c in ("base_close", "close_4w", "close_3m", "fwd_close", "close_12m")
+                          if c in df_result.columns]
+            pct_cols_all = [c for c in ("pct_change_4w", "pct_change_3m", "close_pct_change", "pct_change_12m")
+                            if c in df_result.columns]
+            all_out = df_result[["ticker"] + price_cols + pct_cols_all].copy()
+            all_out = all_out.rename(columns={"close_pct_change": "pct_change_6m"})
+            if not meta_df.empty:
+                all_out = all_out.merge(meta_df, on="ticker", how="left")
+                front = ["ticker"] + [c for c in ("Name","Sector","Indices") if c in all_out.columns]
+                rest  = [c for c in all_out.columns if c not in front]
+                all_out = all_out[front + rest]
+            all_out = all_out.sort_values("pct_change_6m", ascending=False, na_position="last")
+            all_out.to_excel(writer, sheet_name="All Tickers", index=False)
 
-        # Sheet 5: Watchlist Detail (enriched, sorted by rank)
-        if not df_wl.empty:
-            rank_sort_col = "rank" if "rank" in df_wl.columns else (
-                "hf_rank" if "hf_rank" in df_wl.columns else None
-            )
-            wl_sorted = (
-                df_wl.sort_values(rank_sort_col, ascending=True, na_position="last")
-                if rank_sort_col else df_wl
-            )
-            wl_sorted.to_excel(writer, sheet_name="Watchlist Detail", index=False)
+        else:
+            # ── FULL MODE: all 12 sheets ──────────────────────────────────
 
-        # Sheet 6: Rank Analysis
-        if not df_rank.empty:
-            df_rank.to_excel(writer, sheet_name="Rank Analysis", index=False)
+            # Sheet 1: All Tickers
+            df_result.to_excel(writer, sheet_name="All Tickers", index=False)
 
-        # Sheet 7: Mode Analysis
-        if not df_mode.empty:
-            df_mode.to_excel(writer, sheet_name="Mode Analysis", index=False)
+            # Sheet 2: Summary
+            exc_wl_mean = round(float(exc_wl.mean()),   2) if len(exc_wl) else None
+            exc_wl_hit  = round(float((exc_wl > 0).mean() * 100), 1) if len(exc_wl) else None
+            exc_all_mean = round(float(exc_all.mean()),   2) if len(exc_all) else None
+            exc_all_hit  = round(float((exc_all > 0).mean() * 100), 1) if len(exc_all) else None
+            stats = {
+                "Metric": [
+                    "Total tickers evaluated",
+                    "Forward price fetched",
+                    "Avg % change (all tickers)",
+                    "Median % change (all tickers)",
+                    "% positive (gainers)",
+                    "% negative (losers)",
+                    f"{benchmark} 4-week return (%)",
+                    f"{benchmark} 3-month return (%)",
+                    f"{benchmark} 6-month return (%)",
+                    "Avg excess return — all tickers",
+                    "Hit rate (>0 excess) — all tickers",
+                    "Watchlist tickers (total picks)",
+                    "Watchlist avg excess return (%)",
+                    "Watchlist hit rate (>0 excess) (%)",
+                    "Best performer",
+                    "Best % change",
+                    "Worst performer",
+                    "Worst % change",
+                ],
+                "Value": [
+                    len(df_result),
+                    int(df_result["fwd_close"].notna().sum()),
+                    round(float(valid.mean()),   2) if len(valid) else None,
+                    round(float(valid.median()), 2) if len(valid) else None,
+                    round(float((valid > 0).mean() * 100), 1) if len(valid) else None,
+                    round(float((valid < 0).mean() * 100), 1) if len(valid) else None,
+                    bm_ret_4w,
+                    bm_ret_3m,
+                    bm_ret_6m,
+                    exc_all_mean,
+                    exc_all_hit,
+                    len(df_wl),
+                    exc_wl_mean,
+                    exc_wl_hit,
+                    df_result.loc[valid.idxmax(), "ticker"] if len(valid) else "N/A",
+                    round(float(valid.max()), 2) if len(valid) else None,
+                    df_result.loc[valid.idxmin(), "ticker"] if len(valid) else "N/A",
+                    round(float(valid.min()), 2) if len(valid) else None,
+                ]
+            }
+            pd.DataFrame(stats).to_excel(writer, sheet_name="Summary", index=False)
 
-        # Sheet 8: Model Type
-        if not df_mt.empty:
-            df_mt.to_excel(writer, sheet_name="Model Type", index=False)
+            # Sheets 3-4: Top/Bottom performers
+            df_result.nlargest(50, "close_pct_change").to_excel(
+                writer, sheet_name="Top 50 Gainers", index=False)
+            df_result.nsmallest(50, "close_pct_change").to_excel(
+                writer, sheet_name="Top 50 Losers", index=False)
 
-        # Sheet 9: Cap Tier
-        if not df_ct.empty:
-            df_ct.to_excel(writer, sheet_name="Cap Tier", index=False)
+            # Sheet 5: Watchlist Detail (enriched, sorted by rank)
+            if not df_wl.empty:
+                rank_sort_col = "rank" if "rank" in df_wl.columns else (
+                    "hf_rank" if "hf_rank" in df_wl.columns else None
+                )
+                wl_sorted = (
+                    df_wl.sort_values(rank_sort_col, ascending=True, na_position="last")
+                    if rank_sort_col else df_wl
+                )
+                wl_sorted.to_excel(writer, sheet_name="Watchlist Detail", index=False)
 
-        # Sheet 10: SDZ Analysis
-        if not df_sdz.empty:
-            df_sdz.to_excel(writer, sheet_name="SDZ Analysis", index=False)
+            # Sheet 6: Rank Analysis
+            if not df_rank.empty:
+                df_rank.to_excel(writer, sheet_name="Rank Analysis", index=False)
 
-        # Sheet 11: Random Baseline
-        if not df_baseline.empty:
-            df_baseline.to_excel(writer, sheet_name="Random Baseline", index=False)
+            # Sheet 7: Mode Analysis
+            if not df_mode.empty:
+                df_mode.to_excel(writer, sheet_name="Mode Analysis", index=False)
 
-        # Sheet 12: Failed Picks
-        if not df_failed.empty:
-            df_failed.to_excel(writer, sheet_name="Failed Picks", index=False)
+            # Sheet 8: Model Type
+            if not df_mt.empty:
+                df_mt.to_excel(writer, sheet_name="Model Type", index=False)
+
+            # Sheet 9: Cap Tier
+            if not df_ct.empty:
+                df_ct.to_excel(writer, sheet_name="Cap Tier", index=False)
+
+            # Sheet 10: SDZ Analysis
+            if not df_sdz.empty:
+                df_sdz.to_excel(writer, sheet_name="SDZ Analysis", index=False)
+
+            # Sheet 11: Random Baseline
+            if not df_baseline.empty:
+                df_baseline.to_excel(writer, sheet_name="Random Baseline", index=False)
+
+            # Sheet 12: Failed Picks
+            if not df_failed.empty:
+                df_failed.to_excel(writer, sheet_name="Failed Picks", index=False)
 
     print(f"\nSaved: {out_file}")
     return out_file
@@ -1334,6 +1503,9 @@ def parse_args():
     p.add_argument("--list_file",    default=None,
                    help="Override the universe CSV file "
                         "(e.g. C:/Victor/Learning_charts/stock_lists/constituents_spx.csv).")
+    p.add_argument("--simple",       action="store_true",
+                   help="Simple 2-sheet output: Watchlist (with sector/name) + All Tickers. "
+                        "Fetches 4w/3m/6m for all tickers. No analysis sheets.")
     return p.parse_args()
 
 
@@ -1417,4 +1589,5 @@ if __name__ == "__main__":
         hf_data_dir    = Path(args.hf_data_dir) if args.hf_data_dir else None,
         cap_tier       = args.cap_tier,
         list_file      = Path(args.list_file) if args.list_file else None,
+        simple         = args.simple,
     )

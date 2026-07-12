@@ -1,0 +1,60 @@
+<svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <rect x="0" y="0" width="700" height="320" fill="#ffffff"/>
+
+  <!-- Titles -->
+  <text x="175" y="24" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">Benchmark in a BULL regime</text>
+  <text x="175" y="42" text-anchor="middle" font-size="13" fill="#555">(regime_bull = 1)</text>
+  <text x="525" y="24" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">Benchmark in a BEAR regime</text>
+  <text x="525" y="42" text-anchor="middle" font-size="13" fill="#555">(regime_bear = 1)</text>
+
+  <!-- Divider -->
+  <line x1="350" y1="10" x2="350" y2="290" stroke="#ccc" stroke-width="1.5" stroke-dasharray="4 4"/>
+
+  <!-- ================= LEFT: BULL ================= -->
+  <!-- 200d SMA (dashed, stays BELOW price) -->
+  <polyline points="40,272 100,266 160,251 220,231 280,206 330,181"
+            fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="45" y="288" font-size="11" fill="#777">200d SMA (rising, price stays above it)</text>
+
+  <!-- Candles (bullish, ascending) -->
+  <g stroke="#1e7e34" stroke-width="1.5">
+    <line x1="70"  y1="215" x2="70"  y2="255"/>
+    <rect x="58"  y="225" width="24" height="20" fill="#5cb85c"/>
+    <line x1="130" y1="185" x2="130" y2="235"/>
+    <rect x="118" y="195" width="24" height="30" fill="#5cb85c"/>
+    <line x1="190" y1="150" x2="190" y2="205"/>
+    <rect x="178" y="160" width="24" height="35" fill="#5cb85c"/>
+    <line x1="250" y1="115" x2="250" y2="170"/>
+    <rect x="238" y="125" width="24" height="35" fill="#5cb85c"/>
+    <line x1="310" y1="85"  x2="310" y2="135"/>
+    <rect x="298" y="95"  width="24" height="30" fill="#5cb85c"/>
+  </g>
+  <text x="60" y="70" font-size="12" fill="#333">price climbing steadily</text>
+  <text x="60" y="86" font-size="12" fill="#333">above its 200d SMA</text>
+
+  <!-- ================= RIGHT: BEAR ================= -->
+  <!-- 200d SMA (dashed, stays ABOVE price) -->
+  <polyline points="380,68 440,79 500,99 560,124 620,149 670,169"
+            fill="none" stroke="#888" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="385" y="58" font-size="11" fill="#777">200d SMA (falling, price stays below it)</text>
+
+  <!-- Candles (bearish, descending) -->
+  <g stroke="#a02c2c" stroke-width="1.5">
+    <line x1="410" y1="85"  x2="410" y2="135"/>
+    <rect x="398" y="95"  width="24" height="30" fill="#e05a4d"/>
+    <line x1="470" y1="115" x2="470" y2="170"/>
+    <rect x="458" y="125" width="24" height="35" fill="#e05a4d"/>
+    <line x1="530" y1="150" x2="530" y2="205"/>
+    <rect x="518" y="160" width="24" height="35" fill="#e05a4d"/>
+    <line x1="590" y1="185" x2="590" y2="235"/>
+    <rect x="578" y="195" width="24" height="30" fill="#e05a4d"/>
+    <line x1="650" y1="215" x2="650" y2="260"/>
+    <rect x="638" y="225" width="24" height="25" fill="#e05a4d"/>
+  </g>
+  <text x="400" y="285" font-size="12" fill="#333">price falling steadily</text>
+  <text x="400" y="301" font-size="12" fill="#333">below its 200d SMA</text>
+
+  <!-- Baselines -->
+  <line x1="30" y1="280" x2="335" y2="280" stroke="#ddd" stroke-width="1"/>
+  <line x1="365" y1="280" x2="680" y2="280" stroke="#ddd" stroke-width="1"/>
+</svg>

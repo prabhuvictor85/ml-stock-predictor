@@ -1,0 +1,1751 @@
+[
+  {
+    "ticker": "BUTTERFLY",
+    "side": "bull",
+    "rank": 1,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        1.0639
+      ],
+      [
+        "features_ssz_htf_score",
+        0.9475
+      ],
+      [
+        "features_zone_strength",
+        0.3228
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bob_active_1y",
+        -0.2903
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "BSHSL",
+    "side": "bull",
+    "rank": 2,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        1.2258
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.2417
+      ],
+      [
+        "features_dz_raw_score",
+        0.2317
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_low_52w_dist",
+        -0.1563
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "NIITLTD",
+    "side": "bull",
+    "rank": 3,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        1.0822
+      ],
+      [
+        "features_sz_raw_score",
+        0.7983
+      ],
+      [
+        "features_zone_strength",
+        0.5434
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bear_htf_score",
+        -0.1768
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "HARDWYN",
+    "side": "bull",
+    "rank": 4,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        1.2968
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.4118
+      ],
+      [
+        "features_return_5d",
+        0.1584
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        -0.0982
+      ],
+      [
+        "features_dz_raw_score",
+        -0.0809
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "BGRENERGY",
+    "side": "bull",
+    "rank": 5,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        0.5833
+      ],
+      [
+        "features_ssz_htf_score",
+        0.5074
+      ],
+      [
+        "features_dz_raw_score",
+        0.2058
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "KERNEX",
+    "side": "bull",
+    "rank": 6,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        1.3117
+      ],
+      [
+        "features_zone_strength",
+        0.5885
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.1881
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.3288
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2109
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "BALAJITELE",
+    "side": "bull",
+    "rank": 7,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        1.0541
+      ],
+      [
+        "features_ssz_htf_score",
+        0.7011
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.5572
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bob_active_1y",
+        -0.1728
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "RAJESHEXPO",
+    "side": "bull",
+    "rank": 8,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        1.0063
+      ],
+      [
+        "features_ssz_htf_score",
+        0.5237
+      ],
+      [
+        "features_ict_bull_zone_priority_1wk",
+        0.2448
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.3429
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "SKMEGGPROD",
+    "side": "bull",
+    "rank": 9,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        1.1805
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.3659
+      ],
+      [
+        "features_dz_raw_score",
+        0.2239
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        -0.1169
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "REMUS",
+    "side": "bull",
+    "rank": 10,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        1.0443
+      ],
+      [
+        "features_zone_strength",
+        0.4176
+      ],
+      [
+        "features_dz_raw_score",
+        0.2578
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        -0.1273
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "VERANDA",
+    "side": "bull",
+    "rank": 11,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        1.0697
+      ],
+      [
+        "features_zone_strength",
+        0.4807
+      ],
+      [
+        "features_sz_raw_score",
+        0.4695
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sdz_1d",
+        -0.2567
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "SICALLOG",
+    "side": "bull",
+    "rank": 12,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        0.8497
+      ],
+      [
+        "features_ssz_htf_score",
+        0.4855
+      ],
+      [
+        "features_dz_raw_score",
+        0.2423
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bear_htf_score",
+        -0.2172
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "PAYTM",
+    "side": "bull",
+    "rank": 13,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        0.9424
+      ],
+      [
+        "features_zone_strength",
+        0.4577
+      ],
+      [
+        "features_dz_raw_score",
+        0.2484
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sdz_1d",
+        -0.2614
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2181
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "63MOONS",
+    "side": "bull",
+    "rank": 14,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        0.8457
+      ],
+      [
+        "features_low_52w_dist",
+        0.3771
+      ],
+      [
+        "features_ict_bull_htf_score",
+        0.3005
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.3384
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2526
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "IPL",
+    "side": "bull",
+    "rank": 15,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        0.8999
+      ],
+      [
+        "features_dz_raw_score",
+        0.2932
+      ],
+      [
+        "features_ict_bull_zone_priority_1wk",
+        0.1807
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        -0.1771
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "GPIL",
+    "side": "bull",
+    "rank": 16,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        0.5961
+      ],
+      [
+        "features_ssz_1wk",
+        0.1917
+      ],
+      [
+        "features_low_52w_dist",
+        0.187
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        -0.3167
+      ],
+      [
+        "features_dz_raw_score",
+        -0.2384
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "UNITECH",
+    "side": "bull",
+    "rank": 17,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_low_52w_dist",
+        1.0378
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.2435
+      ],
+      [
+        "features_return_5d",
+        0.1334
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.326
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2162
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TATVA",
+    "side": "bull",
+    "rank": 18,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        0.7446
+      ],
+      [
+        "features_ssz_htf_score",
+        0.4191
+      ],
+      [
+        "features_dz_raw_score",
+        0.2046
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_low_52w_dist",
+        -0.25
+      ],
+      [
+        "features_ict_bear_htf_score",
+        -0.2286
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "CAMLINFINE",
+    "side": "bull",
+    "rank": 19,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        0.9264
+      ],
+      [
+        "features_zone_strength",
+        0.5463
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.3655
+      ],
+      [
+        "features_sdz_1d",
+        -0.2875
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2237
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TIL",
+    "side": "bull",
+    "rank": 20,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        0.5756
+      ],
+      [
+        "features_low_52w_dist",
+        0.4106
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.1334
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.4044
+      ],
+      [
+        "features_sz_raw_score",
+        -0.3308
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "DIVGIITTS",
+    "side": "bull",
+    "rank": 21,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        0.8305
+      ],
+      [
+        "features_dz_raw_score",
+        0.2214
+      ],
+      [
+        "features_regime_choppy",
+        0.1454
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bearfvg_active_1wk",
+        -0.1391
+      ],
+      [
+        "features_low_52w_dist",
+        -0.125
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "RAMKY",
+    "side": "bull",
+    "rank": 22,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        0.7573
+      ],
+      [
+        "features_low_52w_dist",
+        0.1968
+      ],
+      [
+        "features_zone_htf_confluence",
+        0.1292
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.4035
+      ],
+      [
+        "features_sz_raw_score",
+        -0.1639
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "MOTILALOFS",
+    "side": "bull",
+    "rank": 23,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_low_52w_dist",
+        0.4125
+      ],
+      [
+        "features_ssz_htf_score",
+        0.3843
+      ],
+      [
+        "features_ict_bull_htf_score",
+        0.1486
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.3903
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2703
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "BCG",
+    "side": "bull",
+    "rank": 24,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        0.6054
+      ],
+      [
+        "features_dz_raw_score",
+        0.2295
+      ],
+      [
+        "features_regime_choppy",
+        0.2
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bear_htf_score",
+        -0.1711
+      ],
+      [
+        "features_low_52w_dist",
+        -0.1177
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "CGCL",
+    "side": "bull",
+    "rank": 25,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        0.597
+      ],
+      [
+        "features_ssz_1wk",
+        0.2064
+      ],
+      [
+        "features_ssz_1mo",
+        0.1379
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.3322
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2488
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "ZEEL",
+    "side": "bull",
+    "rank": 26,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        0.8334
+      ],
+      [
+        "features_ssz_htf_score",
+        0.2778
+      ],
+      [
+        "features_ict_bearfvg_active_1wk",
+        0.1587
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.5694
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "HINDWAREAP",
+    "side": "bull",
+    "rank": 27,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        0.9515
+      ],
+      [
+        "features_ict_bearfvg_active_1wk",
+        0.1568
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.5815
+      ],
+      [
+        "features_zone_htf_confluence",
+        -0.1861
+      ],
+      [
+        "features_sdz_1d",
+        -0.1663
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "DELTACORP",
+    "side": "bull",
+    "rank": 28,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_htf_score",
+        0.263
+      ],
+      [
+        "features_return_5d",
+        0.1803
+      ],
+      [
+        "features_vol_ratio_5d",
+        0.1275
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.3675
+      ],
+      [
+        "features_sz_raw_score",
+        -0.1977
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "PFS",
+    "side": "bull",
+    "rank": 29,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_low_52w_dist",
+        0.4398
+      ],
+      [
+        "features_ict_bull_htf_score",
+        0.1023
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.3373
+      ],
+      [
+        "features_sz_raw_score",
+        -0.139
+      ],
+      [
+        "features_zone_htf_confluence",
+        -0.137
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "RAJRILTD",
+    "side": "bull",
+    "rank": 30,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_low_52w_dist",
+        0.1332
+      ],
+      [
+        "features_return_5d",
+        0.09
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.0503
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.3467
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2289
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "SPARC",
+    "side": "bear",
+    "rank": 1,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3394
+      ],
+      [
+        "features_zone_htf_confluence",
+        -0.1754
+      ],
+      [
+        "features_sz_raw_score",
+        -0.1742
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "ASIANHOTNR",
+    "side": "bear",
+    "rank": 2,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3675
+      ],
+      [
+        "features_sz_raw_score",
+        -0.274
+      ],
+      [
+        "features_zone_htf_confluence",
+        -0.1789
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bear_htf_score",
+        0.128
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TASTYBITE",
+    "side": "bear",
+    "rank": 3,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3169
+      ],
+      [
+        "features_zone_htf_confluence",
+        -0.1538
+      ],
+      [
+        "features_sz_raw_score",
+        -0.1471
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_vol_ratio_5d",
+        0.0969
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "SALASAR",
+    "side": "bear",
+    "rank": 4,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3498
+      ],
+      [
+        "features_sdz_1d",
+        -0.1698
+      ],
+      [
+        "features_sz_raw_score",
+        -0.1523
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_low_52w_dist",
+        0.425
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "RAJRILTD",
+    "side": "bear",
+    "rank": 5,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3467
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2289
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_low_52w_dist",
+        0.1332
+      ],
+      [
+        "features_return_5d",
+        0.09
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.0503
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "PFS",
+    "side": "bear",
+    "rank": 6,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3373
+      ],
+      [
+        "features_sz_raw_score",
+        -0.139
+      ],
+      [
+        "features_zone_htf_confluence",
+        -0.137
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_low_52w_dist",
+        0.4398
+      ],
+      [
+        "features_ict_bull_htf_score",
+        0.1023
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "DELTACORP",
+    "side": "bear",
+    "rank": 7,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3675
+      ],
+      [
+        "features_sz_raw_score",
+        -0.1977
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        0.263
+      ],
+      [
+        "features_return_5d",
+        0.1803
+      ],
+      [
+        "features_vol_ratio_5d",
+        0.1275
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "CGCL",
+    "side": "bear",
+    "rank": 8,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3322
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2488
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        0.597
+      ],
+      [
+        "features_ssz_1wk",
+        0.2064
+      ],
+      [
+        "features_ssz_1mo",
+        0.1379
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "HINDWAREAP",
+    "side": "bear",
+    "rank": 9,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.5815
+      ],
+      [
+        "features_zone_htf_confluence",
+        -0.1861
+      ],
+      [
+        "features_sdz_1d",
+        -0.1663
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.9515
+      ],
+      [
+        "features_ict_bearfvg_active_1wk",
+        0.1568
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "MOTILALOFS",
+    "side": "bear",
+    "rank": 10,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3903
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2703
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_low_52w_dist",
+        0.4125
+      ],
+      [
+        "features_ssz_htf_score",
+        0.3843
+      ],
+      [
+        "features_ict_bull_htf_score",
+        0.1486
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "E2E",
+    "side": "bear",
+    "rank": 11,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.4114
+      ],
+      [
+        "features_sz_raw_score",
+        -0.3196
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_low_52w_dist",
+        0.7312
+      ],
+      [
+        "features_ssz_htf_score",
+        0.3799
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.0862
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "ZEEL",
+    "side": "bear",
+    "rank": 12,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.5694
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.8334
+      ],
+      [
+        "features_ssz_htf_score",
+        0.2778
+      ],
+      [
+        "features_ict_bearfvg_active_1wk",
+        0.1587
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "RAMKY",
+    "side": "bear",
+    "rank": 13,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.4035
+      ],
+      [
+        "features_sz_raw_score",
+        -0.1639
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        0.7573
+      ],
+      [
+        "features_low_52w_dist",
+        0.1968
+      ],
+      [
+        "features_zone_htf_confluence",
+        0.1292
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "GPIL",
+    "side": "bear",
+    "rank": 14,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        -0.3167
+      ],
+      [
+        "features_dz_raw_score",
+        -0.2384
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        0.5961
+      ],
+      [
+        "features_ssz_1wk",
+        0.1917
+      ],
+      [
+        "features_low_52w_dist",
+        0.187
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TIL",
+    "side": "bear",
+    "rank": 15,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.4044
+      ],
+      [
+        "features_sz_raw_score",
+        -0.3308
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        0.5756
+      ],
+      [
+        "features_low_52w_dist",
+        0.4106
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.1334
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "BCG",
+    "side": "bear",
+    "rank": 16,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ict_bear_htf_score",
+        -0.1711
+      ],
+      [
+        "features_low_52w_dist",
+        -0.1177
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.6054
+      ],
+      [
+        "features_dz_raw_score",
+        0.2295
+      ],
+      [
+        "features_regime_choppy",
+        0.2
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "PAYTM",
+    "side": "bear",
+    "rank": 17,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sdz_1d",
+        -0.2614
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2181
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        0.9424
+      ],
+      [
+        "features_zone_strength",
+        0.4577
+      ],
+      [
+        "features_dz_raw_score",
+        0.2484
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "CAMLINFINE",
+    "side": "bear",
+    "rank": 18,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3655
+      ],
+      [
+        "features_sdz_1d",
+        -0.2875
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2237
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        0.9264
+      ],
+      [
+        "features_zone_strength",
+        0.5463
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "DIVGIITTS",
+    "side": "bear",
+    "rank": 19,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ict_bearfvg_active_1wk",
+        -0.1391
+      ],
+      [
+        "features_low_52w_dist",
+        -0.125
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.8305
+      ],
+      [
+        "features_dz_raw_score",
+        0.2214
+      ],
+      [
+        "features_regime_choppy",
+        0.1454
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "UNITECH",
+    "side": "bear",
+    "rank": 20,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.326
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2162
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_low_52w_dist",
+        1.0378
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.2435
+      ],
+      [
+        "features_return_5d",
+        0.1334
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "TATVA",
+    "side": "bear",
+    "rank": 21,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_low_52w_dist",
+        -0.25
+      ],
+      [
+        "features_ict_bear_htf_score",
+        -0.2286
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.7446
+      ],
+      [
+        "features_ssz_htf_score",
+        0.4191
+      ],
+      [
+        "features_dz_raw_score",
+        0.2046
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "IPL",
+    "side": "bear",
+    "rank": 22,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        -0.1771
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        0.8999
+      ],
+      [
+        "features_dz_raw_score",
+        0.2932
+      ],
+      [
+        "features_ict_bull_zone_priority_1wk",
+        0.1807
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "REMUS",
+    "side": "bear",
+    "rank": 23,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        -0.1273
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        1.0443
+      ],
+      [
+        "features_zone_strength",
+        0.4176
+      ],
+      [
+        "features_dz_raw_score",
+        0.2578
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "BGRENERGY",
+    "side": "bear",
+    "rank": 24,
+    "rank_score": 0.0333,
+    "top_positive_features": [],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.5833
+      ],
+      [
+        "features_ssz_htf_score",
+        0.5074
+      ],
+      [
+        "features_dz_raw_score",
+        0.2058
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "63MOONS",
+    "side": "bear",
+    "rank": 25,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3384
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2526
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        0.8457
+      ],
+      [
+        "features_low_52w_dist",
+        0.3771
+      ],
+      [
+        "features_ict_bull_htf_score",
+        0.3005
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "RAJESHEXPO",
+    "side": "bear",
+    "rank": 26,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3429
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        1.0063
+      ],
+      [
+        "features_ssz_htf_score",
+        0.5237
+      ],
+      [
+        "features_ict_bull_zone_priority_1wk",
+        0.2448
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "VERANDA",
+    "side": "bear",
+    "rank": 27,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sdz_1d",
+        -0.2567
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        1.0697
+      ],
+      [
+        "features_zone_strength",
+        0.4807
+      ],
+      [
+        "features_sz_raw_score",
+        0.4695
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "SICALLOG",
+    "side": "bear",
+    "rank": 28,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ict_bear_htf_score",
+        -0.2172
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.8497
+      ],
+      [
+        "features_ssz_htf_score",
+        0.4855
+      ],
+      [
+        "features_dz_raw_score",
+        0.2423
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "NIITLTD",
+    "side": "bear",
+    "rank": 29,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ict_bear_htf_score",
+        -0.1768
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        1.0822
+      ],
+      [
+        "features_sz_raw_score",
+        0.7983
+      ],
+      [
+        "features_zone_strength",
+        0.5434
+      ]
+    ],
+    "regime": "choppy"
+  },
+  {
+    "ticker": "KERNEX",
+    "side": "bear",
+    "rank": 30,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3288
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2109
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        1.3117
+      ],
+      [
+        "features_zone_strength",
+        0.5885
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.1881
+      ]
+    ],
+    "regime": "choppy"
+  }
+]

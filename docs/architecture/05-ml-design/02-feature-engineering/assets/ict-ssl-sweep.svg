@@ -1,0 +1,27 @@
+<svg viewBox="0 0 480 280" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <rect x="0" y="0" width="480" height="280" fill="#ffffff"/>
+  <text x="240" y="26" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">Sell-Side Liquidity (SSL) Sweep</text>
+
+  <!-- equal-lows line -->
+  <line x1="60" y1="181" x2="380" y2="181" stroke="#888" stroke-width="2" stroke-dasharray="6 4"/>
+  <text x="65" y="197" font-size="11" fill="#777">equal lows — resting sell-side liquidity (stop orders)</text>
+
+  <!-- Swing low 1 -->
+  <line x1="110" y1="150" x2="110" y2="180" stroke="#7f8c8d" stroke-width="1.5"/>
+  <rect x="98"  y="155" width="24" height="20" fill="#bdc3c7" stroke="#7f8c8d" stroke-width="1.5"/>
+  <text x="110" y="205" text-anchor="middle" font-size="12" fill="#333">Swing low 1</text>
+
+  <!-- Swing low 2 -->
+  <line x1="230" y1="150" x2="230" y2="182" stroke="#7f8c8d" stroke-width="1.5"/>
+  <rect x="218" y="155" width="24" height="20" fill="#bdc3c7" stroke="#7f8c8d" stroke-width="1.5"/>
+  <text x="230" y="205" text-anchor="middle" font-size="12" fill="#333">Swing low 2 (≈equal)</text>
+
+  <!-- Sweep candle: wick pokes below the line, closes back above -->
+  <line x1="340" y1="120" x2="340" y2="230" stroke="#1e7e34" stroke-width="2"/>
+  <rect x="325" y="130" width="30" height="20" fill="#5cb85c" stroke="#1e7e34" stroke-width="2"/>
+  <text x="340" y="245" text-anchor="middle" font-size="12" fill="#333">sweep candle: wick</text>
+  <text x="340" y="261" text-anchor="middle" font-size="12" fill="#333">pokes below, closes back above</text>
+
+  <text x="240" y="90" text-anchor="middle" font-size="12" fill="#333">ict_ssl_swept = True: high stays below the pool's ceiling, but the</text>
+  <text x="240" y="106" text-anchor="middle" font-size="12" fill="#333">low wicks through it and the close reverses back above the line</text>
+</svg>

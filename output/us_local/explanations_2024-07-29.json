@@ -1,0 +1,1614 @@
+[
+  {
+    "ticker": "DAR",
+    "side": "bull",
+    "rank": 1,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        1.7235
+      ],
+      [
+        "features_zone_strength",
+        1.0825
+      ],
+      [
+        "features_sz_raw_score",
+        0.8653
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "ADNT",
+    "side": "bull",
+    "rank": 2,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        1.6012
+      ],
+      [
+        "features_zone_strength",
+        1.3387
+      ],
+      [
+        "features_sz_raw_score",
+        0.9119
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "LYFT",
+    "side": "bull",
+    "rank": 3,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        1.3964
+      ],
+      [
+        "features_zone_strength",
+        1.3617
+      ],
+      [
+        "features_sz_raw_score",
+        0.7082
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "SDGR",
+    "side": "bull",
+    "rank": 4,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        1.1746
+      ],
+      [
+        "features_zone_strength",
+        0.9379
+      ],
+      [
+        "features_sz_raw_score",
+        0.806
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "BILL",
+    "side": "bull",
+    "rank": 5,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_zone_strength",
+        1.2458
+      ],
+      [
+        "features_ssz_1d",
+        1.1132
+      ],
+      [
+        "features_sz_raw_score",
+        0.7758
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "CBRL",
+    "side": "bull",
+    "rank": 6,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_zone_strength",
+        1.0863
+      ],
+      [
+        "features_ssz_1d",
+        1.0355
+      ],
+      [
+        "features_sz_raw_score",
+        0.7195
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "TDC",
+    "side": "bull",
+    "rank": 7,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_zone_strength",
+        1.2012
+      ],
+      [
+        "features_ssz_1d",
+        0.9184
+      ],
+      [
+        "features_sz_raw_score",
+        0.7267
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "PCRX",
+    "side": "bull",
+    "rank": 8,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        1.1269
+      ],
+      [
+        "features_zone_strength",
+        0.7519
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.6263
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "DV",
+    "side": "bull",
+    "rank": 9,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        1.0694
+      ],
+      [
+        "features_zone_strength",
+        0.6613
+      ],
+      [
+        "features_dz_raw_score",
+        0.3484
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_hist_vol_20d",
+        -0.3131
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "LFST",
+    "side": "bull",
+    "rank": 10,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        1.4689
+      ],
+      [
+        "features_zone_strength",
+        0.9406
+      ],
+      [
+        "features_ssz_htf_score",
+        0.5006
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "NKE",
+    "side": "bull",
+    "rank": 11,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        1.4691
+      ],
+      [
+        "features_zone_strength",
+        1.2779
+      ],
+      [
+        "features_sz_raw_score",
+        0.5078
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.8053
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "CXM",
+    "side": "bull",
+    "rank": 12,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        1.1007
+      ],
+      [
+        "features_zone_strength",
+        0.8725
+      ],
+      [
+        "features_sz_raw_score",
+        0.5046
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_hist_vol_20d",
+        -0.3278
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "AMN",
+    "side": "bull",
+    "rank": 13,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        0.556
+      ],
+      [
+        "features_price_vs_sma200",
+        0.4408
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.367
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "HTZ",
+    "side": "bull",
+    "rank": 14,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        0.8035
+      ],
+      [
+        "features_sz_raw_score",
+        0.7211
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.6091
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "PATH",
+    "side": "bull",
+    "rank": 15,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        0.9916
+      ],
+      [
+        "features_zone_strength",
+        0.9124
+      ],
+      [
+        "features_sz_raw_score",
+        0.561
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "ALGM",
+    "side": "bull",
+    "rank": 16,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_zone_strength",
+        1.0627
+      ],
+      [
+        "features_ssz_1d",
+        1.0226
+      ],
+      [
+        "features_sz_raw_score",
+        0.5995
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "IART",
+    "side": "bull",
+    "rank": 17,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        0.793
+      ],
+      [
+        "features_zone_strength",
+        0.6434
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.5855
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bearfvg_active_1y",
+        -0.4066
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "GO",
+    "side": "bull",
+    "rank": 18,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_zone_strength",
+        1.0338
+      ],
+      [
+        "features_ssz_1d",
+        0.8677
+      ],
+      [
+        "features_sdz_1d",
+        0.3572
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "MXL",
+    "side": "bull",
+    "rank": 19,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_zone_strength",
+        0.6988
+      ],
+      [
+        "features_sz_raw_score",
+        0.6609
+      ],
+      [
+        "features_ssz_1d",
+        0.5678
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "INDV",
+    "side": "bull",
+    "rank": 20,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_zone_strength",
+        0.7889
+      ],
+      [
+        "features_ssz_1d",
+        0.634
+      ],
+      [
+        "features_dz_raw_score",
+        0.3821
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "HE",
+    "side": "bull",
+    "rank": 21,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        0.6852
+      ],
+      [
+        "features_price_vs_sma200",
+        0.5874
+      ],
+      [
+        "features_dz_raw_score",
+        0.5085
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "NVTS",
+    "side": "bull",
+    "rank": 22,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        0.5599
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.5527
+      ],
+      [
+        "features_sz_raw_score",
+        0.4888
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "EXPI",
+    "side": "bull",
+    "rank": 23,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_price_vs_sma200",
+        1.0391
+      ],
+      [
+        "features_ict_bull_htf_score",
+        0.9826
+      ],
+      [
+        "features_sz_raw_score",
+        0.5089
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -1.2901
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "SEDG",
+    "side": "bull",
+    "rank": 24,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        0.6661
+      ],
+      [
+        "features_sz_raw_score",
+        0.6338
+      ],
+      [
+        "features_dz_raw_score",
+        0.5108
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_price_vs_sma200",
+        -0.207
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "XPEL",
+    "side": "bull",
+    "rank": 25,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        1.3884
+      ],
+      [
+        "features_zone_strength",
+        0.713
+      ],
+      [
+        "features_sdz_1d",
+        0.2929
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.336
+      ],
+      [
+        "features_sz_raw_score",
+        -0.3345
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "CAR",
+    "side": "bull",
+    "rank": 26,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        0.5693
+      ],
+      [
+        "features_ict_bear_htf_score",
+        0.5032
+      ],
+      [
+        "features_sz_raw_score",
+        0.502
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_hist_vol_20d",
+        -0.2397
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "GME",
+    "side": "bull",
+    "rank": 27,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ict_bull_htf_score",
+        1.1368
+      ],
+      [
+        "features_price_vs_sma200",
+        1.0307
+      ],
+      [
+        "features_quarterly_trend",
+        0.2272
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.8344
+      ],
+      [
+        "features_sdz_htf_score",
+        -0.3567
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "LW",
+    "side": "bull",
+    "rank": 28,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ssz_1d",
+        0.8583
+      ],
+      [
+        "features_zone_strength",
+        0.8503
+      ],
+      [
+        "features_sz_raw_score",
+        0.3633
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_price_vs_sma200",
+        -0.3176
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "ALGT",
+    "side": "bull",
+    "rank": 29,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        0.5762
+      ],
+      [
+        "features_sz_raw_score",
+        0.494
+      ],
+      [
+        "features_ssz_1wk",
+        0.2219
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "QUBT",
+    "side": "bull",
+    "rank": 30,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        0.867
+      ],
+      [
+        "features_sz_raw_score",
+        0.6229
+      ],
+      [
+        "features_zone_htf_confluence",
+        0.526
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        -0.8477
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "MPT",
+    "side": "bear",
+    "rank": 1,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.5394
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2726
+      ],
+      [
+        "features_hist_vol_20d",
+        -0.2043
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_price_vs_sma200",
+        0.1496
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "FLG",
+    "side": "bear",
+    "rank": 2,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sdz_1d",
+        -1.5611
+      ],
+      [
+        "features_dz_raw_score",
+        -0.7865
+      ],
+      [
+        "features_sdz_htf_score",
+        -0.4688
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.5528
+      ],
+      [
+        "features_zone_strength",
+        0.3308
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "ROKU",
+    "side": "bear",
+    "rank": 3,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.7019
+      ],
+      [
+        "features_ict_bull_htf_score",
+        -0.2501
+      ],
+      [
+        "features_hist_vol_20d",
+        -0.2474
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_1wk",
+        0.303
+      ],
+      [
+        "features_sz_raw_score",
+        0.1659
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "LEG",
+    "side": "bear",
+    "rank": 4,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sdz_1d",
+        -1.4039
+      ],
+      [
+        "features_dz_raw_score",
+        -0.5329
+      ],
+      [
+        "features_sdz_htf_score",
+        -0.4029
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.4187
+      ],
+      [
+        "features_ssz_htf_score",
+        0.3038
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "OMCL",
+    "side": "bear",
+    "rank": 5,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.4768
+      ],
+      [
+        "features_hist_vol_20d",
+        -0.2702
+      ],
+      [
+        "features_ssz_1mo",
+        -0.1931
+      ]
+    ],
+    "top_negative_features": [],
+    "regime": "bull"
+  },
+  {
+    "ticker": "LSCC",
+    "side": "bear",
+    "rank": 6,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.5572
+      ],
+      [
+        "features_hist_vol_20d",
+        -0.2198
+      ],
+      [
+        "features_ict_bull_htf_score",
+        -0.1989
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_price_vs_sma200",
+        0.1365
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "UNIT",
+    "side": "bear",
+    "rank": 7,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.7953
+      ],
+      [
+        "features_sdz_htf_score",
+        -0.3189
+      ],
+      [
+        "features_sdz_1wk",
+        -0.2164
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bear_htf_score",
+        0.1518
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "LULU",
+    "side": "bear",
+    "rank": 8,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.1916
+      ],
+      [
+        "features_hist_vol_20d",
+        -0.1859
+      ],
+      [
+        "features_price_vs_sma200",
+        -0.1722
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.1115
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "PZZA",
+    "side": "bear",
+    "rank": 9,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        -0.4201
+      ],
+      [
+        "features_price_vs_sma200",
+        -0.1853
+      ],
+      [
+        "features_weekly_trend",
+        -0.1499
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        0.4385
+      ],
+      [
+        "features_sz_raw_score",
+        0.3976
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "INSP",
+    "side": "bear",
+    "rank": 10,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_ict_bear_htf_score",
+        -0.232
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2222
+      ],
+      [
+        "features_ict_bull_htf_score",
+        -0.1018
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        0.3012
+      ],
+      [
+        "features_ssz_1wk",
+        0.24
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "UPST",
+    "side": "bear",
+    "rank": 11,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.8886
+      ],
+      [
+        "features_ict_bear_htf_score",
+        -0.093
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_hist_vol_20d",
+        0.2966
+      ],
+      [
+        "features_sdz_1d",
+        0.0937
+      ],
+      [
+        "features_quarterly_trend",
+        0.0933
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "VSTS",
+    "side": "bear",
+    "rank": 12,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sdz_1d",
+        -1.5203
+      ],
+      [
+        "features_sdz_htf_score",
+        -0.6074
+      ],
+      [
+        "features_hist_vol_20d",
+        -0.1929
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        0.5368
+      ],
+      [
+        "features_sz_raw_score",
+        0.3958
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "PEN",
+    "side": "bear",
+    "rank": 13,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        -0.2756
+      ],
+      [
+        "features_ict_bear_htf_score",
+        -0.2557
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_1wk",
+        0.3306
+      ],
+      [
+        "features_zone_htf_confluence",
+        0.2654
+      ],
+      [
+        "features_ssz_htf_score",
+        0.1538
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "WBD",
+    "side": "bear",
+    "rank": 14,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.5799
+      ],
+      [
+        "features_hist_vol_20d",
+        -0.2424
+      ],
+      [
+        "features_atr_pct_rank_252",
+        -0.1151
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.2497
+      ],
+      [
+        "features_price_vs_sma200",
+        0.1722
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "CRSR",
+    "side": "bear",
+    "rank": 15,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        -0.206
+      ],
+      [
+        "features_price_vs_sma200",
+        -0.1926
+      ],
+      [
+        "features_adx_14",
+        -0.1431
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        0.4695
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "ACMR",
+    "side": "bear",
+    "rank": 16,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.539
+      ],
+      [
+        "features_atr_pct_rank_252",
+        -0.112
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.2982
+      ],
+      [
+        "features_price_vs_sma200",
+        0.2442
+      ],
+      [
+        "features_hist_vol_20d",
+        0.115
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "VSCO",
+    "side": "bear",
+    "rank": 17,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.6985
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_vol_ratio_20d",
+        0.2932
+      ],
+      [
+        "features_adx_14",
+        0.2808
+      ],
+      [
+        "features_ssz_htf_score",
+        0.1104
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "EL",
+    "side": "bear",
+    "rank": 18,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        -0.4278
+      ],
+      [
+        "features_price_vs_sma200",
+        -0.2044
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        0.3892
+      ],
+      [
+        "features_sz_raw_score",
+        0.3309
+      ],
+      [
+        "features_zone_htf_confluence",
+        0.2106
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "FWRD",
+    "side": "bear",
+    "rank": 19,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.6745
+      ],
+      [
+        "features_sdz_htf_score",
+        -0.2471
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.2919
+      ],
+      [
+        "features_hist_vol_20d",
+        0.2415
+      ],
+      [
+        "features_vol_ratio_20d",
+        0.2332
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "GTM",
+    "side": "bear",
+    "rank": 20,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        -0.4623
+      ],
+      [
+        "features_adx_14",
+        -0.177
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        0.5387
+      ],
+      [
+        "features_sz_raw_score",
+        0.1881
+      ],
+      [
+        "features_zone_htf_confluence",
+        0.1453
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "OKLO",
+    "side": "bear",
+    "rank": 21,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sz_raw_score",
+        -0.4546
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        0.477
+      ],
+      [
+        "features_hist_vol_20d",
+        0.4249
+      ],
+      [
+        "features_price_vs_sma200",
+        0.1994
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "ALB",
+    "side": "bear",
+    "rank": 22,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        -0.5518
+      ],
+      [
+        "features_ssz_1mo",
+        -0.0855
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        0.4174
+      ],
+      [
+        "features_sz_raw_score",
+        0.4047
+      ],
+      [
+        "features_price_vs_sma200",
+        0.1677
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "FIVE",
+    "side": "bear",
+    "rank": 23,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_weekly_trend",
+        -0.1854
+      ],
+      [
+        "features_adx_14",
+        -0.1768
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_hist_vol_20d",
+        0.5548
+      ],
+      [
+        "features_dz_raw_score",
+        0.4429
+      ],
+      [
+        "features_sz_raw_score",
+        0.3512
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "RIVN",
+    "side": "bear",
+    "rank": 24,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.6074
+      ],
+      [
+        "features_sdz_htf_score",
+        -0.1848
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ssz_htf_score",
+        0.2567
+      ],
+      [
+        "features_sz_raw_score",
+        0.252
+      ],
+      [
+        "features_ict_bullbb_atr_dist",
+        0.1601
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "MDB",
+    "side": "bear",
+    "rank": 25,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        -0.3581
+      ],
+      [
+        "features_ssz_1mo",
+        -0.3537
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        0.3675
+      ],
+      [
+        "features_adx_14",
+        0.2566
+      ],
+      [
+        "features_sz_raw_score",
+        0.2165
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "ACAD",
+    "side": "bear",
+    "rank": 26,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.9589
+      ],
+      [
+        "features_hist_vol_20d",
+        -0.1904
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bull_htf_score",
+        0.4798
+      ],
+      [
+        "features_sz_raw_score",
+        0.2999
+      ],
+      [
+        "features_ssz_htf_score",
+        0.2052
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "PAYC",
+    "side": "bear",
+    "rank": 27,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_sdz_1d",
+        -1.6822
+      ],
+      [
+        "features_sdz_htf_score",
+        -0.4651
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_sz_raw_score",
+        0.6581
+      ],
+      [
+        "features_dz_raw_score",
+        0.553
+      ],
+      [
+        "features_zone_strength",
+        0.3106
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "EXTR",
+    "side": "bear",
+    "rank": 28,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.7706
+      ],
+      [
+        "features_sz_raw_score",
+        -0.2882
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bull_htf_score",
+        0.6512
+      ],
+      [
+        "features_ssz_1wk",
+        0.29
+      ],
+      [
+        "features_price_vs_sma200",
+        0.2149
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "CELH",
+    "side": "bear",
+    "rank": 29,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_dz_raw_score",
+        -0.3489
+      ],
+      [
+        "features_hist_vol_20d",
+        -0.1904
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_ict_bear_htf_score",
+        0.384
+      ],
+      [
+        "features_sz_raw_score",
+        0.3716
+      ],
+      [
+        "features_price_vs_sma200",
+        0.1532
+      ]
+    ],
+    "regime": "bull"
+  },
+  {
+    "ticker": "INVX",
+    "side": "bear",
+    "rank": 30,
+    "rank_score": 0.0333,
+    "top_positive_features": [
+      [
+        "features_hist_vol_20d",
+        -0.4801
+      ]
+    ],
+    "top_negative_features": [
+      [
+        "features_dz_raw_score",
+        0.5191
+      ],
+      [
+        "features_sz_raw_score",
+        0.4533
+      ],
+      [
+        "features_price_vs_sma200",
+        0.1631
+      ]
+    ],
+    "regime": "bull"
+  }
+]

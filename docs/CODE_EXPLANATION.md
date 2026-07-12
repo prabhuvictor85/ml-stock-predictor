@@ -4,7 +4,7 @@ This document explains the structure and behavior of the `ml-stock-predictor` co
 
 The code is organized around three operational workflows:
 
-1. Training: build or load market data, engineer features, build targets, tune models, train final models, calibrate probabilities, compute explainability outputs, and save artifacts.
+1. Training: build or load market data, engineer features, build targets, tune models, train the final model, compute explainability outputs, and save artifacts.
 2. Inference: fetch a fresh recent snapshot, compute features, score the latest cross-section, construct a portfolio/watchlist, explain selections, and monitor drift.
 3. Backtesting: load trained artifacts and a historical panel, score each rebalance group, simulate portfolio changes with execution costs, and generate performance reports.
 
@@ -22,7 +22,7 @@ The code is organized around three operational workflows:
 |   |-- features/                   # Technical and market feature engineering
 |   |-- targets/                    # Forward-return and classification target creation
 |   |-- validation/                 # Walk-forward CV and ranking metrics
-|   |-- models/                     # LightGBM, CatBoost, XGBoost, calibration, ensemble
+|   |-- models/                     # LightGBM ranker + ensemble (LGBM + inverse-vol)
 |   |-- portfolio/                  # Portfolio selection and weighting
 |   |-- backtest/                   # Backtest engine, execution model, performance reporter
 |   |-- explainability/             # SHAP explanations and similar setup matching
@@ -130,23 +130,24 @@ Training flow:
 6. Build forward-looking targets.
 7. Run Optuna hyperparameter optimization using purged walk-forward CV.
 8. Select final features.
-9. Train final LightGBM LambdaRank, CatBoost, and XGBoost baseline models.
-10. Fit isotonic probability calibration for CatBoost probabilities.
-11. Assemble the final ensemble.
-12. Compute SHAP global explanations where possible.
-13. Fit feature drift baselines.
-14. Save artifacts under `artefacts/{market}/`.
+9. Train the final LightGBM LambdaRank model.
+10. Assemble the final ensemble (LGBM rank + inverse-volatility tilt).
+11. Compute SHAP global explanations where possible.
+12. Fit feature drift baselines.
+13. Save artifacts under `artefacts/{market}/`.
 
 Saved artifacts include:
 
 - `lgbm_ranker.pkl`
-- `catboost_model.pkl`
-- `xgb_baseline.pkl`
-- `calibrator.pkl`
 - `ensemble.pkl`
 - `drift_monitor.pkl`
-- `optuna_study.pkl`
+- `optuna_study_meta.json`
 - `selected_features.txt`
+
+(CatBoost, XGBoost, and the probability calibrator were removed from the
+pipeline: their pickled artifacts were never loaded by any consumer, and a
+second gradient-boosting model on the same features adds little diversity.
+The modules are preserved under `drafts/` for reference.)
 
 The Optuna objective is created by `make_optuna_objective`. It trains a LightGBM ranker inside each fold and optimizes a lower-confidence-bound style metric:
 
@@ -341,14 +342,9 @@ Price levels are not exposed directly as raw features. Distances are normalized 
 
 ### `pipeline/features/multitf_merger.py`
 
-`MultiTFMerger` adds higher-timeframe features to the daily panel:
+`MultiTFMerger` adds multi-timeframe trend/volatility features to the daily panel. **Rewritten since an earlier version of this doc described it** — it no longer resamples to genuine weekly/monthly bars or uses `merge_asof`; its own docstring is explicit about this: *"❌ NO resample-based calendar TFs, ❌ NO merge_asof shifting hacks, ✅ PURE rolling-window features aligned per row."* Instead, `_rolling_trend` computes `close > rolling_SMA(window)` for four trading-day windows (`{"weekly": 20, "monthly": 60, "quarterly": 120, "yearly": 240}`), producing `weekly_trend`, `monthly_trend`, `quarterly_trend`, `yearly_trend` (plus `atr_pct`, `{tf}_vol`, `return_20d`/`return_60d`, none of which are re-exposed under `features_` and are therefore invisible to the model).
 
-- `weekly_trend`
-- `monthly_trend`
-
-It resamples daily OHLCV to weekly and monthly bars and merges them back using backward `merge_asof`. The implementation shifts resampled timestamps backward as a leakage guard so that a daily row does not see information from a bar that has not completed yet.
-
-Note: these columns are currently named `weekly_trend` and `monthly_trend`, not `features_weekly_trend` or `features_monthly_trend`, so they will not be included in `feature_cols` if downstream code filters strictly by `features_`.
+`FeatureEngineer.build()` (`pipeline/features/engineer.py`) explicitly re-exposes the four trend columns as `features_weekly_trend`/`features_monthly_trend`/`features_quarterly_trend`/`features_yearly_trend` — **these four ARE visible to the model**, unlike an earlier note in this file claimed. See [docs/architecture/05-ml-design/02-feature-engineering/09-trend.md](architecture/05-ml-design/02-feature-engineering/09-trend.md) for the full explanation, including the columns that remain genuinely unprefixed and invisible (`atr_pct`, `{tf}_vol`, `return_20d`/`return_60d`).
 
 ### `pipeline/features/zone_features.py`
 
@@ -439,45 +435,24 @@ Main methods:
 
 This is the primary ranking model.
 
-### `pipeline/models/catboost_model.py`
-
-`CatBoostModel` wraps `CatBoostClassifier`.
-
-It is trained on the binary `top_quintile` label and produces top-quintile probabilities. These probabilities are later calibrated and blended into the ensemble.
-
-### `pipeline/models/xgb_baseline.py`
-
-`XGBBaseline` wraps `xgboost.XGBClassifier`.
-
-It is used as a benchmark/floor model. The training pipeline compares LightGBM and XGBoost on the latest fold's net Sharpe and logs a warning if LightGBM does not beat the baseline.
-
-### `pipeline/models/calibrator.py`
-
-`ProbabilityCalibrator` uses isotonic regression to calibrate CatBoost probabilities.
-
-Important methods:
-
-- `fit(probs, labels)`
-- `transform(probs)`
-- `expected_calibration_error(probs, labels)`
-- `reliability_diagram_data(probs, labels)`
-- `validate_and_apply(probs, labels)`
-
-If expected calibration error exceeds `0.05`, `validate_and_apply` logs a warning and returns raw probabilities.
-
 ### `pipeline/models/ensemble.py`
 
-`EnsembleRanker` combines three signals:
+`EnsembleRanker` combines two signals:
 
 ```text
-0.6 * normalized LightGBM rank score
-0.3 * normalized calibrated CatBoost probability
+0.9 * normalized LightGBM rank score
 0.1 * normalized inverse volatility signal
 ```
 
 If volatility is unavailable, the volatility component is neutral at `0.5`.
 
-The final blended score is min-max normalized to `[0, 1]`.
+The final blended score is rank-normalized to `[0, 1]`.
+
+Historical note: earlier versions blended a calibrated CatBoost probability
+and trained an XGBoost baseline. Both were removed — their artifacts were
+pickled but never loaded, and a second GBM on identical features correlates
+0.85+ with LGBM. The retired modules (`catboost_model.py`, `xgb_baseline.py`,
+`calibrator.py`) live in `drafts/`.
 
 ## Feature Selection
 
@@ -682,31 +657,19 @@ Defines shared dataclasses:
 
 ## Testing and Diagnostics
 
-### `test_integration.py`
+### `tests/` (pytest suite)
 
-This is a synthetic-data smoke test. It validates that major components can run together without needing live market data.
-
-It covers:
-
-- config loading
-- synthetic panel creation
-- feature engineering
-- target creation
-- CV splitting
-- LightGBM training
-- CatBoost training
-- calibration
-- ensemble scoring
-- portfolio construction
-- drift monitoring
-- ranking metrics
-- performance reporting
-
-Run it with:
+The maintained test suite lives in `tests/` and runs in CI (leakage suite,
+critical invariants, CV splits, feature engineering, regression guards,
+zone/ICT features, stale-data guard). Run it with:
 
 ```bash
-python test_integration.py
+pytest tests/
 ```
+
+The older root-level scripts `test_integration.py` and `smoke_test.py` were
+moved to `drafts/` — they targeted the retired CatBoost/XGBoost ensemble and
+are no longer maintained.
 
 ### Profiling Helpers
 
@@ -738,10 +701,10 @@ TargetBuilder -> future returns, ranks, quintile labels
 PurgedWalkForwardCV + FeatureSelector + Optuna
         |
         v
-LGBMRanker + CatBoostModel + ProbabilityCalibrator
+LGBMRanker
         |
         v
-EnsembleRanker
+EnsembleRanker (LGBM rank + inverse-vol tilt)
         |
         +--> Inference -> watchlist + explanations + drift checks
         |
@@ -758,7 +721,7 @@ EnsembleRanker
 
 4. If no `tickers_file` is supplied to training or inference, the code uses only the benchmark ticker as a demo fallback. That is not a realistic equity-selection universe.
 
-5. Multi-timeframe trend columns are currently named `weekly_trend` and `monthly_trend` without the `features_` prefix. Since model feature discovery uses `c.startswith("features_")`, these two columns are likely excluded from model training unless renamed or manually included.
+5. (Resolved) `weekly_trend`/`monthly_trend`/`quarterly_trend`/`yearly_trend` are explicitly re-exposed with the `features_` prefix in `pipeline/features/engineer.py` and are visible to the model. The columns that genuinely remain unprefixed and excluded are `MultiTFMerger`'s `atr_pct`, `weekly_vol`/`monthly_vol`/`quarterly_vol`/`yearly_vol`, and `return_20d`/`return_60d` — see [docs/architecture/05-ml-design/02-feature-engineering/09-trend.md](architecture/05-ml-design/02-feature-engineering/09-trend.md).
 
 6. The ensemble volatility component uses `future_vol_20d` when available. In live inference this is a forward-looking target and generally should not be available. The code falls back to a neutral volatility component when it is absent, but if the column is present during inference it could introduce leakage.
 
@@ -768,7 +731,7 @@ EnsembleRanker
 
 9. The report HTML references Chart.js from a CDN. Viewing the report offline without internet access may prevent charts from rendering.
 
-10. Calibration in `train.py` is fit and validated on the same full training predictions for the final artifact. The module comments describe fold-to-fold calibration, but the final training path uses a simplified full-data calibration step.
+10. (Resolved) Probability calibration was removed from `train.py` along with the CatBoost/XGBoost models — the calibrated artifacts were never consumed by any downstream code.
 
 ## How to Add a New Market
 

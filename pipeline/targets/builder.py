@@ -169,10 +169,10 @@ class TargetBuilder:
             panel[f"future_{h}d_return"] = (
                 panel.groupby(level="ticker")["close"]
                 .transform(lambda x, h=h, w=terminal_window:
-                           (x.rolling(w).mean() if w > 1 else x).shift(-h) / x - 1)
+                           (x.rolling(w, center=True).mean() if w > 1 else x).shift(-h) / x - 1)
             )
             # Benchmark future return for same horizon (same TWAP terminal)
-            _bm_term = bm.rolling(terminal_window).mean() if terminal_window > 1 else bm
+            _bm_term = bm.rolling(terminal_window, center=True).mean() if terminal_window > 1 else bm
             bm_fut = _bm_term.shift(-h) / bm - 1
             panel[f"benchmark_{h}d_return"] = (
                 panel.index.get_level_values("date").map(bm_fut)
@@ -295,5 +295,4 @@ class TargetBuilder:
             f"top_quintile_60d: {panel['top_quintile_60d'].sum()}"
         )
         return panel
-
 

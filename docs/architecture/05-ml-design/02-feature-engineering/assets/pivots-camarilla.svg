@@ -1,0 +1,26 @@
+<svg viewBox="0 0 520 260" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <rect x="0" y="0" width="520" height="260" fill="#ffffff"/>
+  <text x="260" y="24" text-anchor="middle" font-size="14" font-weight="bold" fill="#222">Camarilla: H3 rejection vs. H4 breakout</text>
+
+  <line x1="40" y1="60" x2="480" y2="60" stroke="#a02c2c" stroke-width="1.5"/>
+  <text x="20" y="64" font-size="12" fill="#a02c2c">H4</text>
+  <text x="485" y="64" font-size="11" fill="#a02c2c">(breakout tier)</text>
+
+  <line x1="40" y1="120" x2="480" y2="120" stroke="#e0715e" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="20" y="124" font-size="12" fill="#e0715e">H3</text>
+  <text x="485" y="124" font-size="11" fill="#e0715e">(reversal tier)</text>
+
+  <!-- H3 rejection candle: wick touches H3, closes back below -->
+  <line x1="180" y1="95" x2="180" y2="160" stroke="#a02c2c" stroke-width="2"/>
+  <rect x="165" y="122" width="30" height="25" fill="#e05a4d" stroke="#a02c2c" stroke-width="2"/>
+  <text x="180" y="180" text-anchor="middle" font-size="11" fill="#333">wick touches H3,</text>
+  <text x="180" y="196" text-anchor="middle" font-size="11" fill="#333">closes back BELOW</text>
+  <text x="180" y="216" text-anchor="middle" font-size="11" font-weight="bold" fill="#a02c2c">cam_h3_reversal = True</text>
+
+  <!-- H4 breakout candle: closes cleanly above H4 -->
+  <line x1="360" y1="30" x2="360" y2="110" stroke="#1e7e34" stroke-width="2"/>
+  <rect x="345" y="40" width="30" height="45" fill="#5cb85c" stroke="#1e7e34" stroke-width="2"/>
+  <text x="360" y="180" text-anchor="middle" font-size="11" fill="#333">close breaks</text>
+  <text x="360" y="196" text-anchor="middle" font-size="11" fill="#333">CLEANLY above H4</text>
+  <text x="360" y="216" text-anchor="middle" font-size="11" font-weight="bold" fill="#1e7e34">cam_h4_breakout = True</text>
+</svg>

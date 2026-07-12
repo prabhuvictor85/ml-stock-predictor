@@ -1,0 +1,2017 @@
+//@version=5
+strategy("ICT Strict Engine v2 (Liquidity + OB/FVG + Breakers)", overlay=true, initial_capital=100000, pyramiding=0, calc_on_every_tick=false, commission_type=strategy.commission.percent, commission_value=0.02, max_labels_count=500, max_boxes_count=500, max_lines_count=500, max_bars_back=300)
+
+// =========================
+// Inputs
+// =========================
+grpCore = "Core"
+nSwing      = input.int(5,    "Swing Confirmation Bars",        minval=1,   group=grpCore)
+expiryBars  = input.int(63,   "Zone/Pool Expiry Bars",          minval=5,   group=grpCore)
+mergeProx   = input.float(0.25,"Pool Merge Proximity (x ATR)", minval=0.01, maxval=5.0, step=0.01, group=grpCore)
+maxPools    = input.int(50,   "Max Pools",                      minval=10,  maxval=200, group=grpCore)
+showPWPM    = input.bool(false, "Show Prev Day/Week/Month High-Low", group=grpCore)
+showEqualHL = input.bool(false, "Show Equal Highs/Lows (EQH/EQL)",  group=grpCore)
+
+grpSignal = "Signal Logic"
+pctMore       = input.float(20.0, "OB Body Multiplier %",     minval=0.0, step=0.1, group=grpSignal)
+dispMult      = input.float(0.0,  "Displacement ATR Mult (0=off)", minval=0.0, step=0.1, group=grpSignal)
+fvgMinGapAtr  = input.float(0.1,  "FVG Min Gap (ATR units)",  minval=0.0, step=0.01, group=grpSignal)
+fvgSweepLookback = input.int(3,   "FVG Sweep Lookback",        minval=1, group=grpSignal)
+bosLookback   = input.int(3,      "BOS Recent Window",         minval=1, group=grpSignal)
+obBosConfirmWindow = input.int(20, "OB Pending BOS Confirm Window (bars)", minval=1, group=grpSignal)
+proximityPct  = input.float(0.0,  "Zone Proximity Gate (0=off)", minval=0.0, step=0.01, group=grpSignal)
+rangeLookback = input.int(100,    "Premium/Discount Range Lookback (bars)", minval=20, group=grpSignal)
+extLiqTolAtr  = input.float(2.0,  "External Liquidity Tolerance (x ATR)", minval=0.0, step=0.1, group=grpSignal)
+htfConfluenceTolAtr = input.float(1.0, "HTF Confluence Tolerance (x ATR)", minval=0.0, step=0.1, group=grpSignal)
+fullRaidAtrThresh   = input.float(0.5, "Full Raid Penetration Threshold (x ATR)", minval=0.0, step=0.05, group=grpSignal)
+acceptanceBars      = input.int(2,     "Sustained Acceptance Bars (clean break)", minval=1, group=grpSignal)
+convertedWindowBars = input.int(5,     "Sweep-to-Structure Conversion Window (bars)", minval=1, group=grpSignal)
+maxSweeps           = input.int(4,     "Max Shallow Sweeps Before Retiring", minval=1, group=grpSignal)
+sweepRequireSignificance = input.bool(true, "BSL/SSL requires significant pool (multi-touch or PWH/PMH)", group=grpSignal)
+minRestBars = input.int(20, "Single-touch pool: min rest bars to qualify as significant", minval=1, group=grpSignal)
+obDispScoreMin = input.float(20.0, "OB min Displacement Score (0-100) to create an OB", minval=0.0, maxval=100.0, step=1.0, group=grpSignal)
+
+grpStrict = "Strict ICT Mode"
+strictMode                  = input.bool(true,  "Enable Strict ICT Mode",                group=grpStrict)
+strictRequireSweepForFVG    = input.bool(true,  "FVG requires opposite sweep",           group=grpStrict)
+strictRequireBOSForOBFVG    = input.bool(true,  "OB/FVG require recent BOS",             group=grpStrict)
+strictRequirePDForOBFVG     = input.bool(true,  "OB/FVG require premium/discount context", group=grpStrict)
+strictBreakerContinuationOnly = input.bool(true,"Entries require breaker continuation",  group=grpStrict)
+
+grpStrat = "Strategy Harness"
+enableStrategy = input.bool(true,  "Enable Strategy Orders", group=grpStrat)
+atrStopMult    = input.float(2.0,  "ATR Stop Mult", minval=0.2, step=0.1, group=grpStrat)
+atrTakeMult    = input.float(4.0,  "ATR Take Mult", minval=0.2, step=0.1, group=grpStrat)
+
+grpDiag = "Diagnostics"
+showDiagTable = input.bool(true, "Show Diagnostics Table", group=grpDiag)
+
+// =========================
+// Helpers
+// =========================
+f_safe_atr(_atr, _close) =>
+    atrFloor = math.abs(_close) * 0.0005
+    na(_atr) or _atr <= 0 ? na : math.max(_atr, atrFloor)
+
+f_recent_true(_cond, _lb) =>
+    ta.highest(_cond ? 1.0 : 0.0, _lb) > 0.5
+
+f_filled_bool(_x, _fallback) =>
+    na(_x) ? _fallback : _x
+
+// =========================
+// Core series
+// =========================
+atr14      = ta.atr(14)
+safeAtr    = f_safe_atr(atr14, close)
+safeAtrNow = na(safeAtr) ? 1e-6 : safeAtr
+mult       = 1.0 + pctMore / 100.0
+
+ph = ta.pivothigh(high, nSwing, nSwing)
+pl = ta.pivotlow(low,  nSwing, nSwing)
+
+// =========================
+// Liquidity Creation: Calendar-Anchored Levels (PDH/PDL, PWH/PWL, PMH/PML)
+// [1] + lookahead_off = previous COMPLETED day/week/month only, never
+// repaints. Distinct liquidity source from the pivot-based BSL/SSL pool
+// engine below. PDH/PDL needs no request.security on a daily chart — each
+// bar IS a day, so high[1]/low[1] already IS yesterday's high/low.
+// =========================
+pdH = high[1]
+pdL = low[1]
+pwH = request.security(syminfo.tickerid, "W", high[1], lookahead=barmerge.lookahead_off)
+pwL = request.security(syminfo.tickerid, "W", low[1],  lookahead=barmerge.lookahead_off)
+pmH = request.security(syminfo.tickerid, "M", high[1], lookahead=barmerge.lookahead_off)
+pmL = request.security(syminfo.tickerid, "M", low[1],  lookahead=barmerge.lookahead_off)
+
+// =========================
+// Liquidity Pool Engine (bounded arrays)
+// side: +1 BSL, -1 SSL
+//
+// P1a — LiquidityPool UDT. Introduced ADDITIVELY: the p_* arrays below remain
+// the source of truth and drive every existing output unchanged; a typed,
+// queryable mirror (liqPools) is projected from them after scoring, and the
+// API functions (getNearestBSL, …) read that mirror. P1b will flip the source
+// of truth onto this type and delete the arrays. kind (P1a subset; P2 adds
+// MONTHLY/WEEKLY/DAILY/PROTECTED/MAJOR_SWING/SESSION): 0 INTERNAL,1 EQH_EQL,2 EXTERNAL.
+// =========================
+var p_side      = array.new_int()
+var p_min       = array.new_float()
+var p_max       = array.new_float()
+var p_first_t   = array.new_int()
+var p_last_t    = array.new_int()
+var p_last_swp  = array.new_int()
+var p_touches   = array.new_int()
+var p_sweep_cnt = array.new_int()
+var p_sweep_dep = array.new_float()
+var p_active    = array.new_bool()
+var p_deact_next= array.new_bool()
+var p_atr_anchor= array.new_float()
+var p_accept_cnt= array.new_int()
+var p_pending_accept = array.new_bool()
+
+type LiquidityPool
+    int   id           = na
+    int   side         = 0     // +1 BSL, -1 SSL
+    // P2 REVISED per reviewer: two INDEPENDENT dimensions instead of one linear
+    // ladder (a Protected Low on the weekly chart isn't directly comparable to a
+    // Daily Low — conflating structural role with timeframe hid that).
+    // kind (STRUCTURAL role): 0 INTERNAL, 1 SWING (EQH/EQL multi-touch OR
+    //   major-degree zigzag swing), 2 PROTECTED, 3 EXTERNAL (calendar-anchored)
+    // tf   (TIMEFRAME):       0 INTRADAY (current chart TF), 1 DAILY, 2 WEEKLY, 3 MONTHLY
+    int   kind         = 0
+    int   tf           = 0
+    float price        = na    // the traded edge (high for BSL, low for SSL)
+    float low          = na
+    float high         = na
+    int   createdBar   = na
+    int   lastTouchBar = na
+    int   touchCount   = 0
+    float strengthScore= 0.0
+    float priorityScore= 0.0
+    bool  isExternal   = false
+    bool  isProtected  = false   // P2
+    bool  isSession    = false   // P2
+    bool  isHTF        = false   // P2
+    bool  isSwept      = false
+    int   sweepBar     = na
+    float sweepDepth   = 0.0
+    bool  consumed     = false
+    int   assocImpulseId = na    // relationship graph (P4)
+    int   assocObId      = na
+
+f_add_or_merge_pool(_side, _price, _extBarIdx, _atrAnchor) =>
+    merged  = false
+    // EQH/EQL: the moment a SECOND pivot merges into a still-resting pool —
+    // exposes the existing merge mechanism as an explicit, labelable event
+    // instead of leaving it as an internal-only p_touches increment.
+    eqEvent = false
+    eqPrice = float(na)
+    sz = array.size(p_side)
+    if sz > 0
+        for i = 0 to sz - 1
+            if array.get(p_active, i) and (not array.get(p_deact_next, i)) and array.get(p_side, i) == _side
+                // Edge-based merge: is the new pivot within the existing
+                // cluster's [min-thr, max+thr] range, not just close to its
+                // average? A moving center lets a cluster "walk" over many
+                // merges in a way that isn't faithful to "these stops sit at
+                // one level" — the boundaries are what's actually traded
+                // against, not the average of however many touches merged in.
+                thr = mergeProx * math.max(array.get(p_atr_anchor, i), 1e-6)
+                withinCluster = _price >= (array.get(p_min, i) - thr) and _price <= (array.get(p_max, i) + thr)
+                if withinCluster
+                    mn = math.min(array.get(p_min, i), _price)
+                    mx = math.max(array.get(p_max, i), _price)
+                    array.set(p_min,     i, mn)
+                    array.set(p_max,     i, mx)
+                    array.set(p_last_t,  i, _extBarIdx)
+                    newTouches = array.get(p_touches, i) + 1
+                    array.set(p_touches, i, newTouches)
+                    array.set(p_accept_cnt, i, 0)  // fresh touch invalidates any in-progress acceptance count
+                    array.set(p_pending_accept, i, false)
+                    if newTouches == 2
+                        eqEvent := true
+                        eqPrice := 0.5 * (mn + mx)
+                    merged := true
+                    break
+    if not merged
+        slot = -1
+        if sz > 0
+            for i = 0 to sz - 1
+                if not array.get(p_active, i)
+                    slot := i
+                    break
+        if slot == -1
+            if sz < maxPools
+                array.push(p_side,      _side)
+                array.push(p_min,       _price)
+                array.push(p_max,       _price)
+                array.push(p_first_t,   _extBarIdx)
+                array.push(p_last_t,    _extBarIdx)
+                array.push(p_last_swp,  -1)
+                array.push(p_touches,   1)
+                array.push(p_sweep_cnt, 0)
+                array.push(p_sweep_dep, 0.0)
+                array.push(p_active,    true)
+                array.push(p_deact_next,false)
+                array.push(p_atr_anchor,math.max(_atrAnchor, 1e-6))
+                array.push(p_accept_cnt,0)
+                array.push(p_pending_accept,false)
+            else
+                minScore = 1e18
+                evict    = 0
+                for i = 0 to sz - 1
+                    if array.get(p_active, i)
+                        width   = array.get(p_max, i) - array.get(p_min, i)
+                        touches = array.get(p_touches, i)
+                        age     = bar_index - array.get(p_last_t, i)
+                        score   = width * (1.0 + touches)
+                        if touches <= 1 and age >= expiryBars
+                            score += 1e6
+                        else if age >= 2 * expiryBars
+                            score += 1e3
+                        if array.get(p_deact_next, i)
+                            score += 1e9
+                        if score < minScore
+                            minScore := score
+                            evict    := i
+                slot := evict
+        if slot != -1 and slot < sz
+            array.set(p_side,      slot, _side)
+            array.set(p_min,       slot, _price)
+            array.set(p_max,       slot, _price)
+            array.set(p_first_t,   slot, _extBarIdx)
+            array.set(p_last_t,    slot, _extBarIdx)
+            array.set(p_last_swp,  slot, -1)
+            array.set(p_touches,   slot, 1)
+            array.set(p_sweep_cnt, slot, 0)
+            array.set(p_sweep_dep, slot, 0.0)
+            array.set(p_active,    slot, true)
+            array.set(p_deact_next,slot, false)
+            array.set(p_atr_anchor,slot, math.max(_atrAnchor, 1e-6))
+            array.set(p_accept_cnt,slot, 0)
+            array.set(p_pending_accept,slot, false)
+    [eqEvent, eqPrice]
+
+// Deferred deactivation + lifecycle
+bslSwept = false
+sslSwept = false
+bslConsumedEvt = false   // fix #7: distinct from bslSwept — a level is CONSUMED (structurally
+sslConsumedEvt = false   // failed) only via clean-break + BOS-confirmed retirement, not a raid-and-reject
+var float lastBslSweepDepth = na
+var float lastSslSweepDepth = na
+var int   lastBslSweptPoolIdx = na   // pool array index at the moment of sweep — looked up
+var int   lastSslSweptPoolIdx = na   // late in the script for Liquidity Confidence grading
+var int   lastBslSweptBarsBeyond = 0 // bars price had already lingered beyond the level (p_accept_cnt,
+var int   lastSslSweptBarsBeyond = 0 // not reset by the sweep-and-reject branch) — "time spent below/above"
+
+szLife = array.size(p_side)
+if szLife > 0
+    for i = 0 to szLife - 1
+        if array.get(p_deact_next, i)
+            array.set(p_active,     i, false)
+            array.set(p_deact_next, i, false)
+        if array.get(p_active, i)
+            side = array.get(p_side, i)
+            pmx  = array.get(p_max,  i)
+            pmn  = array.get(p_min,  i)
+            if side == 1
+                if high > pmx and close < pmx
+                    // Sweep-and-reject. A FULL RAID (deep penetration) OR
+                    // accumulating maxSweeps shallow sweeps is decisive
+                    // enough to retire the pool. A single shallow sweep
+                    // survives, still active, so sweep_cnt can keep
+                    // climbing — without this, every pool died on its first
+                    // sweep and "Multiple Sweeps" could never be observed
+                    // on a still-active pool.
+                    pen = (high - pmx) / safeAtrNow
+                    // Always track deepest penetration so a full-raid retire
+                    // fires even on a cooldown-suppressed / insignificant poke.
+                    array.set(p_sweep_dep, i, math.max(array.get(p_sweep_dep, i), pen))
+                    // A sweep is a discrete EVENT. Re-touching the same ceiling
+                    // on consecutive bars is the SAME event, not a new one —
+                    // gate on a per-pool cooldown (>= nSwing bars since the last
+                    // counted sweep) so one probe can't cascade into 3+ BSL
+                    // labels and can't inflate sweep_cnt past maxSweeps. -1 =
+                    // never swept. (Issue 1)
+                    prevSwp = array.get(p_last_swp, i)
+                    isNewSweepEvent = prevSwp == -1 or (bar_index - prevSwp) >= nSwing
+                    // Significance: a real stop cluster, not a lone micro-pivot.
+                    // Qualify only if MULTI-TOUCH (price built the level 2+ times)
+                    // OR the ceiling sits AT a strong calendar level (PWH/PMH).
+                    // Tolerance is mergeProx (the engine's "same level" distance,
+                    // ~0.25 ATR) NOT htfConfluenceTolAtr (1.0 ATR) — the latter is
+                    // a generous SCORING bonus; for a significance GATE it let any
+                    // pivot within a day's range of the W/M high qualify. PDH
+                    // excluded — on a daily chart it's just high[1]. (Issue 2)
+                    tol = mergeProx * safeAtrNow
+                    calAligned = (not na(pwH) and math.abs(pmx - pwH) <= tol) or (not na(pmH) and math.abs(pmx - pmH) <= tol)
+                    // (a) RESTED: a single-touch swing whose ORIGINAL pivot (p_first_t)
+                    // is >= minRestBars old has given stops time to accumulate — a real
+                    // cluster even without a 2nd touch or W/M alignment. This RE-ADMITS
+                    // legit rested swing highs that (b)+(c) alone wrongly suppressed; a
+                    // FRESH micro-pivot (age ~ nSwing, single-touch, unaligned) still fails.
+                    rested = (bar_index - array.get(p_first_t, i)) >= minRestBars
+                    significant = (not sweepRequireSignificance) or array.get(p_touches, i) >= 2 or calAligned or rested
+                    if isNewSweepEvent and significant
+                        array.set(p_last_swp,  i, bar_index)
+                        array.set(p_sweep_cnt, i, array.get(p_sweep_cnt, i) + 1)
+                        bslSwept := true
+                        lastBslSweepDepth   := pen
+                        lastBslSweptPoolIdx := i
+                        lastBslSweptBarsBeyond := array.get(p_accept_cnt, i)
+                    // Retirement runs regardless — a deep raid consumes even an
+                    // insignificant 1-touch pool.
+                    if pen >= fullRaidAtrThresh or array.get(p_sweep_cnt, i) >= maxSweeps
+                        array.set(p_deact_next, i, true)
+                else if close >= pmx
+                    // Clean break, no reject — count consecutive closes
+                    // beyond the level, but DON'T retire here. recentBullBos
+                    // isn't known yet at this point in the script (computed
+                    // later) — mark p_pending_accept and let the BOS-gated
+                    // confirmation block (after the BOS section) decide.
+                    array.set(p_accept_cnt, i, array.get(p_accept_cnt, i) + 1)
+                    if array.get(p_accept_cnt, i) >= acceptanceBars
+                        array.set(p_pending_accept, i, true)
+                else
+                    array.set(p_accept_cnt, i, 0)
+                    array.set(p_pending_accept, i, false)
+            else
+                if low < pmn and close > pmn
+                    pen = (pmn - low) / safeAtrNow
+                    // Mirror of the BSL branch — see comments above. (Issues 1 & 2)
+                    array.set(p_sweep_dep, i, math.max(array.get(p_sweep_dep, i), pen))
+                    prevSwp = array.get(p_last_swp, i)
+                    isNewSweepEvent = prevSwp == -1 or (bar_index - prevSwp) >= nSwing
+                    tol = mergeProx * safeAtrNow
+                    calAligned = (not na(pwL) and math.abs(pmn - pwL) <= tol) or (not na(pmL) and math.abs(pmn - pmL) <= tol)
+                    rested = (bar_index - array.get(p_first_t, i)) >= minRestBars  // (a) rested single-touch swing — see BSL branch
+                    significant = (not sweepRequireSignificance) or array.get(p_touches, i) >= 2 or calAligned or rested
+                    if isNewSweepEvent and significant
+                        array.set(p_last_swp,  i, bar_index)
+                        array.set(p_sweep_cnt, i, array.get(p_sweep_cnt, i) + 1)
+                        sslSwept := true
+                        lastSslSweepDepth   := pen
+                        lastSslSweptPoolIdx := i
+                        lastSslSweptBarsBeyond := array.get(p_accept_cnt, i)
+                    if pen >= fullRaidAtrThresh or array.get(p_sweep_cnt, i) >= maxSweeps
+                        array.set(p_deact_next, i, true)
+                else if close <= pmn
+                    array.set(p_accept_cnt, i, array.get(p_accept_cnt, i) + 1)
+                    if array.get(p_accept_cnt, i) >= acceptanceBars
+                        array.set(p_pending_accept, i, true)
+                else
+                    array.set(p_accept_cnt, i, 0)
+                    array.set(p_pending_accept, i, false)
+            maxAge = expiryBars * (1.0 + math.log(1.0 + array.get(p_touches, i)))
+            if (bar_index - array.get(p_last_t, i)) > maxAge
+                array.set(p_deact_next, i, true)
+
+// Liquidity Lifecycle: "Converted to mitigation/breaker/order block".
+// Tracked globally (not per-pool) since a swept pool goes inactive the same
+// bar and drops out of bestBsl/bestSsl, so per-pool linkage to a later BK
+// isn't directly checkable through the active-pool selectors used elsewhere.
+// This is a TEMPORAL-PROXIMITY HEURISTIC, not a guaranteed causal link —
+// Pine's bullBkTrig/bearBkTrig formation doesn't actually reference
+// bslSwept/sslSwept in its own condition, so "conversion" here means
+// "a same-direction BK happened to fire shortly after the most recent
+// matching sweep," not "this specific sweep caused that specific BK."
+var int lastBslSweptBar = na
+var int lastSslSweptBar = na
+if bslSwept
+    lastBslSweptBar := bar_index
+if sslSwept
+    lastSslSweptBar := bar_index
+
+bslEqEvt   = false
+bslEqPrice = float(na)
+sslEqEvt   = false
+sslEqPrice = float(na)
+if not na(ph)
+    extIdx    = bar_index - nSwing
+    atrAnchor = na(safeAtr[nSwing]) ? 1e-6 : safeAtr[nSwing]
+    [_bslEqEvt, _bslEqPrice] = f_add_or_merge_pool(1, ph, extIdx, atrAnchor)
+    bslEqEvt   := _bslEqEvt
+    bslEqPrice := _bslEqPrice
+if not na(pl)
+    extIdx    = bar_index - nSwing
+    atrAnchor = na(safeAtr[nSwing]) ? 1e-6 : safeAtr[nSwing]
+    [_sslEqEvt, _sslEqPrice] = f_add_or_merge_pool(-1, pl, extIdx, atrAnchor)
+    sslEqEvt   := _sslEqEvt
+    sslEqPrice := _sslEqPrice
+
+// bestBsl/bestSsl selection moved below rangeHigh/rangeLow + f_liqScore —
+// see "Liquidity Selection" block after inDiscount. Pure nearest-distance
+// selection used to live here; now needs the dealing range to know
+// external-ness per candidate, so it can't run this early anymore.
+
+// =========================
+// BOS / CHoCH / Premium-Discount
+// (matches Python: swing confirmed by nSwing bars each side)
+// =========================
+var float lastSwingHigh = na
+var float lastSwingLow  = na
+if not na(ph)
+    lastSwingHigh := ph
+if not na(pl)
+    lastSwingLow := pl
+
+bullBosState = not na(lastSwingHigh) and close > lastSwingHigh
+bearBosState = not na(lastSwingLow)  and close < lastSwingLow
+bullBosEvt   = bullBosState and not f_filled_bool(bullBosState[1], false)
+bearBosEvt   = bearBosState and not f_filled_bool(bearBosState[1], false)
+
+var float mss = 0.0
+if bullBosEvt
+    mss := 1.0
+else if bearBosEvt
+    mss := -1.0
+
+mssPrev    = na(mss[1]) ? 0.0 : mss[1]
+bullChoch  = bullBosEvt and mssPrev <= 0
+bearChoch  = bearBosEvt and mssPrev >= 0
+
+recentBullBos = f_recent_true(bullBosEvt, bosLookback)
+recentBearBos = f_recent_true(bearBosEvt, bosLookback)
+
+// =========================================================================
+// STAGE 1 (v2) — Strict ICT Market-Structure Engine (parallel / additive)
+// -------------------------------------------------------------------------
+// Root fix for the "every pivot is structural" bug (P1,P2,P3,P6): a raw
+// ta.pivothigh is INTERNAL structure; a swing only becomes EXTERNAL /
+// structural once price reverses >= swingSigAtr ATR from it (ATR zigzag).
+// Protected levels, HH/LH classification, CHoCH, BOS and trend seeding all
+// run on EXTERNAL swings, so minor internal pivots can no longer drag
+// protHigh/protLow or fire a premature CHoCH.
+//   * CHoCH = close breaks the PROTECTED external swing -> one flip per shift
+//   * BOS   = in-trend continuation break of the last external swing extreme
+// The external layer also delivers the internal-vs-external split (P5).
+// swingSigAtr is a NEW researcher DOF (logged in DEV md); default gentle
+// (1.0 ATR) — filters noise without gating to zero (the displacement failure
+// mode). NOT wired into strictLongSignal yet. Liquidity gating on CHoCH (P4)
+// is Stage 2.
+// =========================================================================
+simpleMode          = input.bool(false, "SIMPLE MODE — show ONLY Strict ICT Structure (hides OB/FVG/BK/Liquidity/legacy/table)", group=grpSignal)
+showStrictStructure = input.bool(false, "Show Strict ICT Structure (Stage 1)",          group=grpSignal)
+showLegacyStructure = input.bool(false, "Show LEGACY retail BOS+/BOS-/CH+/CH- (unreliable — off by default)", group=grpSignal)
+showSwingLabels     = input.bool(false, "  ^ show internal HH/HL + external swing dots", group=grpSignal)
+swingSigAtr         = input.float(1.0,  "  ^ swing significance (ATR reversal)", minval=0.1, step=0.1, group=grpSignal)
+
+// ---- INTERNAL structure: raw pivots, unfiltered (kept for labels / Stage 3)
+var float intCurHigh  = na
+var float intPrevHigh = na
+var float intCurLow   = na
+var float intPrevLow  = na
+if not na(ph)
+    intPrevHigh := intCurHigh
+    intCurHigh  := ph
+if not na(pl)
+    intPrevLow := intCurLow
+    intCurLow  := pl
+intNewHH = not na(ph) and not na(intPrevHigh) and ph >  intPrevHigh
+intNewLH = not na(ph) and not na(intPrevHigh) and ph <= intPrevHigh
+intNewHL = not na(pl) and not na(intPrevLow)  and pl >  intPrevLow
+intNewLL = not na(pl) and not na(intPrevLow)  and pl <= intPrevLow
+
+// ---- EXTERNAL structure: ATR-reversal zigzag ----------------------------
+// A provisional extreme becomes a CONFIRMED external swing only once price
+// retraces swingSigAtr ATR against it. zzTrend: +1 rising leg, -1 falling.
+var int   zzTrend     = 0
+var float zzExtHigh   = na
+var float zzExtLow    = na
+var float extCurHigh  = na
+var float extPrevHigh = na
+var float extCurLow   = na
+var float extPrevLow  = na
+
+zzThr = swingSigAtr * safeAtrNow
+extNewHigh = false
+extNewLow  = false
+if zzTrend == 0
+    zzExtHigh := na(zzExtHigh) ? high : math.max(zzExtHigh, high)
+    zzExtLow  := na(zzExtLow)  ? low  : math.min(zzExtLow,  low)
+    if not na(zzExtHigh) and low < zzExtHigh - zzThr
+        zzTrend    := -1
+        extCurHigh := zzExtHigh
+        extNewHigh := true
+        zzExtLow   := low
+    else if not na(zzExtLow) and high > zzExtLow + zzThr
+        zzTrend   := 1
+        extCurLow := zzExtLow
+        extNewLow := true
+        zzExtHigh := high
+else if zzTrend == 1
+    if high > zzExtHigh
+        zzExtHigh := high
+    if low < zzExtHigh - zzThr
+        extPrevHigh := extCurHigh
+        extCurHigh  := zzExtHigh
+        extNewHigh  := true
+        zzTrend  := -1
+        zzExtLow := low
+else
+    if low < zzExtLow
+        zzExtLow := low
+    if high > zzExtLow + zzThr
+        extPrevLow := extCurLow
+        extCurLow  := zzExtLow
+        extNewLow  := true
+        zzTrend   := 1
+        zzExtHigh := high
+
+// external HH/HL/LH/LL — the classification that actually drives structure
+extNewHH = extNewHigh and not na(extPrevHigh) and extCurHigh >  extPrevHigh
+extNewLH = extNewHigh and not na(extPrevHigh) and extCurHigh <= extPrevHigh
+extNewHL = extNewLow  and not na(extPrevLow)  and extCurLow  >  extPrevLow
+extNewLL = extNewLow  and not na(extPrevLow)  and extCurLow  <= extPrevLow
+
+// ---- MAJOR structure: wider ATR-reversal zigzag — drives protected levels/CHoCH
+// Same zigzag mechanics as the minor swing above, just a LARGER reversal
+// threshold (swingSigAtr * majorSwingMult). This is the internal/external (P5)
+// split: minor swings above are fine-grained; major swings here are the
+// significant structure a real reversal must break. Fixes "a shallow pullback
+// breaks the just-promoted MINOR protLow and flips to bearish CHoCH even
+// though the trend's real (major) low was never touched."
+majorSwingMult = input.float(2.5, "  ^ major swing multiplier (x significance) — degree for CHoCH", minval=1.0, step=0.1, group=grpSignal)
+
+var int   majZzTrend   = 0
+var float majZzExtHigh = na
+var float majZzExtLow  = na
+var float majCurHigh   = na
+var float majPrevHigh  = na
+var float majCurLow    = na
+var float majPrevLow   = na
+
+majZzThr = swingSigAtr * majorSwingMult * safeAtrNow
+majNewHigh = false
+majNewLow  = false
+if majZzTrend == 0
+    majZzExtHigh := na(majZzExtHigh) ? high : math.max(majZzExtHigh, high)
+    majZzExtLow  := na(majZzExtLow)  ? low  : math.min(majZzExtLow,  low)
+    if not na(majZzExtHigh) and low < majZzExtHigh - majZzThr
+        majZzTrend   := -1
+        majCurHigh   := majZzExtHigh
+        majNewHigh   := true
+        majZzExtLow  := low
+    else if not na(majZzExtLow) and high > majZzExtLow + majZzThr
+        majZzTrend   := 1
+        majCurLow    := majZzExtLow
+        majNewLow    := true
+        majZzExtHigh := high
+else if majZzTrend == 1
+    if high > majZzExtHigh
+        majZzExtHigh := high
+    if low < majZzExtHigh - majZzThr
+        majPrevHigh := majCurHigh
+        majCurHigh  := majZzExtHigh
+        majNewHigh  := true
+        majZzTrend  := -1
+        majZzExtLow := low
+else
+    if low < majZzExtLow
+        majZzExtLow := low
+    if high > majZzExtLow + majZzThr
+        majPrevLow   := majCurLow
+        majCurLow    := majZzExtLow
+        majNewLow    := true
+        majZzTrend   := 1
+        majZzExtHigh := high
+
+// ---- ICT market structure on MAJOR swings — PROTECTED-swing engine --------
+// v7 — CHoCH is now a two-step event, and requires liquidity context:
+//   1) CANDIDATE: close breaks the PROTECTED swing, but ONLY if (a) a same-
+//      direction liquidity sweep happened recently (sslSwept/bslSwept — P3)
+//      and (b) the breaking candle showed displacement (body >= dispSigAtr
+//      ATR — P4). mktTrend does NOT flip yet.
+//   2) RESOLUTION: the candidate is CONFIRMED once a fresh post-candidate
+//      major swing forms and is then broken (a genuine BOS in the new
+//      direction — P7's "CHoCH -> wait -> BOS -> Trend"), or FAILS if price
+//      closes back past the candidate's origin level first. On failure,
+//      mktTrend is simply left UNCHANGED (it never moved) and the state
+//      returns to normal detection — it does NOT jump into a confirmed
+//      opposite trend. That asymmetry (silently promoting the opposite side
+//      without ITS OWN candidate/gate check) was the v3 bug that produced
+//      "lots of sCH-, no sCH+"; this design cannot repeat it because both
+//      directions always go through the identical candidate -> resolve path.
+// STILL NOT MODELED (documented limitation, not oversight): protHigh is still
+// "last major swing high," not a bespoke post-inducement/pre-sweep high (P1
+// full fidelity); inducement itself (P2) has no clean mechanical definition
+// and is deliberately NOT faked; premium/discount context on the reversal
+// (P9) is a natural next diagnostic, not yet wired as a gate.
+dispSigAtr = input.float(0.3, "  ^ CHoCH displacement minimum (x ATR body, 0=off)", minval=0.0, step=0.1, group=grpSignal)
+
+var int   mktTrend     = 0        // +1 bull, -1 bear, 0 unseeded — CONFIRMED trend only
+var float swHigh       = na       // latest confirmed MAJOR swing high
+var float swLow        = na       // latest confirmed MAJOR swing low
+var float protHigh     = na       // PROTECTED high — break = bull CHoCH candidate
+var float protLow      = na       // PROTECTED low  — break = bear CHoCH candidate
+var bool  swHighBroken = false
+var bool  swLowBroken  = false
+var int   chochState   = 0        // 0 = none pending, +1 = bull candidate pending, -1 = bear candidate pending
+var float chochOrigin  = na       // protected level broken to create the candidate; close back past it = FAIL
+// Confirmation tracks the DISPLACEMENT LEG's own running extreme (fast — can
+// confirm as soon as the next bar), not a full major-zigzag swing (slow — needs
+// a majorSwingMult-ATR retracement just to REGISTER before it can even be
+// broken). "Candidate -> displacement -> continuation break of the leg's own
+// high/low -> Confirmed" per reviewer's explicit "one thing I would change."
+var float candLegHi = na          // running high since the bull candidate began
+var float candLegLo = na          // running low  since the bear candidate began
+var int   candBullStartBar = na   // bar the bull CHoCH candidate began — OB displacement-leg anchor (consumed by OB engine)
+var int   candBearStartBar = na   // bar the bear CHoCH candidate began
+
+if majNewHigh
+    swHigh := majCurHigh
+    swHighBroken := false
+if majNewLow
+    swLow  := majCurLow
+    swLowBroken := false
+
+bullChoCH2      = false   // CANDIDATE fired this bar (not yet confirmed)
+bearChoCH2      = false
+bullBOS2        = false   // plain continuation (no candidate involved)
+bearBOS2        = false
+bullChochConfirm = false  // pending candidate CONFIRMED this bar (trend actually flips)
+bearChochConfirm = false
+bullChochFail    = false  // pending candidate FAILED this bar (reverted, no flip)
+bearChochFail    = false
+
+candDispBar = dispSigAtr <= 0 or math.abs(close - open) >= dispSigAtr * safeAtrNow
+sweepOkBull = f_recent_true(sslSwept, fvgSweepLookback)   // SSL swept recently -> liquidity existed for a bull reversal
+sweepOkBear = f_recent_true(bslSwept, fvgSweepLookback)   // BSL swept recently -> liquidity existed for a bear reversal
+
+if mktTrend == 0
+    // seed: first swing break sets an initial trend, no CHoCH label, no gates
+    if not na(swHigh) and close > swHigh
+        mktTrend := 1
+        protLow  := swLow
+        swHighBroken := true
+    else if not na(swLow) and close < swLow
+        mktTrend := -1
+        protHigh := swHigh
+        swLowBroken := true
+else if chochState == 0
+    if mktTrend == -1
+        // continuation: a fresh lower low is a bearish BOS -> promote the protected high
+        if not na(swLow) and close < swLow and not swLowBroken
+            bearBOS2    := true
+            swLowBroken := true
+            protHigh    := swHigh            // lower high before this leg is now protected
+        // reversal CANDIDATE: break of the PROTECTED high, gated by sweep + displacement (P3/P4)
+        if not na(protHigh) and close > protHigh and sweepOkBull and candDispBar
+            bullChoCH2  := true
+            chochState  := 1
+            chochOrigin := protLow           // a close back below this fails the candidate
+            candLegHi   := high              // seed the displacement leg's running high
+            candBullStartBar := bar_index    // OB engine walks back within [start..confirm]
+    else
+        // uptrend — continuation
+        if not na(swHigh) and close > swHigh and not swHighBroken
+            bullBOS2     := true
+            swHighBroken := true
+            protLow      := swLow            // higher low before this leg is now protected
+        // reversal CANDIDATE
+        if not na(protLow) and close < protLow and sweepOkBear and candDispBar
+            bearChoCH2  := true
+            chochState  := -1
+            chochOrigin := protHigh
+            candLegLo   := low               // seed the displacement leg's running low
+            candBearStartBar := bar_index    // OB engine walks back within [start..confirm]
+else if chochState == 1
+    // bull CHoCH candidate pending (mktTrend is still -1 underneath — unchanged).
+    // Confirm on a break of the LEG's own running high (fast, reacts next bar);
+    // only extend the tracked high if today neither confirms nor fails.
+    if not na(candLegHi) and close > candLegHi
+        mktTrend         := 1                 // CONFIRMED — displacement -> continuation break (P7)
+        chochState       := 0
+        protLow          := swLow
+        swHighBroken     := true              // consumed here; stops a duplicate plain BOS next bar
+        bullChochConfirm := true
+        candLegHi        := na
+    else if not na(chochOrigin) and close < chochOrigin
+        chochState  := 0                      // FAILED — cancel; mktTrend stays -1, no forced flip
+        bullChochFail := true
+        candLegHi     := na
+    else
+        candLegHi := math.max(candLegHi, high)
+else
+    // bear CHoCH candidate pending (chochState == -1, mktTrend still +1 underneath)
+    if not na(candLegLo) and close < candLegLo
+        mktTrend         := -1
+        chochState       := 0
+        protHigh         := swHigh
+        swLowBroken      := true              // consumed here; stops a duplicate plain BOS next bar
+        bearChochConfirm := true
+        candLegLo        := na
+    else if not na(chochOrigin) and close > chochOrigin
+        chochState  := 0
+        bearChochFail := true
+        candLegLo     := na
+    else
+        candLegLo := math.min(candLegLo, low)
+
+// Internal BOS (P5, informational only) — MINOR-degree continuation breaks.
+// Does NOT touch mktTrend/chochState/protected levels; purely shows the
+// internal/external distinction ICT draws (external = major machine above).
+// ta.crossover/under is naturally one-shot here since extCurHigh/extCurLow
+// only change on a retracement, not while price is extending through them.
+intBullBOS = mktTrend == 1  and ta.crossover(close,  extCurHigh)
+intBearBOS = mktTrend == -1 and ta.crossunder(close, extCurLow)
+
+// Trend Exhaustion (lean proxy, per reviewer point #3/#6 scope decision): built
+// from the STRICT engine's own continuation events (bullBOS2/bearBOS2), not the
+// legacy macro filter — consecutive same-direction BOS, decayed (not hard-reset)
+// on the opposite continuation. A richer version (unmitigated-FVG count, HTF-OB
+// extension) needs new subsystems (FVG array, multi-TF OB) and is deferred.
+var int strictBullBosStreak = 0
+var int strictBearBosStreak = 0
+if bullBOS2
+    strictBullBosStreak += 1
+    strictBearBosStreak := math.max(0, strictBearBosStreak - 1)
+if bearBOS2
+    strictBearBosStreak += 1
+    strictBullBosStreak := math.max(0, strictBullBosStreak - 1)
+
+// ---- plot — additive; legacy CH+/BOS+ stay, these are 's'-prefixed -------
+// sCH+/sCH- = CANDIDATE only (mktTrend has NOT flipped yet); RVSL+/RVSL- =
+// candidate CONFIRMED (trend actually flips here); faint x = candidate FAILED
+// (reverted, trend unchanged). Plain triangles = ordinary continuation BOS.
+plotshape(showStrictStructure and bullChoCH2, title="Strict Bull CHoCH (candidate)", style=shape.labelup,   color=color.new(color.aqua,    0), text="sCH+?", textcolor=color.black, location=location.belowbar, size=size.small)
+plotshape(showStrictStructure and bearChoCH2, title="Strict Bear CHoCH (candidate)", style=shape.labeldown, color=color.new(color.fuchsia, 0), text="sCH-?", textcolor=color.white, location=location.abovebar, size=size.small)
+plotshape(showStrictStructure and bullChochConfirm, title="Strict Bull CHoCH CONFIRMED", style=shape.labelup,   color=color.new(color.lime, 0), text="RVSL+", textcolor=color.black, location=location.belowbar, size=size.normal)
+plotshape(showStrictStructure and bearChochConfirm, title="Strict Bear CHoCH CONFIRMED", style=shape.labeldown, color=color.new(color.red,  0), text="RVSL-", textcolor=color.white, location=location.abovebar, size=size.normal)
+plotshape(showStrictStructure and bullChochFail, title="Failed Bull CHoCH", style=shape.xcross, color=color.new(color.gray, 30), location=location.belowbar, size=size.tiny)
+plotshape(showStrictStructure and bearChochFail, title="Failed Bear CHoCH", style=shape.xcross, color=color.new(color.gray, 30), location=location.abovebar, size=size.tiny)
+plotshape(showStrictStructure and bullBOS2,   title="Strict Bull BOS",   style=shape.triangleup,   color=color.new(color.teal,   0), location=location.belowbar, size=size.tiny)
+plotshape(showStrictStructure and bearBOS2,   title="Strict Bear BOS",   style=shape.triangledown, color=color.new(color.maroon, 0), location=location.abovebar, size=size.tiny)
+plotchar(showSwingLabels and intBullBOS, title="Internal BOS (bull)", char="i", location=location.belowbar, color=color.new(color.teal,   60), size=size.tiny)
+plotchar(showSwingLabels and intBearBOS, title="Internal BOS (bear)", char="i", location=location.abovebar, color=color.new(color.maroon, 60), size=size.tiny)
+bgcolor(showStrictStructure and mktTrend ==  1 ? color.new(color.teal,   93) : na, title="Strict Uptrend tint")
+bgcolor(showStrictStructure and mktTrend == -1 ? color.new(color.maroon, 93) : na, title="Strict Downtrend tint")
+// PROTECTED levels drawn so each CHoCH is visibly the break of this exact line.
+// Only the ACTIVE one shows per trend (red = bull-CHoCH trigger while bearish,
+// green = bear-CHoCH trigger while bullish); they hand off at each CHoCH.
+plot(showStrictStructure and mktTrend == -1 ? protHigh : na, title="Protected High (bull CHoCH level)", color=color.new(color.red,   30), style=plot.style_stepline, linewidth=2)
+plot(showStrictStructure and mktTrend ==  1 ? protLow  : na, title="Protected Low (bear CHoCH level)",  color=color.new(color.green, 30), style=plot.style_stepline, linewidth=2)
+// THREE degrees, visually distinct: faint chars (internal, raw pivots) <
+// small circles (minor ATR swings) < large diamonds (major swings — these
+// are the ones that actually drive protHigh/protLow/CHoCH now).
+plotchar(showSwingLabels and intNewHH, title="int HH", char="h", location=location.abovebar, color=color.new(color.teal,   50), size=size.tiny)
+plotchar(showSwingLabels and intNewLH, title="int LH", char="h", location=location.abovebar, color=color.new(color.maroon, 50), size=size.tiny)
+plotchar(showSwingLabels and intNewHL, title="int HL", char="l", location=location.belowbar, color=color.new(color.teal,   50), size=size.tiny)
+plotchar(showSwingLabels and intNewLL, title="int LL", char="l", location=location.belowbar, color=color.new(color.maroon, 50), size=size.tiny)
+plotshape(showSwingLabels and extNewHigh, title="minor swing High", style=shape.circle,  location=location.abovebar, color=color.new(color.blue,   0), size=size.tiny)
+plotshape(showSwingLabels and extNewLow,  title="minor swing Low",  style=shape.circle,  location=location.belowbar, color=color.new(color.orange, 0), size=size.tiny)
+plotshape(showSwingLabels and majNewHigh, title="MAJOR swing High", style=shape.diamond, location=location.abovebar, color=color.new(color.navy,   0), size=size.small)
+plotshape(showSwingLabels and majNewLow,  title="MAJOR swing Low",  style=shape.diamond, location=location.belowbar, color=color.new(color.maroon, 0), size=size.small)
+
+// Deferred confirmation for "Clean break, no reject" pool retirement — a
+// close beyond the level that's held for acceptanceBars consecutive bars
+// (p_pending_accept set in the lifecycle loop above) only actually retires
+// the pool once a matching-direction BOS confirms too, not from bar-count
+// alone. Runs here, not in the lifecycle loop, because recentBullBos/
+// recentBearBos aren't computed until this point in the script.
+szConfirm = array.size(p_side)
+if szConfirm > 0
+    for i = 0 to szConfirm - 1
+        if array.get(p_active, i) and array.get(p_pending_accept, i)
+            side = array.get(p_side, i)
+            if side == 1 and recentBullBos
+                array.set(p_deact_next,     i, true)
+                array.set(p_pending_accept, i, false)
+                bslConsumedEvt := true     // structural failure (clean break + BOS-confirmed), not a temporary raid
+            else if side == -1 and recentBearBos
+                array.set(p_deact_next,     i, true)
+                array.set(p_pending_accept, i, false)
+                sslConsumedEvt := true
+
+// Macro trend filter — suppresses counter-trend signals during sustained trends.
+// Counts consecutive BOS in one direction; resets when opposite BOS fires.
+// Threshold >= 2 means trend is established only after two back-to-back breaks.
+var int bearBosCount = 0
+var int bullBosCount = 0
+if bearBosEvt
+    bearBosCount += 1
+    bullBosCount := math.max(0, bullBosCount - 1)  // decay rather than hard-reset
+if bullBosEvt
+    bullBosCount += 1
+    bearBosCount := math.max(0, bearBosCount - 1)  // decay rather than hard-reset
+macroIsBearish = bearBosCount >= 2
+macroIsBullish = bullBosCount >= 2
+
+// Stable rolling dealing range (rangeLookback bars). ta.highest/ta.lowest
+// already include the current bar, so a genuine new extreme shows up
+// immediately — no separate "union with local leg" needed. An earlier
+// version unioned this with lastSwingHigh/lastSwingLow, but those are
+// persistent vars with no recency bound: in a long one-directional stretch
+// the opposite-side pivot can be stale by years, permanently dragging the
+// range to an irrelevant ancient extreme and killing inDiscount/inPremium
+// for the rest of the chart. Plain rolling high/low avoids that entirely.
+rangeHigh = ta.highest(high, rangeLookback)
+rangeLow  = ta.lowest(low,  rangeLookback)
+
+dealRange = (not na(rangeHigh) and not na(rangeLow)) ? (rangeHigh - rangeLow) : na
+pdr       = (not na(dealRange) and dealRange > 0) ? (close - rangeLow) / dealRange : na
+inPremium = not na(pdr) and pdr > 0.5
+inDiscount= not na(pdr) and pdr < 0.5
+equilibrium  = (not na(rangeHigh) and not na(rangeLow)) ? (rangeHigh + rangeLow) * 0.5 : na
+distFromEqAtr = (not na(equilibrium) and safeAtrNow > 0) ? math.abs(close - equilibrium) / safeAtrNow : 0.0
+
+// Shared HTF-confluence check, factored out so both the score and the
+// external sub-categorization use the same logic instead of duplicating the
+// PDH/PDL/PWH/PWL/PMH/PML proximity checks. Defined here (moved up from
+// after Liquidity Scoring) because the new weighted selection below needs
+// f_liqScore, which needs this, before bestBsl/bestSsl can be chosen.
+f_htfConfluenceTag(_level) =>
+    tag = ""
+    if not na(_level)
+        if not na(pdH) and math.abs(_level - pdH) <= htfConfluenceTolAtr * safeAtrNow
+            tag := "PDH"
+        else if not na(pdL) and math.abs(_level - pdL) <= htfConfluenceTolAtr * safeAtrNow
+            tag := "PDL"
+        else if not na(pwH) and math.abs(_level - pwH) <= htfConfluenceTolAtr * safeAtrNow
+            tag := "PWH"
+        else if not na(pwL) and math.abs(_level - pwL) <= htfConfluenceTolAtr * safeAtrNow
+            tag := "PWL"
+        else if not na(pmH) and math.abs(_level - pmH) <= htfConfluenceTolAtr * safeAtrNow
+            tag := "PMH"
+        else if not na(pmL) and math.abs(_level - pmL) <= htfConfluenceTolAtr * safeAtrNow
+            tag := "PML"
+    tag
+
+// Liquidity Scoring: composite 0-100 significance score, callable per-
+// candidate (selection below) or on the final selected pool (diagnostics).
+// Session context excluded (daily chart); volume/displacement skipped — no
+// clean "displacement at formation" data point for unswept pools.
+// sweepPenalty: an untouched pool is generally stronger than a repeatedly-
+// raided one, even if it survived (shallow sweeps no longer kill it).
+f_liqScore(_touches, _lastT, _level, _isExternal, _sweepCnt) =>
+    touchScore   = math.min(_touches, 5) / 5.0 * 40.0
+    ageScore     = math.min(bar_index - _lastT, 100) / 100.0 * 30.0
+    htfScore     = f_htfConfluenceTag(_level) != "" ? 20.0 : 0.0
+    extScore     = _isExternal ? 10.0 : 0.0
+    sweepPenalty = math.min(_sweepCnt, 5) * 2.0
+    math.max(0.0, touchScore + ageScore + htfScore + extScore - sweepPenalty)
+
+// Liquidity Selection: weighted comparator, not pure nearest-distance and
+// not an absolute "external always wins" override. CandidateScore =
+// Strength*0.55 + ExternalBonus*0.25 + DistanceScore*0.20 — external and
+// distance both matter, but a much stronger nearby/internal pool can still
+// outrank a weak, far external one (e.g. a fresh single-touch external pool
+// 8 ATR away loses to a 5-touch internal pool 0.3 ATR away). DistanceScore
+// uses smooth decay (100/(1+atrDist)) rather than a hard cutoff.
+bestBsl = -1
+bestSsl = -1
+bestBslScore = -1.0
+bestSslScore = -1.0
+szSel = array.size(p_side)
+if szSel > 0
+    for i = 0 to szSel - 1
+        if array.get(p_active, i)
+            side = array.get(p_side, i)
+            if side == 1
+                level          = array.get(p_max, i)
+                distAtr        = math.abs(level - close) / safeAtrNow
+                distScore      = 100.0 / (1.0 + distAtr)
+                isExtCand      = not na(rangeHigh) and level >= rangeHigh - extLiqTolAtr * safeAtrNow
+                strengthScore  = f_liqScore(array.get(p_touches, i), array.get(p_last_t, i), level, isExtCand, array.get(p_sweep_cnt, i))
+                extBonus       = isExtCand ? 100.0 : 0.0
+                candScore      = strengthScore * 0.55 + extBonus * 0.25 + distScore * 0.20
+                if candScore > bestBslScore
+                    bestBslScore := candScore
+                    bestBsl      := i
+            else
+                level          = array.get(p_min, i)
+                distAtr        = math.abs(close - level) / safeAtrNow
+                distScore      = 100.0 / (1.0 + distAtr)
+                isExtCand      = not na(rangeLow) and level <= rangeLow + extLiqTolAtr * safeAtrNow
+                strengthScore  = f_liqScore(array.get(p_touches, i), array.get(p_last_t, i), level, isExtCand, array.get(p_sweep_cnt, i))
+                extBonus       = isExtCand ? 100.0 : 0.0
+                candScore      = strengthScore * 0.55 + extBonus * 0.25 + distScore * 0.20
+                if candScore > bestSslScore
+                    bestSslScore := candScore
+                    bestSsl      := i
+
+// Pine's ?: and and/or do NOT reliably short-circuit array.get() — both
+// branches get evaluated even when the guard condition picks the other one,
+// so an unguarded array.get(p_max, bestBsl) still runs (and crashes on bar 0,
+// index -1 / empty array) even inside a "bestBsl == -1 ? na : ..." ternary.
+// Use if/else statement-level branching instead everywhere bestBsl/bestSsl
+// could be -1.
+liq_bsl_dist_atr = float(na)
+if bestBsl != -1
+    liq_bsl_dist_atr := math.abs(array.get(p_max, bestBsl) - close) / safeAtrNow
+liq_ssl_dist_atr = float(na)
+if bestSsl != -1
+    liq_ssl_dist_atr := math.abs(close - array.get(p_min, bestSsl)) / safeAtrNow
+
+// Liquidity Creation: internal vs external classification, on the NEAREST
+// active pool each side (bestBsl/bestSsl, computed above). External = the
+// pool sits at/beyond the current stable dealing range boundary (rangeHigh/
+// rangeLow) within extLiqTolAtr ATR — i.e. it IS effectively the edge of the
+// visible range, the "obvious" draw. Internal = resting strictly inside the
+// range — a minor pool, still relevant short-term but structurally less
+// significant. Placed after rangeHigh/rangeLow (not after the pool engine
+// above) since it depends on them.
+bslIsExternal = false
+if bestBsl != -1 and not na(rangeHigh)
+    bslIsExternal := array.get(p_max, bestBsl) >= rangeHigh - extLiqTolAtr * safeAtrNow
+sslIsExternal = false
+if bestSsl != -1 and not na(rangeLow)
+    sslIsExternal := array.get(p_min, bestSsl) <= rangeLow + extLiqTolAtr * safeAtrNow
+bslIsInternal = bestBsl != -1 and not bslIsExternal
+sslIsInternal = bestSsl != -1 and not sslIsExternal
+
+// External sub-categorization (Issue 5): tag WHICH kind of external level
+// this is, not just a binary external/internal — a pool that's both at the
+// range edge AND aligned with a calendar level is structurally different
+// from one that's merely the highest point of an arbitrary rolling window.
+f_extCategory(_isExternal, _htfTag) =>
+    cat = "Internal"
+    if _isExternal
+        cat := _htfTag != "" ? "External (" + _htfTag + ")" : "External (range-edge)"
+    cat
+
+liq_bsl_score = float(na)
+if bestBsl != -1
+    liq_bsl_score := f_liqScore(array.get(p_touches, bestBsl), array.get(p_last_t, bestBsl), array.get(p_max, bestBsl), bslIsExternal, array.get(p_sweep_cnt, bestBsl))
+liq_ssl_score = float(na)
+if bestSsl != -1
+    liq_ssl_score := f_liqScore(array.get(p_touches, bestSsl), array.get(p_last_t, bestSsl), array.get(p_min, bestSsl), sslIsExternal, array.get(p_sweep_cnt, bestSsl))
+
+// =========================================================================
+// LIQUIDITY ENGINE P1a — LiquidityPool API + typed projection (ADDITIVE).
+// Functions take the pool array as a param (Pine functions can't read globals).
+// Downstream engines will consume these in P4; the p_* arrays still drive all
+// existing outputs unchanged, so behavior is identical this phase.
+// =========================================================================
+getNearestBSL(array<LiquidityPool> _pools, float _px) =>
+    best = -1
+    bd   = 1e18
+    n = array.size(_pools)
+    if n > 0
+        for i = 0 to n - 1
+            p = array.get(_pools, i)
+            if p.side == 1 and not p.isSwept
+                d = math.abs(p.price - _px)
+                if d < bd
+                    bd   := d
+                    best := i
+    best == -1 ? na : array.get(_pools, best)
+
+getNearestSSL(array<LiquidityPool> _pools, float _px) =>
+    best = -1
+    bd   = 1e18
+    n = array.size(_pools)
+    if n > 0
+        for i = 0 to n - 1
+            p = array.get(_pools, i)
+            if p.side == -1 and not p.isSwept
+                d = math.abs(p.price - _px)
+                if d < bd
+                    bd   := d
+                    best := i
+    best == -1 ? na : array.get(_pools, best)
+
+getHighestPriorityPool(array<LiquidityPool> _pools, int _side) =>
+    best = -1
+    bp   = -1e18
+    n = array.size(_pools)
+    if n > 0
+        for i = 0 to n - 1
+            p = array.get(_pools, i)
+            if p.side == _side and not p.isSwept and p.priorityScore > bp
+                bp   := p.priorityScore
+                best := i
+    best == -1 ? na : array.get(_pools, best)
+
+getUnsweptCount(array<LiquidityPool> _pools, int _side) =>
+    c = 0
+    n = array.size(_pools)
+    if n > 0
+        for i = 0 to n - 1
+            p = array.get(_pools, i)
+            if p.side == _side and not p.isSwept
+                c += 1
+    c
+
+// priorityScore = kind*1000 + tf*100 + strength(<100): STRUCTURAL role dominates
+// (a Protected level always outranks any Swing pool regardless of timeframe);
+// TIMEFRAME breaks ties within the same structural role (Monthly > Weekly >
+// Daily > Intraday, only meaningful for EXTERNAL); strength ranks within that.
+f_regLiq(array<LiquidityPool> _pools, int _side, float _price, int _kind, int _tf, bool _prot, bool _htf) =>
+    if not na(_price)
+        _base = 30.0 + _kind * 5.0 + _tf * 2.0
+        array.push(_pools, LiquidityPool.new(id=-_kind, side=_side, kind=_kind, tf=_tf, price=_price, low=_price, high=_price, createdBar=bar_index, lastTouchBar=bar_index, touchCount=1, strengthScore=_base, priorityScore=_kind * 1000.0 + _tf * 100.0 + _base, isExternal=true, isProtected=_prot, isHTF=_htf))
+
+// Typed mirror, rebuilt each bar (P1b flips this to be the source of truth).
+var array<LiquidityPool> liqPools = array.new<LiquidityPool>()
+array.clear(liqPools)
+_npLiq = array.size(p_side)
+if _npLiq > 0
+    for i = 0 to _npLiq - 1
+        if array.get(p_active, i)
+            _sd  = array.get(p_side, i)
+            _mn  = array.get(p_min, i)
+            _mx  = array.get(p_max, i)
+            _lvl = _sd == 1 ? _mx : _mn
+            _tc  = array.get(p_touches, i)
+            _sc  = array.get(p_sweep_cnt, i)
+            _ext = _sd == 1 ? (_mx >= rangeHigh - extLiqTolAtr * safeAtrNow) : (_mn <= rangeLow + extLiqTolAtr * safeAtrNow)
+            _kd  = (_ext or _tc >= 2) ? 1 : 0                   // structural: SWING (range-edge or multi-touch EQH/EQL) / INTERNAL
+            _str = f_liqScore(_tc, array.get(p_last_t, i), _lvl, _ext, _sc)
+            _pr  = _kd * 1000.0 + math.min(_str, 99.0)          // tf=0 (intraday) for all pivot-derived pools
+            array.push(liqPools, LiquidityPool.new(id=i, side=_sd, kind=_kd, tf=0, price=_lvl, low=_mn, high=_mx, createdBar=array.get(p_first_t, i), lastTouchBar=array.get(p_last_t, i), touchCount=_tc, strengthScore=_str, priorityScore=_pr, isExternal=_ext, isSwept=_sc > 0, sweepBar=array.get(p_last_swp, i), sweepDepth=array.get(p_sweep_dep, i)))
+// P2 second pass (protHigh/protLow/majCur* known here): register HTF calendar +
+// protected + major-degree swings as EXTERNAL liquidity in the same hierarchy.
+// Session (Asia/London/NY) liquidity intentionally SKIPPED — daily chart (1 bar =
+// 1 day) has no intraday sessions; it slots in here unchanged on an intraday TF.
+f_regLiq(liqPools,  1, pmH, 3, 3, false, true)   // EXTERNAL / Monthly
+f_regLiq(liqPools, -1, pmL, 3, 3, false, true)
+f_regLiq(liqPools,  1, pwH, 3, 2, false, true)   // EXTERNAL / Weekly
+f_regLiq(liqPools, -1, pwL, 3, 2, false, true)
+f_regLiq(liqPools,  1, pdH, 3, 1, false, true)   // EXTERNAL / Daily
+f_regLiq(liqPools, -1, pdL, 3, 1, false, true)
+f_regLiq(liqPools,  1, protHigh,   2, 0, true,  false)   // PROTECTED / Intraday
+f_regLiq(liqPools, -1, protLow,    2, 0, true,  false)
+f_regLiq(liqPools,  1, majCurHigh, 1, 0, false, false)   // SWING / Intraday
+f_regLiq(liqPools, -1, majCurLow,  1, 0, false, false)
+
+bslExtCategory = "—"
+if bestBsl != -1
+    bslExtCategory := f_extCategory(bslIsExternal, f_htfConfluenceTag(array.get(p_max, bestBsl)))
+sslExtCategory = "—"
+if bestSsl != -1
+    sslExtCategory := f_extCategory(sslIsExternal, f_htfConfluenceTag(array.get(p_min, bestSsl)))
+
+// Liquidity Lifecycle stage, on the nearest active pool each side. Only 4 of
+// the 6 hierarchy stages apply to an ACTIVE pool by definition (Retired pools
+// are inactive and excluded from bestBsl/bestSsl; Converted is computed and
+// folded in separately below, once bullBkTrigBar/bearBkTrigBar are known).
+f_liqStage(_sweepCnt, _sweepDep, _converted) =>
+    stage = "Resting"
+    if _converted
+        stage := "Converted (BK)"
+    else if _sweepDep >= fullRaidAtrThresh
+        stage := "Full Raid"
+    else if _sweepCnt >= 2
+        stage := "Multiple Sweeps"
+    else if _sweepCnt == 1
+        stage := "Partial Sweep"
+    stage
+
+// =========================
+// Order Block User-Defined Type (institutional OB engine, see below)
+// state: 0 ACTIVE | 1 PARTIAL_MITIGATED | 2 FULLY_MITIGATED | 3 FAILED | 4 BREAKER
+// =========================
+type OrderBlock
+    int   dir          = 0     // +1 bull, -1 bear
+    float high         = na
+    float low          = na
+    float mid          = na
+    int   createBar    = na
+    int   state        = 0
+    int   touchCount   = 0
+    float mitigation   = 0.0   // deepest fractional penetration into the zone [0..1]
+    bool  isBreaker    = false
+    int   originLiqBar = na    // bar of the liquidity sweep that seeded the impulse
+    int   bosBar       = na    // bar the external BOS/CHoCH confirmed
+    int   fvgBar       = na    // bar of the most recent same-side FVG (imbalance)
+    int   impulseId    = na    // -> Impulse.id (displacement metadata lives there)
+    float dispScore    = 0.0   // OBJECTIVE displacement strength (gated creation)
+    float quality      = 0.0   // SUBJECTIVE ranking among valid OBs
+
+// Impulse = the institutional displacement leg. Separate domain object so
+// displacement metadata isn't recomputed and the OB just references it by id.
+type Impulse
+    int   id           = na
+    int   dir          = 0     // +1 bull, -1 bear
+    int   startBar     = na    // FIRST displacement candle — the true origin of the move
+    int   endBar       = na    // external BOS/CHoCH confirm bar
+    int   originLiqBar = na    // liquidity sweep that seeded the leg
+    int   fvgBar       = na    // FVG created inside the leg (mandatory to exist)
+    bool  bosConfirmed = false
+    float dispScore    = 0.0
+
+// =========================
+// OB / FVG raw formation signals
+// FVG unchanged. OB engulfing detection REMOVED — replaced by the
+// displacement-origin engine further below (consumes bullChochConfirm).
+// =========================
+dBodyMax = math.max(open[1], close[1])
+dBodyMin = math.min(open[1], close[1])
+rBLen    = math.abs(close  - open)
+dBLen    = math.abs(close[1] - open[1])
+
+hasDisp  = dispMult > 0 ? (rBLen > dispMult * safeAtrNow) : true
+hasDisp1 = dispMult > 0 ? (dBLen > dispMult * nz(safeAtr[1], safeAtrNow)) : true
+
+// [REMOVED] bullObRaw/bearObRaw engulfing detection. An OB is no longer a
+// candlestick pattern — it is the ORIGIN of a confirmed displacement, built
+// below. The body-multiplier input (pctMore/mult), hasDisp and dBodyMax/
+// dBodyMin are now legacy/orphaned (kept only so settings + FVG's dBLen/
+// hasDisp1 are undisturbed).
+
+fvgFormationAtr = nz(safeAtr[1], safeAtrNow)
+fvgMinGap       = fvgMinGapAtr * fvgFormationAtr
+// Bull FVG: 3-bar gap, low[0] > high[2]
+bullFvgRaw = low  > high[2] and hasDisp1 and (low  - high[2]) >= fvgMinGap
+// Bear FVG: 3-bar gap, high[0] < low[2]
+bearFvgRaw = high < low[2]  and hasDisp1 and (low[2]  - high) >= fvgMinGap
+
+recentSslSwept = f_recent_true(sslSwept, fvgSweepLookback)
+recentBslSwept = f_recent_true(bslSwept, fvgSweepLookback)
+
+reqBos   = strictMode and strictRequireBOSForOBFVG
+reqPD    = strictMode and strictRequirePDForOBFVG
+reqSweep = strictMode and strictRequireSweepForFVG
+
+// =========================================================================
+// ORDER BLOCK BUILDER — displacement-origin, institutional.
+// An OB is created ONLY on a CONFIRMED strict reversal (bull/bearChochConfirm),
+// which already encodes: liquidity sweep (sweepOk*) + displacement (candDispBar)
+// + external BOS (leg-continuation break). We then WALK BACK inside the leg
+// [candidate start .. confirm] to the displacement origin and take the last
+// opposing candle there as the OB. Produces the SAME compat outputs
+// (bullObKeep / bullObUse*) the unchanged scalar tracker + viz consume, and
+// pushes a rich OrderBlock into obArr for the lifecycle/quality layer below.
+// =========================================================================
+var array<OrderBlock> obArr  = array.new<OrderBlock>()
+var array<Impulse>    impArr = array.new<Impulse>()   // displacement-leg registry (OB refs by id)
+var int impSeq = 0
+
+// most-recent same-side FVG origin (reads existing bull/bearFvgRaw; the FVG
+// engine itself is untouched) — used only as an OB quality input / reference.
+var int lastBullFvgBar = na
+var int lastBearFvgBar = na
+if bullFvgRaw
+    lastBullFvgBar := bar_index
+if bearFvgRaw
+    lastBearFvgBar := bar_index
+
+bullObKeep   = false
+bearObKeep   = false
+float bullObUseH   = na
+float bullObUseL   = na
+float bullObUseO   = na    // OB candle OPEN — the level the OB line is drawn on
+int   bullObUseBar = na
+float bearObUseH   = na
+float bearObUseL   = na
+float bearObUseO   = na
+int   bearObUseBar = na
+
+// Build a bull OB on a confirmed bullish reversal (CHoCH) OR a bullish
+// continuation break (BOS) — both are "external BOS" per ICT; restricting to
+// reversals alone starved the engine on trending charts (all BOS, no CHoCH).
+if bullChochConfirm or bullBOS2
+    // OB CANDLE = the last bearish candle before this up-displacement: scan back
+    // from the break bar; the first close<open is the origin candle (always
+    // bearish -> can never land on the green displacement candle). Bounded 40.
+    obOff = -1
+    for k = 1 to 40
+        if close[k] < open[k]
+            obOff := k
+            break
+    fvgInLeg    = not na(lastBullFvgBar) and (bar_index - lastBullFvgBar) <= 40   // FVG mandatory (Point 2)
+    sweptRecent = not na(lastSslSweptBar) and (bar_index - lastSslSweptBar) <= 40
+    if obOff >= 0 and fvgInLeg
+        obHi = high[obOff]
+        obLo = low[obOff]
+        // DisplacementScore (OBJECTIVE) gates creation: displacement size from OB
+        // origin to the break (<=40) + FVG(30, mandatory) + sweep(20) + BOS(10).
+        legAtr    = safeAtrNow > 0 ? (close - obLo) / safeAtrNow : 0.0
+        dispScore = math.min(math.max(legAtr, 0.0), 4.0) / 4.0 * 40.0 + 30.0 + (sweptRecent ? 20.0 : 0.0) + 10.0
+        if dispScore >= obDispScoreMin
+            impSeq += 1
+            array.push(impArr, Impulse.new(id=impSeq, dir=1, startBar=bar_index - obOff, endBar=bar_index, originLiqBar=lastSslSweptBar, fvgBar=lastBullFvgBar, bosConfirmed=true, dispScore=dispScore))
+            if array.size(impArr) > 100
+                array.shift(impArr)
+            // QualityScore (SUBJECTIVE ranking) — kept separate from dispScore
+            q = 40.0 + (inDiscount ? 20.0 : 0.0) + math.min(math.max(legAtr, 0.0), 3.0) / 3.0 * 25.0 + 15.0
+            array.push(obArr, OrderBlock.new(dir=1, high=obHi, low=obLo, mid=(obHi + obLo) * 0.5, createBar=bar_index - obOff, originLiqBar=lastSslSweptBar, bosBar=bar_index, fvgBar=lastBullFvgBar, impulseId=impSeq, dispScore=dispScore, quality=math.min(q, 100.0)))
+            bullObKeep   := true
+            bullObUseH   := obHi
+            bullObUseL   := obLo
+            bullObUseO   := open[obOff]
+            bullObUseBar := bar_index - obOff
+
+if bearChochConfirm or bearBOS2
+    // OB CANDLE = the last bullish candle before this down-displacement.
+    obOff = -1
+    for k = 1 to 40
+        if close[k] > open[k]
+            obOff := k
+            break
+    fvgInLeg    = not na(lastBearFvgBar) and (bar_index - lastBearFvgBar) <= 40
+    sweptRecent = not na(lastBslSweptBar) and (bar_index - lastBslSweptBar) <= 40
+    if obOff >= 0 and fvgInLeg
+        obHi = high[obOff]
+        obLo = low[obOff]
+        legAtr    = safeAtrNow > 0 ? (obHi - close) / safeAtrNow : 0.0
+        dispScore = math.min(math.max(legAtr, 0.0), 4.0) / 4.0 * 40.0 + 30.0 + (sweptRecent ? 20.0 : 0.0) + 10.0
+        if dispScore >= obDispScoreMin
+            impSeq += 1
+            array.push(impArr, Impulse.new(id=impSeq, dir=-1, startBar=bar_index - obOff, endBar=bar_index, originLiqBar=lastBslSweptBar, fvgBar=lastBearFvgBar, bosConfirmed=true, dispScore=dispScore))
+            if array.size(impArr) > 100
+                array.shift(impArr)
+            q = 40.0 + (inPremium ? 20.0 : 0.0) + math.min(math.max(legAtr, 0.0), 3.0) / 3.0 * 25.0 + 15.0
+            array.push(obArr, OrderBlock.new(dir=-1, high=obHi, low=obLo, mid=(obHi + obLo) * 0.5, createBar=bar_index - obOff, originLiqBar=lastBslSweptBar, bosBar=bar_index, fvgBar=lastBearFvgBar, impulseId=impSeq, dispScore=dispScore, quality=math.min(q, 100.0)))
+            bearObKeep   := true
+            bearObUseH   := obHi
+            bearObUseL   := obLo
+            bearObUseO   := open[obOff]
+            bearObUseBar := bar_index - obOff
+bullFvgKeep = bullFvgRaw
+bearFvgKeep = bearFvgRaw
+
+// =========================
+// OB Zones — persist-until-violated.
+// Expiry helper: true when zone age is within expiryBars
+// =========================
+f_alive(_h, _deadBar, _trigBar) =>
+    not na(_h) and na(_deadBar) and (na(_trigBar) ? false : (bar_index - _trigBar) <= expiryBars)
+
+var float bobH       = na
+var float bobL       = na
+var int   bobTrigBar = na
+var int   bobDeadBar = na
+
+// Kill if violated (signal state)
+if f_alive(bobH, bobDeadBar, bobTrigBar) and close < bobL
+    bobDeadBar := bar_index
+// Always take newest bull OB (for signal state). Uses bullObUseH/L/Bar so
+// a deferred-confirm OB gets the CANDIDATE's level/bar, not the
+// confirmation bar's — the OB structurally existed since the candidate
+// candle, so its age/expiry should be measured from there too.
+if bullObKeep
+    bobH       := bullObUseH
+    bobL       := bullObUseL
+    bobTrigBar := bullObUseBar
+    bobDeadBar := na
+
+bobActive = f_alive(bobH, bobDeadBar, bobTrigBar)
+bobMid    = bobActive ? (bobH + bobL) * 0.5 : na
+
+// ——————————————————————————
+var float sobH       = na
+var float sobL       = na
+var int   sobTrigBar = na
+var int   sobDeadBar = na
+
+// Kill if violated (signal state)
+if f_alive(sobH, sobDeadBar, sobTrigBar) and close > sobH
+    sobDeadBar := bar_index
+// Always take newest bear OB (for signal state). Uses bearObUseH/L/Bar —
+// see bull OB above for why.
+if bearObKeep
+    sobH       := bearObUseH
+    sobL       := bearObUseL
+    sobTrigBar := bearObUseBar
+    sobDeadBar := na
+
+sobActive = f_alive(sobH, sobDeadBar, sobTrigBar)
+sobMid    = sobActive ? (sobH + sobL) * 0.5 : na
+
+// =========================================================================
+// ORDER BLOCK LIFECYCLE + QUALITY SELECTION (additive; does NOT feed the
+// legacy BK/breaker engine, which still keys off the projected bobDeadBar).
+// Touch != invalidation: a touch advances mitigation/state but only a close
+// beyond the far side FAILS the OB. A FAILED OB is promoted to BREAKER only
+// on an OPPOSITE confirmed displacement (bull/bearChochConfirm), per ICT.
+// Exposes bestBull*/bestBear* so the strategy can pick the highest-quality
+// active OB instead of the newest one.
+// =========================================================================
+float bestBullObH = na
+float bestBullObL = na
+float bestBullObQ = -1.0
+float bestBearObH = na
+float bestBearObL = na
+float bestBearObQ = -1.0
+if array.size(obArr) > 0
+    for i = array.size(obArr) - 1 to 0
+        ob = array.get(obArr, i)
+        zw = math.max(ob.high - ob.low, 1e-9)
+        if ob.dir == 1
+            if low <= ob.high and ob.state <= 1
+                pen = math.min(math.max((ob.high - low) / zw, 0.0), 1.0)
+                ob.mitigation := math.max(ob.mitigation, pen)
+                ob.touchCount := ob.touchCount + 1
+                ob.state      := ob.mitigation >= 0.999 ? 2 : 1
+            if close < ob.low and ob.state != 4
+                ob.state := ob.isBreaker ? 4 : 3
+            if ob.state == 3 and bearChochConfirm
+                ob.state     := 4
+                ob.isBreaker := true
+        else
+            if high >= ob.low and ob.state <= 1
+                pen = math.min(math.max((high - ob.low) / zw, 0.0), 1.0)
+                ob.mitigation := math.max(ob.mitigation, pen)
+                ob.touchCount := ob.touchCount + 1
+                ob.state      := ob.mitigation >= 0.999 ? 2 : 1
+            if close > ob.high and ob.state != 4
+                ob.state := ob.isBreaker ? 4 : 3
+            if ob.state == 3 and bullChochConfirm
+                ob.state     := 4
+                ob.isBreaker := true
+        // effective quality = base minus freshness/mitigation penalty
+        effQ = ob.quality - ob.touchCount * 2.0 - ob.mitigation * 10.0
+        if ob.state == 0 or ob.state == 1
+            if ob.dir == 1 and effQ > bestBullObQ
+                bestBullObQ := effQ
+                bestBullObH := ob.high
+                bestBullObL := ob.low
+            if ob.dir == -1 and effQ > bestBearObQ
+                bestBearObQ := effQ
+                bestBearObH := ob.high
+                bestBearObL := ob.low
+        // prune on expiry only — FAILED OBs survive within their lifetime so
+        // they remain promotable to BREAKER; keeps the array bounded.
+        if not na(ob.createBar) and (bar_index - ob.createBar) > expiryBars
+            array.remove(obArr, i)
+
+// OB Visualization — each OB persists as its own line until price closes through the body
+// _bObTrig / _sObTrig stores formation bar so expired OBs are faded, matching signal state.
+// OB drawn as a SINGLE horizontal line at the origin candle's OPEN, anchored AT
+// that candle and extended to the LAST candle each bar (line.set_x2). Violation
+// still tracks the full candle boundary (low for bull / high for bear) so the
+// line only disappears on a true break, not on a mitigation tap of the open.
+var float[] _bObL    = array.new_float(0)
+var line[]  _bObLn   = array.new_line(0)
+var int[]   _bObTrig = array.new_int(0)
+if array.size(_bObLn) > 0
+    for i = array.size(_bObLn) - 1 to 0
+        expired  = (bar_index - array.get(_bObTrig, i)) > expiryBars
+        violated = close < array.get(_bObL, i)   // close through the OB low = invalidated
+        ln = array.get(_bObLn, i)
+        if violated
+            line.delete(ln)                                        // invalidated -> gone
+            array.remove(_bObL,    i)
+            array.remove(_bObLn,   i)
+            array.remove(_bObTrig, i)
+        else
+            line.set_x2(ln, bar_index)                             // ALWAYS extend to the latest candle
+            if expired
+                line.set_color(ln, color.new(color.green, 80))     // old -> light green, but keeps extending
+if bullObKeep and not simpleMode
+    array.push(_bObL,    bullObUseL)
+    array.push(_bObTrig, bullObUseBar)
+    array.push(_bObLn,   line.new(bullObUseBar, bullObUseO, bar_index, bullObUseO, color=color.new(color.green, 0), width=2))
+    if array.size(_bObLn) > 30                                     // cap kept OBs so arrays stay bounded
+        line.delete(array.shift(_bObLn))
+        array.shift(_bObL)
+        array.shift(_bObTrig)
+
+var float[] _sObH    = array.new_float(0)
+var line[]  _sObLn   = array.new_line(0)
+var int[]   _sObTrig = array.new_int(0)
+if array.size(_sObLn) > 0
+    for i = array.size(_sObLn) - 1 to 0
+        expired  = (bar_index - array.get(_sObTrig, i)) > expiryBars
+        violated = close > array.get(_sObH, i)   // close through the OB high = invalidated
+        ln = array.get(_sObLn, i)
+        if violated
+            line.delete(ln)
+            array.remove(_sObH,    i)
+            array.remove(_sObLn,   i)
+            array.remove(_sObTrig, i)
+        else
+            line.set_x2(ln, bar_index)                             // ALWAYS extend to the latest candle
+            if expired
+                line.set_color(ln, color.new(#8B0000, 80))         // old -> faded dark red, but keeps extending
+if bearObKeep and not simpleMode
+    array.push(_sObH,    bearObUseH)
+    array.push(_sObTrig, bearObUseBar)
+    array.push(_sObLn,   line.new(bearObUseBar, bearObUseO, bar_index, bearObUseO, color=color.new(#8B0000, 0), width=2))
+    if array.size(_sObLn) > 30
+        line.delete(array.shift(_sObLn))
+        array.shift(_sObH)
+        array.shift(_sObTrig)
+
+clamp(val, min_val, max_val) => math.max(min_val, math.min(max_val, val))
+bobAtrDist = bobActive ? clamp((close - bobMid) / safeAtrNow, -20.0, 20.0) : 0.0
+sobAtrDist = sobActive ? -clamp((close - sobMid) / safeAtrNow, -20.0, 20.0) : 0.0
+
+// =========================
+// FVG Zones — persist-until-violated. mid_cancel invalidation.
+// =========================
+var int fvgExtension = 10
+
+// Signal state machine — tracks newest FVG for signal gates only
+var float bullFvgH       = na
+var float bullFvgL       = na
+var int   bullFvgTrigBar = na
+var int   bullFvgDeadBar = na
+
+_bullFvgMidPre = f_alive(bullFvgH, bullFvgDeadBar, bullFvgTrigBar) ? (bullFvgH + bullFvgL) / 2 : na
+if f_alive(bullFvgH, bullFvgDeadBar, bullFvgTrigBar) and close < nz(_bullFvgMidPre, close + 1)
+    bullFvgDeadBar := bar_index
+if bullFvgKeep
+    bullFvgH       := low
+    bullFvgL       := high[2]
+    bullFvgTrigBar := bar_index
+    bullFvgDeadBar := na
+
+bullFvgActive = f_alive(bullFvgH, bullFvgDeadBar, bullFvgTrigBar)
+bullFvgMid    = bullFvgActive ? (bullFvgH + bullFvgL) / 2 : na
+
+// Bull FVG visualization — array-based, all valid zones persist until midpoint violated or expired
+var float[] _bFvgH   = array.new_float(0)
+var float[] _bFvgL   = array.new_float(0)
+var box[]   _bFvgBx  = array.new_box(0)
+var int[]   _bFvgTrig = array.new_int(0)
+if array.size(_bFvgH) > 0
+    for i = array.size(_bFvgH) - 1 to 0
+        bh      = array.get(_bFvgH, i)
+        bl      = array.get(_bFvgL, i)
+        bx      = array.get(_bFvgBx, i)
+        mid     = (bh + bl) / 2
+        expired = (bar_index - array.get(_bFvgTrig, i)) > expiryBars
+        if close < mid or expired
+            if not na(bx)
+                box.delete(bx)
+            array.remove(_bFvgH,   i)
+            array.remove(_bFvgL,   i)
+            array.remove(_bFvgBx,  i)
+            array.remove(_bFvgTrig, i)
+        else
+            if not na(bx)
+                box.set_right(bx, bar_index + fvgExtension)
+if bullFvgKeep and not simpleMode
+    array.push(_bFvgH,   low)
+    array.push(_bFvgL,   high[2])
+    array.push(_bFvgTrig, bar_index)
+    array.push(_bFvgBx,  box.new(bar_index[2], low, bar_index + fvgExtension, high[2], bgcolor=color.new(color.blue, 82), border_color=color.new(color.blue, 50)))
+
+// ——————————————————————————
+// Signal state machine — tracks newest FVG for signal gates only
+var float bearFvgH       = na
+var float bearFvgL       = na
+var int   bearFvgTrigBar = na
+var int   bearFvgDeadBar = na
+
+_bearFvgMidPre = f_alive(bearFvgH, bearFvgDeadBar, bearFvgTrigBar) ? (bearFvgH + bearFvgL) / 2 : na
+if f_alive(bearFvgH, bearFvgDeadBar, bearFvgTrigBar) and close > nz(_bearFvgMidPre, close - 1)
+    bearFvgDeadBar := bar_index
+if bearFvgKeep
+    bearFvgH       := low[2]
+    bearFvgL       := high
+    bearFvgTrigBar := bar_index
+    bearFvgDeadBar := na
+
+bearFvgActive = f_alive(bearFvgH, bearFvgDeadBar, bearFvgTrigBar)
+bearFvgMid    = bearFvgActive ? (bearFvgH + bearFvgL) / 2 : na
+
+// Bear FVG visualization — array-based, all valid zones persist until midpoint violated or expired
+var float[] _sFvgH   = array.new_float(0)
+var float[] _sFvgL   = array.new_float(0)
+var box[]   _sFvgBx  = array.new_box(0)
+var int[]   _sFvgTrig = array.new_int(0)
+if array.size(_sFvgH) > 0
+    for i = array.size(_sFvgH) - 1 to 0
+        sh      = array.get(_sFvgH, i)
+        sl      = array.get(_sFvgL, i)
+        bx      = array.get(_sFvgBx, i)
+        mid     = (sh + sl) / 2
+        expired = (bar_index - array.get(_sFvgTrig, i)) > expiryBars
+        if close > mid or expired
+            if not na(bx)
+                box.delete(bx)
+            array.remove(_sFvgH,   i)
+            array.remove(_sFvgL,   i)
+            array.remove(_sFvgBx,  i)
+            array.remove(_sFvgTrig, i)
+        else
+            if not na(bx)
+                box.set_right(bx, bar_index + fvgExtension)
+if bearFvgKeep and not simpleMode
+    array.push(_sFvgH,   low[2])
+    array.push(_sFvgL,   high)
+    array.push(_sFvgTrig, bar_index)
+    array.push(_sFvgBx,  box.new(bar_index[2], low[2], bar_index + fvgExtension, high, bgcolor=color.new(color.red, 78), border_color=color.new(color.red, 50)))
+
+// =========================
+// Signal gates — strict checks on ACTIVE zones at signal time.
+// ICT sequence: OB/FVG forms → BOS confirms it → price pulls back → entry.
+// Gates are NOT applied at formation — zones are always drawn.
+// =========================
+bullObSignal  = bobActive
+             and (not reqBos or recentBullBos)
+             and (not reqPD  or inDiscount)
+bearObSignal  = sobActive
+             and (not reqBos or recentBearBos)
+             and (not reqPD  or inPremium)
+bullFvgSignal = bullFvgActive
+             and (not reqBos   or recentBullBos)
+             and (not reqPD    or inDiscount)
+             and (not reqSweep or recentSslSwept)
+bearFvgSignal = bearFvgActive
+             and (not reqBos   or recentBearBos)
+             and (not reqPD    or inPremium)
+             and (not reqSweep or recentBslSwept)
+
+bullFvgSweepConf = bullFvgSignal and recentSslSwept
+bearFvgSweepConf = bearFvgSignal and recentBslSwept
+
+// =========================
+// True Breaker Blocks
+// BK fires only on the exact bar a price-violation kill sets deadBar = bar_index.
+// Expiry death (age > expiryBars) leaves deadBar = na, so it can never trigger a BK.
+// This prevents spurious BKs when an OB quietly expires and price is below it that bar.
+// =========================
+bearBkTrig = bobDeadBar == bar_index and not na(bobL) and close < bobL
+bullBkTrig = sobDeadBar == bar_index and not na(sobH) and close > sobH
+
+var float bullBkH       = na
+var float bullBkL       = na
+var int   bullBkTrigBar = na
+var int   bullBkDeadBar = na
+
+// Formation first (latest BK trigger always wins)
+// sobH/sobL are the killed bear OB values — same bar as kill, so no [1] needed.
+if bullBkTrig
+    bullBkH       := sobH
+    bullBkL       := sobL
+    bullBkTrigBar := bar_index
+    bullBkDeadBar := na
+
+bullBkAge        = na(bullBkTrigBar) ? 10e6 : bar_index - bullBkTrigBar
+bullBkNotExpired = bullBkAge <= expiryBars
+bullBkAlive      = not na(bullBkH) and na(bullBkDeadBar) and bullBkNotExpired
+if bullBkAlive and (close < bullBkL or not bullBkNotExpired)
+    bullBkDeadBar := bar_index
+bullBkTooFar = proximityPct > 0 and not na(bullBkH) ? close > bullBkH * (1.0 + proximityPct) : false
+bullBkActive = not na(bullBkH) and na(bullBkDeadBar) and bullBkNotExpired and not bullBkTooFar
+
+var float bearBkH       = na
+var float bearBkL       = na
+var int   bearBkTrigBar = na
+var int   bearBkDeadBar = na
+
+// bobH/bobL are the killed bull OB values — same bar as kill, so no [1] needed.
+if bearBkTrig
+    bearBkH       := bobH
+    bearBkL       := bobL
+    bearBkTrigBar := bar_index
+    bearBkDeadBar := na
+
+bearBkAge        = na(bearBkTrigBar) ? 10e6 : bar_index - bearBkTrigBar
+bearBkNotExpired = bearBkAge <= expiryBars
+bearBkAlive      = not na(bearBkH) and na(bearBkDeadBar) and bearBkNotExpired
+if bearBkAlive and (close > bearBkH or not bearBkNotExpired)
+    bearBkDeadBar := bar_index
+bearBkTooFar = proximityPct > 0 and not na(bearBkL) ? close < bearBkL * (1.0 - proximityPct) : false
+bearBkActive = not na(bearBkH) and na(bearBkDeadBar) and bearBkNotExpired and not bearBkTooFar
+
+// Liquidity Lifecycle: "Converted" — SSL fuels bullish reversals (Bull BK),
+// BSL fuels bearish reversals (Bear BK). See heuristic caveat where
+// lastBslSweptBar/lastSslSweptBar are tracked, above.
+sslConvertedRecent = not na(lastSslSweptBar) and not na(bullBkTrigBar) and bullBkTrigBar >= lastSslSweptBar and (bullBkTrigBar - lastSslSweptBar) <= convertedWindowBars
+bslConvertedRecent = not na(lastBslSweptBar) and not na(bearBkTrigBar) and bearBkTrigBar >= lastBslSweptBar and (bearBkTrigBar - lastBslSweptBar) <= convertedWindowBars
+
+// BK Confidence: sweep depth -> confidence, NOT a gate. Per reviewer
+// guidance, confidence is additive/diagnostic only — it does not suppress
+// or alter bullBkTrig/bearBkTrig/strictLongSignal/strictShortSignal in any
+// way. A sweep at exactly fullRaidAtrThresh depth scores 50; double that
+// depth caps at 100. Only computed when the sweep is within
+// convertedWindowBars of the trigger (same heuristic window as "Converted"
+// stage) — otherwise the BK isn't attributable to a recent sweep at all.
+f_bkConfidence(_sweepDepth, _withinWindow) =>
+    conf = 0.0
+    if _withinWindow and not na(_sweepDepth) and fullRaidAtrThresh > 0
+        conf := math.min(100.0, (_sweepDepth / fullRaidAtrThresh) * 50.0)
+    conf
+
+var float bullBkConfidence = na
+if bullBkTrig
+    bullBkConfidence := f_bkConfidence(lastSslSweepDepth, sslConvertedRecent)
+var float bearBkConfidence = na
+if bearBkTrig
+    bearBkConfidence := f_bkConfidence(lastBslSweepDepth, bslConvertedRecent)
+
+liq_bsl_stage = "—"
+if bestBsl != -1
+    liq_bsl_stage := f_liqStage(array.get(p_sweep_cnt, bestBsl), array.get(p_sweep_dep, bestBsl), bslConvertedRecent)
+liq_ssl_stage = "—"
+if bestSsl != -1
+    liq_ssl_stage := f_liqStage(array.get(p_sweep_cnt, bestSsl), array.get(p_sweep_dep, bestSsl), sslConvertedRecent)
+
+// =========================
+// Signals
+// =========================
+confDistAtr = 5.0
+bullObNear = bullObSignal and math.abs(bobAtrDist) < confDistAtr
+bearObNear = bearObSignal and math.abs(sobAtrDist) < confDistAtr
+
+// Confirmation bar: bullish/bearish close on current candle.
+// If a bull OB is active (bobL not na), also require close above OB body bottom.
+// The na() guard is needed for strict/breaker mode where no OB may exist yet.
+bullConfirm = close > open and (na(bobL) or close > bobL)
+bearConfirm = close < open and (na(sobH) or close < sobH)
+
+legacyLongSignal  = bullObNear and bullFvgSweepConf and recentBullBos and bullConfirm
+legacyShortSignal = bearObNear and bearFvgSweepConf and recentBearBos and bearConfirm
+
+// recentBullBos replaces (mss > 0): BK triggers 5 bars before BOS confirms due to
+// pivot lag — mss is still -1 when BK fires, so (mss > 0) kills valid entries.
+// recentBullBos uses a lookback window that covers the lag.
+strictLongSignal  = bullBkActive and recentBullBos and inDiscount and bullConfirm and not macroIsBearish
+strictShortSignal = bearBkActive and recentBearBos and inPremium  and bearConfirm and not macroIsBullish
+
+longSignal  = strictMode and strictBreakerContinuationOnly ? strictLongSignal  : legacyLongSignal
+shortSignal = strictMode and strictBreakerContinuationOnly ? strictShortSignal : legacyShortSignal
+
+// =========================
+// Strategy Harness
+// =========================
+var float planLongStop  = na
+var float planLongTake  = na
+var float planShortStop = na
+var float planShortTake = na
+var float actLongStop   = na
+var float actLongTake   = na
+var float actShortStop  = na
+var float actShortTake  = na
+
+var int cLongSignals    = 0
+var int cShortSignals   = 0
+var int cNewLongTrades  = 0
+var int cNewShortTrades = 0
+var int cBullBkTrig     = 0
+var int cBearBkTrig     = 0
+var int cLongFailBos    = 0
+var int cLongFailPD     = 0
+var int cLongFailConfirm = 0
+var int cLongFailMacro  = 0
+var int cShortFailBos   = 0
+var int cShortFailPD    = 0
+var int cShortFailConfirm = 0
+var int cShortFailMacro = 0
+var string longTradeDates  = ""
+var string shortTradeDates = ""
+var string bullBkTriggerDates = ""
+var string bearBkTriggerDates = ""
+var int cLongOpportunityBars  = 0
+var int cShortOpportunityBars = 0
+
+// cBullBkTrig/cBearBkTrig count distinct BK formations (birth bars only).
+// The fail-reason checks below instead scan the FULL active window
+// (bullBkActive/bearBkActive) — a BK zone stays alive for up to expiryBars
+// bars after birth, and strictLongSignal/strictShortSignal can fire on ANY
+// of those bars, not just the instant of formation. Checking only the
+// trigger bar undercounts real opportunities and can hide gate combinations
+// that only align a few bars after birth. cLongOpportunityBars/
+// cShortOpportunityBars is the true denominator: total bar-chances across
+// every BK zone's lifetime, vs. cBullBkTrig/cBearBkTrig (zone count).
+if bullBkTrig
+    cBullBkTrig += 1
+    bullBkTriggerDates += (bullBkTriggerDates == "" ? "" : "\n") + str.format("{0,date,yyyy-MM-dd}", time)
+if bearBkTrig
+    cBearBkTrig += 1
+    bearBkTriggerDates += (bearBkTriggerDates == "" ? "" : "\n") + str.format("{0,date,yyyy-MM-dd}", time)
+
+if bullBkActive
+    cLongOpportunityBars += 1
+    if not recentBullBos
+        cLongFailBos += 1
+    if not inDiscount
+        cLongFailPD += 1
+    if not bullConfirm
+        cLongFailConfirm += 1
+    if macroIsBearish
+        cLongFailMacro += 1
+if bearBkActive
+    cShortOpportunityBars += 1
+    if not recentBearBos
+        cShortFailBos += 1
+    if not inPremium
+        cShortFailPD += 1
+    if not bearConfirm
+        cShortFailConfirm += 1
+    if macroIsBullish
+        cShortFailMacro += 1
+if longSignal
+    cLongSignals += 1
+if shortSignal
+    cShortSignals += 1
+
+if enableStrategy
+    if longSignal and strategy.position_size <= 0
+        planLongStop  := close - atrStopMult * safeAtrNow
+        planLongTake  := close + atrTakeMult * safeAtrNow
+        planShortStop := na
+        planShortTake := na
+        strategy.entry("L", strategy.long)
+    if shortSignal and strategy.position_size >= 0
+        planShortStop := close + atrStopMult * safeAtrNow
+        planShortTake := close - atrTakeMult * safeAtrNow
+        planLongStop  := na
+        planLongTake  := na
+        strategy.entry("S", strategy.short)
+
+    newLong  = strategy.position_size > 0 and strategy.position_size[1] <= 0
+    newShort = strategy.position_size < 0 and strategy.position_size[1] >= 0
+    flatNow  = strategy.position_size == 0
+
+    if newLong
+        cNewLongTrades += 1
+        actLongStop    := planLongStop
+        actLongTake    := planLongTake
+        actShortStop   := na
+        actShortTake   := na
+        longTradeDates += (longTradeDates == "" ? "" : "\n") + str.format("{0,date,yyyy-MM-dd}", time)
+    if newShort
+        cNewShortTrades += 1
+        actShortStop    := planShortStop
+        actShortTake    := planShortTake
+        actLongStop     := na
+        actLongTake     := na
+        shortTradeDates += (shortTradeDates == "" ? "" : "\n") + str.format("{0,date,yyyy-MM-dd}", time)
+
+    if strategy.position_size > 0 and not na(actLongStop) and not na(actLongTake)
+        strategy.exit("XL", "L", stop=actLongStop, limit=actLongTake)
+    if strategy.position_size < 0 and not na(actShortStop) and not na(actShortTake)
+        strategy.exit("XS", "S", stop=actShortStop, limit=actShortTake)
+
+    if flatNow and strategy.position_size[1] != 0
+        planLongStop  := na
+        planLongTake  := na
+        planShortStop := na
+        planShortTake := na
+        actLongStop   := na
+        actLongTake   := na
+        actShortStop  := na
+        actShortTake  := na
+
+// =========================
+// Visuals
+// =========================
+// Active trade shading — strategy.position_size is already persistent from the
+// L/S entry bar through the XL/XS exit bar (Pine maintains it natively), so no
+// custom latch is needed. This makes the whole holding period visually "alive"
+// instead of only flashing on the two isolated entry/exit marker bars.
+bgcolor(enableStrategy and not simpleMode and strategy.position_size > 0 ? color.new(color.blue,   88) : na, title="Active Long Trade")
+bgcolor(enableStrategy and not simpleMode and strategy.position_size < 0 ? color.new(color.purple, 88) : na, title="Active Short Trade")
+
+// Opportunity-window dots — NOT gated by macroIsBearish/macroIsBullish, unlike
+// the BK+/BK- labels below, so these line up exactly 1:1 with
+// cLongOpportunityBars/cShortOpportunityBars for manual verification. Count
+// the dots between a Bull BK Trigger date and its death/expiry and it should
+// match what fed into the fail-reason counters for that zone.
+plotchar(bullBkActive and not simpleMode, title="Long Opportunity Bar", char="•", location=location.belowbar, color=color.new(color.blue,   40), size=size.tiny)
+plotchar(bearBkActive and not simpleMode, title="Short Opportunity Bar", char="•", location=location.abovebar, color=color.new(color.purple, 40), size=size.tiny)
+
+// Liquidity Creation: calendar-anchored reference levels (step lines — flat
+// within each week/month, jump to the new prior-period value at the boundary)
+plot(showPWPM and not simpleMode ? pdH : na, title="Prev Day High",   color=color.new(color.gray,    0), style=plot.style_stepline, linewidth=1)
+plot(showPWPM and not simpleMode ? pdL : na, title="Prev Day Low",    color=color.new(color.gray,    0), style=plot.style_stepline, linewidth=1)
+plot(showPWPM and not simpleMode ? pwH : na, title="Prev Week High",  color=color.new(color.orange,  0), style=plot.style_stepline, linewidth=1)
+plot(showPWPM and not simpleMode ? pwL : na, title="Prev Week Low",   color=color.new(color.orange,  0), style=plot.style_stepline, linewidth=1)
+plot(showPWPM and not simpleMode ? pmH : na, title="Prev Month High", color=color.new(color.fuchsia, 0), style=plot.style_stepline, linewidth=1)
+plot(showPWPM and not simpleMode ? pmL : na, title="Prev Month Low",  color=color.new(color.fuchsia, 0), style=plot.style_stepline, linewidth=1)
+
+plotshape(bslSwept and not simpleMode, title="BSL Swept", style=shape.triangledown, color=color.new(color.red,  0), location=location.abovebar, size=size.tiny, text="BSL")
+plotshape(sslSwept and not simpleMode, title="SSL Swept", style=shape.triangleup,   color=color.new(color.lime, 0), location=location.belowbar, size=size.tiny, text="SSL")
+
+// =========================================================================
+// INSTITUTIONAL SEQUENCE TRACKER — beyond a bare SSL/BSL tag, show WHERE price
+// sits in the delivery pipeline: Liquidity -> Sweep -> Displacement/FVG -> BOS
+// -> Order Block. Reports the furthest stage reached recently on the active
+// (most-recently-swept) side, as a label on the last bar.
+// =========================================================================
+seqWin = 15
+f_seqStage(_swept, _fvg, _bos, _ob) =>
+    _ob ? 5 : (_bos ? 4 : (_fvg ? 3 : (_swept ? 2 : 1)))
+bullSeqStage = f_seqStage(recentSslSwept, f_recent_true(bullFvgRaw, seqWin), f_recent_true(bullBOS2 or bullChochConfirm, seqWin), f_recent_true(bullObKeep, seqWin))
+bearSeqStage = f_seqStage(recentBslSwept, f_recent_true(bearFvgRaw, seqWin), f_recent_true(bearBOS2 or bearChochConfirm, seqWin), f_recent_true(bearObKeep, seqWin))
+bullActiveSeq = not na(lastSslSweptBar) and (na(lastBslSweptBar) or lastSslSweptBar >= lastBslSweptBar)
+seqStageNum = bullActiveSeq ? bullSeqStage : bearSeqStage
+seqDir  = bullActiveSeq ? "Bull" : "Bear"
+seqName = seqStageNum == 5 ? "Order Block" : seqStageNum == 4 ? "BOS / CHoCH" : seqStageNum == 3 ? "Displacement + FVG" : seqStageNum == 2 ? "Liquidity Swept" : "Liquidity Resting"
+seqText = "ICT Sequence  [" + seqDir + "]  " + str.tostring(seqStageNum) + "/5\n" + (seqStageNum >= 2 ? "✓" : "◦") + " Sweep    " + (seqStageNum >= 3 ? "✓" : "◦") + " Disp/FVG    " + (seqStageNum >= 4 ? "✓" : "◦") + " BOS    " + (seqStageNum >= 5 ? "✓" : "◦") + " OB\n→ " + seqName
+var label seqLbl = na
+if barstate.islast and not simpleMode
+    label.delete(seqLbl)
+    seqLbl := label.new(bar_index, high, seqText, xloc=xloc.bar_index, style=label.style_label_left, color=color.new(color.blue, 15), textcolor=color.white, size=size.small)
+
+// =========================================================================
+// LIQUIDITY CONFIDENCE SCORE — replaces a flat "Strong/Weak" tag with a
+// weighted 0-100 grade per the reviewer's model:
+//   25% Liquidity Importance | 15% Sweep Quality | 25% Displacement Quality
+//   20% Structural Outcome   | 10% Premium/Discount | 5% Trend Exhaustion
+// Attached as an evolving label AT the sweep bar: created with an initial
+// score, refreshed for confWin bars while displacement/BOS/CHoCH resolves,
+// then left frozen — a permanent per-event grade, not a single last-bar summary.
+// =========================================================================
+confWin = 15
+
+// Displacement Quality (25%): consecutive same-direction candles, close-near-
+// -favorable-extreme, and body expansion vs ATR, measured from the sweep bar
+// to now. Standalone (not reused from OrderBlock.dispScore) so it's available
+// at sweep time even if no OB has formed yet.
+f_dispQuality(_dir, _sinceBar) =>
+    offCount = math.max(math.min(bar_index - _sinceBar, 30), 0)
+    consecutive = 0
+    maxConsecutive = 0
+    closeNearSum = 0.0
+    expSum = 0.0
+    n = 0
+    for k = 0 to offCount
+        bodyUp = close[k] > open[k]
+        isDir  = _dir == 1 ? bodyUp : not bodyUp
+        if isDir
+            consecutive += 1
+            maxConsecutive := math.max(maxConsecutive, consecutive)
+            rng = high[k] - low[k]
+            if rng > 0
+                closeNearSum += _dir == 1 ? (close[k] - low[k]) / rng : (high[k] - close[k]) / rng
+            atrK = nz(safeAtr[k], safeAtrNow)
+            if atrK > 0
+                expSum += math.abs(close[k] - open[k]) / atrK
+            n += 1
+        else
+            consecutive := 0
+    avgNear = n > 0 ? closeNearSum / n : 0.0
+    avgExp  = n > 0 ? expSum / n : 0.0
+    math.min(math.min(maxConsecutive, 4.0) / 4.0 * 40.0 + avgNear * 30.0 + math.min(avgExp, 2.0) / 2.0 * 30.0, 100.0)
+
+// Liquidity Importance (25%): the swept pool's STRUCTURAL role (recomputed
+// directly from the p_* arrays at the captured index — liqPools may have
+// already dropped this pool if it retired the same bar), not just touches.
+f_liqImportance(_idx, _side) =>
+    if na(_idx) or _idx < 0 or _idx >= array.size(p_side)
+        0.0
+    else
+        _tc  = array.get(p_touches, _idx)
+        _mn  = array.get(p_min, _idx)
+        _mx  = array.get(p_max, _idx)
+        _lvl = _side == 1 ? _mx : _mn
+        tolI = mergeProx * safeAtrNow
+        isProt = _side == 1 ? (not na(protHigh) and math.abs(_lvl - protHigh) <= tolI) : (not na(protLow) and math.abs(_lvl - protLow) <= tolI)
+        isCal  = _side == 1 ? ((not na(pwH) and math.abs(_lvl - pwH) <= tolI) or (not na(pmH) and math.abs(_lvl - pmH) <= tolI) or (not na(pdH) and math.abs(_lvl - pdH) <= tolI)) : ((not na(pwL) and math.abs(_lvl - pwL) <= tolI) or (not na(pmL) and math.abs(_lvl - pmL) <= tolI) or (not na(pdL) and math.abs(_lvl - pdL) <= tolI))
+        isExt  = _side == 1 ? (_mx >= rangeHigh - extLiqTolAtr * safeAtrNow) : (_mn <= rangeLow + extLiqTolAtr * safeAtrNow)
+        kdFinal = isCal ? 3 : (isProt ? 2 : ((isExt or _tc >= 2) ? 1 : 0))
+        base = math.min(_tc, 5.0) / 5.0 * 30.0 + math.min(math.max(bar_index - array.get(p_first_t, _idx), 0), 100) / 100.0 * 20.0
+        math.min(kdFinal * 25.0 + base, 100.0)
+
+f_sweepQuality(_depth, _barsBeyond) =>
+    math.min(math.min(_depth, 1.0) * 60.0 + math.min(_barsBeyond, 3.0) / 3.0 * 40.0, 100.0)
+
+f_structOutcome(_chochYet, _bosYet) =>
+    _chochYet ? 90.0 : (_bosYet ? 45.0 : 15.0)   // turn (CHoCH) graded well above a mere pause (BOS) — point #1/#8
+
+f_pdAlign(_dir, _inDisc, _inPrem) =>
+    _dir == 1 ? (_inDisc ? 100.0 : (_inPrem ? 20.0 : 60.0)) : (_inPrem ? 100.0 : (_inDisc ? 20.0 : 60.0))
+
+f_exhaustion(_dir, _oppStreak) =>
+    math.min(math.min(_oppStreak, 4.0) / 4.0 * 60.0 + math.min(distFromEqAtr, 2.0) / 2.0 * 40.0, 100.0)
+
+f_confGrade(_score) =>
+    _score >= 80 ? "A" : _score >= 60 ? "B" : _score >= 40 ? "C" : "D"
+
+f_liqConfidence(_dir, _idx, _sweptBar, _depth, _barsBeyond, _oppStreak) =>
+    imp    = f_liqImportance(_idx, _dir)
+    sweepQ = f_sweepQuality(_depth, _barsBeyond)
+    dispQ  = f_dispQuality(_dir, _sweptBar)
+    chochYet = _dir == 1 ? f_recent_true(bullChochConfirm, confWin) : f_recent_true(bearChochConfirm, confWin)
+    bosYet   = _dir == 1 ? f_recent_true(bullBOS2, confWin)         : f_recent_true(bearBOS2, confWin)
+    structQ = f_structOutcome(chochYet, bosYet)
+    pdQ     = f_pdAlign(_dir, inDiscount, inPremium)
+    exhQ    = f_exhaustion(_dir, _oppStreak)
+    math.min(0.25 * imp + 0.15 * sweepQ + 0.25 * dispQ + 0.20 * structQ + 0.10 * pdQ + 0.05 * exhQ, 100.0)
+
+var label sslConfLbl = na
+var int   sslConfBar = na
+if sslSwept
+    sslConfBar := bar_index
+    sc0 = f_liqConfidence(1, lastSslSweptPoolIdx, bar_index, lastSslSweepDepth, lastSslSweptBarsBeyond, strictBearBosStreak)
+    sslConfLbl := label.new(bar_index, low, "SSL " + f_confGrade(sc0) + " (" + str.tostring(int(math.round(sc0))) + ")", style=label.style_label_up, color=color.new(color.blue, 20), textcolor=color.white, size=size.tiny)
+else if not na(sslConfBar) and (bar_index - sslConfBar) <= confWin
+    scU = f_liqConfidence(1, lastSslSweptPoolIdx, sslConfBar, lastSslSweepDepth, lastSslSweptBarsBeyond, strictBearBosStreak)
+    label.set_text(sslConfLbl, "SSL " + f_confGrade(scU) + " (" + str.tostring(int(math.round(scU))) + ")")
+
+var label bslConfLbl = na
+var int   bslConfBar = na
+if bslSwept
+    bslConfBar := bar_index
+    bc0 = f_liqConfidence(-1, lastBslSweptPoolIdx, bar_index, lastBslSweepDepth, lastBslSweptBarsBeyond, strictBullBosStreak)
+    bslConfLbl := label.new(bar_index, high, "BSL " + f_confGrade(bc0) + " (" + str.tostring(int(math.round(bc0))) + ")", style=label.style_label_down, color=color.new(#8B0000, 20), textcolor=color.white, size=size.tiny)
+else if not na(bslConfBar) and (bar_index - bslConfBar) <= confWin
+    bcU = f_liqConfidence(-1, lastBslSweptPoolIdx, bslConfBar, lastBslSweepDepth, lastBslSweptBarsBeyond, strictBullBosStreak)
+    label.set_text(bslConfLbl, "BSL " + f_confGrade(bcU) + " (" + str.tostring(int(math.round(bcU))) + ")")
+
+// Equal Highs/Lows — fires the moment a SECOND pivot merges into an existing
+// resting pool (Liquidity Creation: EQH/EQL), exposing what was previously an
+// internal-only p_touches increment in f_add_or_merge_pool.
+plotshape(bslEqEvt and showEqualHL and not simpleMode, title="Equal Highs (EQH)", style=shape.xcross, color=color.new(color.fuchsia, 20), text="EQH", textcolor=color.white, location=location.abovebar, size=size.tiny)
+plotshape(sslEqEvt and showEqualHL and not simpleMode, title="Equal Lows (EQL)",  style=shape.xcross, color=color.new(color.teal,    20), text="EQL", textcolor=color.white, location=location.belowbar, size=size.tiny)
+
+// Legacy (retail-style) BOS/CHoCH — superseded by the Stage-1 strict engine's
+// sBOS+/sBOS-/sCH+/sCH- above. These are KNOWN-UNRELIABLE: bullChoch/bearChoch
+// (lines ~362-363) are "first opposite BOS" off a ±1 mss sign, not a real trend
+// state, so in a choppy accumulation the label re-emits on every alternation and
+// can print a CH- right where a CH+ belongs (BUG-003). Now OFF by default and
+// gated behind showLegacyStructure — the strict engine (sCH+?/RVSL+, default ON)
+// is the source of truth. Still hidden entirely in Simple Mode.
+plotshape(bullBosEvt and showLegacyStructure and not simpleMode, title="Bull BOS (legacy)", style=shape.labelup,   color=color.new(color.green,  70), text="BOS+", textcolor=color.white, location=location.belowbar, size=size.tiny)
+plotshape(bearBosEvt and showLegacyStructure and not simpleMode, title="Bear BOS (legacy)", style=shape.labeldown,  color=color.new(color.red,   70), text="BOS-", textcolor=color.white, location=location.abovebar, size=size.tiny)
+plotshape(bullChoch  and showLegacyStructure and not simpleMode, title="Bull CHoCH (legacy)", style=shape.labelup,  color=color.new(color.blue,  70), text="CH+",  textcolor=color.white, location=location.belowbar, size=size.tiny)
+plotshape(bearChoch  and showLegacyStructure and not simpleMode, title="Bear CHoCH (legacy)", style=shape.labeldown,color=color.new(color.purple,70), text="CH-",  textcolor=color.white, location=location.abovebar, size=size.tiny)
+
+// BK labels gated by macro regime — suppress counter-trend BKs that can't produce signals
+plotshape(bullBkTrig and not macroIsBearish and not simpleMode, title="Bull BK Trigger", style=shape.labelup,   text="BK+", color=color.new(color.blue,   65), textcolor=color.white, location=location.belowbar, size=size.tiny)
+plotshape(bearBkTrig and not macroIsBullish and not simpleMode, title="Bear BK Trigger", style=shape.labeldown,  text="BK-", color=color.new(color.purple, 65), textcolor=color.white, location=location.abovebar, size=size.tiny)
+
+// Raw trigger markers — UNGATED by macro, unlike BK+/BK- above, so these
+// line up 1:1 with cBullBkTrig/cBearBkTrig and the Bull/Bear BK Trigger
+// Dates table rows. Small plain triangles (no text/label box) so they're
+// visually distinct from the gated BK+/BK- labels and don't compete with
+// them for space — point at a bar directly on the chart instead of having
+// to cross-reference a dense date list in the table.
+plotshape(bullBkTrig and not simpleMode, title="Bull BK Trigger (raw, ungated)", style=shape.triangleup,   color=color.new(color.blue,   55), location=location.belowbar, size=size.tiny)
+plotshape(bearBkTrig and not simpleMode, title="Bear BK Trigger (raw, ungated)", style=shape.triangledown, color=color.new(color.purple, 55), location=location.abovebar, size=size.tiny)
+
+// Bull OB open-line: _bObLn at OB open (persist until close < low)
+// Bear OB open-line: _sObLn at OB open (persist until close > high)
+
+
+// Breaker block lines — line.new() prevents diagonal connections between levels
+var line _bullBkTopLn   = na
+var line _bullBkBotLn   = na
+var bool _bullBkLnAlive = false
+if bullBkTrig and not macroIsBearish
+    if not na(_bullBkTopLn)
+        line.delete(_bullBkTopLn)
+    if not na(_bullBkBotLn)
+        line.delete(_bullBkBotLn)
+    _bullBkTopLn   := line.new(bar_index - 1, sobH, bar_index, sobH, color=color.new(color.blue, 35), width=1, extend=extend.right)
+    _bullBkBotLn   := line.new(bar_index - 1, sobL, bar_index, sobL, color=color.new(color.blue, 35), width=1, extend=extend.right)
+    _bullBkLnAlive := true
+if _bullBkLnAlive and not bullBkActive
+    if not na(_bullBkTopLn)
+        line.set_extend(_bullBkTopLn, extend.none)
+    if not na(_bullBkBotLn)
+        line.set_extend(_bullBkBotLn, extend.none)
+    _bullBkLnAlive := false
+
+var line _bearBkTopLn   = na
+var line _bearBkBotLn   = na
+var bool _bearBkLnAlive = false
+if bearBkTrig and not macroIsBullish
+    if not na(_bearBkTopLn)
+        line.delete(_bearBkTopLn)
+    if not na(_bearBkBotLn)
+        line.delete(_bearBkBotLn)
+    _bearBkTopLn   := line.new(bar_index - 1, bobH, bar_index, bobH, color=color.new(color.purple, 35), width=1, extend=extend.right)
+    _bearBkBotLn   := line.new(bar_index - 1, bobL, bar_index, bobL, color=color.new(color.purple, 35), width=1, extend=extend.right)
+    _bearBkLnAlive := true
+if _bearBkLnAlive and not bearBkActive
+    if not na(_bearBkTopLn)
+        line.set_extend(_bearBkTopLn, extend.none)
+    if not na(_bearBkBotLn)
+        line.set_extend(_bearBkBotLn, extend.none)
+    _bearBkLnAlive := false
+
+// FVG displayed as boxes (box.new in FVG section); midpoint used only for invalidation, not plotted
+
+// Data-window only
+plot(liq_bsl_dist_atr, "liq_bsl_dist_atr", color=color.new(color.red,   85), display=display.data_window)
+plot(liq_ssl_dist_atr, "liq_ssl_dist_atr", color=color.new(color.green, 85), display=display.data_window)
+
+alertcondition(longSignal,          "Long Signal",      "ICT strict long signal")
+alertcondition(shortSignal,         "Short Signal",     "ICT strict short signal")
+alertcondition(bslSwept or sslSwept,"Liquidity Sweep",  "BSL/SSL sweep detected")
+
+// =========================
+// Diagnostics Table
+// =========================
+var table t = table.new(position.top_right, 2, 25, border_width=1)
+if showDiagTable and not simpleMode and barstate.islast
+    table.cell(t, 0, 0, "Metric", text_color=color.white, bgcolor=color.rgb(30,30,30))
+    table.cell(t, 1, 0, "Value",  text_color=color.white, bgcolor=color.rgb(30,30,30))
+    table.cell(t, 0, 1,  "Long Signals")
+    table.cell(t, 1, 1,  str.tostring(cLongSignals))
+    table.cell(t, 0, 2,  "Short Signals")
+    table.cell(t, 1, 2,  str.tostring(cShortSignals))
+    table.cell(t, 0, 3,  "New Long Trades")
+    table.cell(t, 1, 3,  str.tostring(cNewLongTrades))
+    table.cell(t, 0, 4,  "New Short Trades")
+    table.cell(t, 1, 4,  str.tostring(cNewShortTrades))
+    table.cell(t, 0, 5,  "Bull BK Triggers")
+    table.cell(t, 1, 5,  str.tostring(cBullBkTrig))
+    table.cell(t, 0, 6,  "Bear BK Triggers")
+    table.cell(t, 1, 6,  str.tostring(cBearBkTrig))
+    table.cell(t, 0, 7,  "Long Opportunity Bars")
+    table.cell(t, 1, 7,  str.tostring(cLongOpportunityBars))
+    table.cell(t, 0, 8,  "Short Opportunity Bars")
+    table.cell(t, 1, 8,  str.tostring(cShortOpportunityBars))
+    table.cell(t, 0, 9,  "Long Fail BOS")
+    table.cell(t, 1, 9,  str.tostring(cLongFailBos))
+    table.cell(t, 0, 10, "Long Fail P/D")
+    table.cell(t, 1, 10, str.tostring(cLongFailPD))
+    table.cell(t, 0, 11, "Long Fail Confirm")
+    table.cell(t, 1, 11, str.tostring(cLongFailConfirm))
+    table.cell(t, 0, 12, "Long Fail Macro")
+    table.cell(t, 1, 12, str.tostring(cLongFailMacro))
+    table.cell(t, 0, 13, "Short Fail BOS")
+    table.cell(t, 1, 13, str.tostring(cShortFailBos))
+    table.cell(t, 0, 14, "Short Fail P/D")
+    table.cell(t, 1, 14, str.tostring(cShortFailPD))
+    table.cell(t, 0, 15, "Short Fail Confirm")
+    table.cell(t, 1, 15, str.tostring(cShortFailConfirm))
+    table.cell(t, 0, 16, "Short Fail Macro")
+    table.cell(t, 1, 16, str.tostring(cShortFailMacro))
+    table.cell(t, 0, 17, "Long Trade Dates")
+    table.cell(t, 1, 17, longTradeDates  == "" ? "—" : longTradeDates,  text_size=size.tiny)
+    table.cell(t, 0, 18, "Short Trade Dates")
+    table.cell(t, 1, 18, shortTradeDates == "" ? "—" : shortTradeDates, text_size=size.tiny)
+    table.cell(t, 0, 19, "Bull BK Trigger Dates")
+    table.cell(t, 1, 19, bullBkTriggerDates == "" ? "—" : bullBkTriggerDates, text_size=size.tiny)
+    table.cell(t, 0, 20, "Bear BK Trigger Dates")
+    table.cell(t, 1, 20, bearBkTriggerDates == "" ? "—" : bearBkTriggerDates, text_size=size.tiny)
+    table.cell(t, 0, 21, "Nearest BSL Pool")
+    table.cell(t, 1, 21, bestBsl == -1 ? "—" : (bslExtCategory + "  |  Score " + str.tostring(liq_bsl_score, "#") + "  |  " + liq_bsl_stage))
+    table.cell(t, 0, 22, "Nearest SSL Pool")
+    table.cell(t, 1, 22, bestSsl == -1 ? "—" : (sslExtCategory + "  |  Score " + str.tostring(liq_ssl_score, "#") + "  |  " + liq_ssl_stage))
+    table.cell(t, 0, 23, "Bull BK Confidence")
+    table.cell(t, 1, 23, na(bullBkConfidence) ? "—" : str.tostring(bullBkConfidence, "#"))
+    table.cell(t, 0, 24, "Bear BK Confidence")
+    table.cell(t, 1, 24, na(bearBkConfidence) ? "—" : str.tostring(bearBkConfidence, "#"))

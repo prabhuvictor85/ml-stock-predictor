@@ -18,8 +18,12 @@ artefacts/**/checkpoints/
 # Logs
 artefacts/**/logs/
 
-# Output watchlists (generated files)
-output/
+# Output watchlists — track for HF dashboard
+# output/ is included; individual CSVs/JSONs un-ignored below
+!output/
+!output/**
+!output/**/*.csv
+!output/**/*.json
 
 # Reports (generated images)
 reports/

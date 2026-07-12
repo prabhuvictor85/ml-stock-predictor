@@ -12,11 +12,20 @@ from pipeline.features.zone_features import _HTF_RESAMPLE
 
 
 def test_zone_htf_resample_is_period_end_anchored():
-    assert _HTF_RESAMPLE["1mo"] == "ME"
-    assert _HTF_RESAMPLE["3mo"] == "QE"
-    assert _HTF_RESAMPLE["1y"] == "YE"
+    # zone_features picks the alias the installed pandas accepts: M/Q/Y on
+    # <2.2, ME/QE/YE on >=2.2. Assert period-END anchoring (the leakage guard),
+    # not a literal spelling — the old hardcoded "ME" assertions failed on any
+    # pandas <2.2 even though behavior was correct.
+    assert _HTF_RESAMPLE["1mo"] in ("M", "ME")
+    assert _HTF_RESAMPLE["3mo"] in ("Q", "QE")
+    assert _HTF_RESAMPLE["1y"] in ("Y", "YE")
     assert _HTF_RESAMPLE["1wk"] == "W-FRI"
     assert _HTF_RESAMPLE["1d"] is None
+    # Semantic check: monthly bars must be labelled at period END, never start.
+    idx = pd.date_range("2024-01-01", "2024-03-31", freq="D")
+    df = pd.DataFrame({"close": np.arange(len(idx), dtype=float)}, index=idx)
+    res = df.resample(_HTF_RESAMPLE["1mo"]).agg({"close": "last"}).dropna()
+    assert res.index[0] == pd.Timestamp("2024-01-31"), "monthly bar not end-anchored"
 
 
 def test_cutoff_guard_excludes_incomplete_period():

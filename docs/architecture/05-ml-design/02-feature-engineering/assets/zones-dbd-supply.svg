@@ -1,0 +1,29 @@
+<svg viewBox="0 0 520 300" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <rect x="0" y="0" width="520" height="300" fill="#ffffff"/>
+  <text x="260" y="26" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">DBD (Drop → Base → Drop) forms a Supply Zone</text>
+
+  <!-- Zone band -->
+  <rect x="50" y="140" width="430" height="20" fill="#ffcdd2" opacity="0.7" stroke="#a02c2c" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="490" y="154" font-size="11" fill="#a02c2c">Supply Zone</text>
+  <text x="55" y="135" font-size="11" fill="#a02c2c">Distal (upper edge — confirming drop's high)</text>
+  <text x="55" y="175" font-size="11" fill="#a02c2c">Proximal (lower edge — base open)</text>
+
+  <!-- Candle 1: Drop -->
+  <line x1="120" y1="90"  x2="120" y2="150" stroke="#a02c2c" stroke-width="2"/>
+  <rect x="105" y="95" width="30" height="50" fill="#e05a4d" stroke="#a02c2c" stroke-width="2"/>
+  <text x="120" y="235" text-anchor="middle" font-size="12" fill="#333">Drop</text>
+
+  <!-- Candle 2: Base -->
+  <line x1="220" y1="130" x2="220" y2="158" stroke="#2e6da4" stroke-width="2"/>
+  <rect x="205" y="136" width="30" height="10" fill="#7fb3e8" stroke="#2e6da4" stroke-width="2"/>
+  <text x="220" y="235" text-anchor="middle" font-size="12" fill="#333">Base</text>
+  <text x="220" y="251" text-anchor="middle" font-size="11" fill="#777">(small pause)</text>
+
+  <!-- Candle 3: Drop (confirming) -->
+  <line x1="320" y1="160" x2="320" y2="228" stroke="#a02c2c" stroke-width="2"/>
+  <rect x="305" y="165" width="30" height="60" fill="#e05a4d" stroke="#a02c2c" stroke-width="2"/>
+  <text x="320" y="235" text-anchor="middle" font-size="12" fill="#333">Drop (confirms)</text>
+
+  <text x="260" y="270" text-anchor="middle" font-size="12" fill="#333">If price rallies back into this band, the pattern says sellers</text>
+  <text x="260" y="286" text-anchor="middle" font-size="12" fill="#333">previously stepped in here — and may step in again.</text>
+</svg>

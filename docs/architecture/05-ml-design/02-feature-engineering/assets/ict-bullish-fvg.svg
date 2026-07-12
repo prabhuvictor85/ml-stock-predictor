@@ -1,0 +1,27 @@
+<svg viewBox="0 0 480 280" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <rect x="0" y="0" width="480" height="280" fill="#ffffff"/>
+  <text x="240" y="26" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">Bullish Fair Value Gap (3-candle gap)</text>
+
+  <!-- FVG band: between candle i-2's high and candle i's low -->
+  <rect x="130" y="60" width="220" height="40" fill="#fff3cd" opacity="0.8" stroke="#b8860b" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="240" y="84" text-anchor="middle" font-size="12" fill="#8a6d00">UNFILLED GAP</text>
+
+  <!-- Candle i-2 -->
+  <line x1="110" y1="95"  x2="110" y2="140" stroke="#7f8c8d" stroke-width="1.5"/>
+  <rect x="98"  y="105" width="24" height="30" fill="#bdc3c7" stroke="#7f8c8d" stroke-width="1.5"/>
+  <text x="110" y="160" text-anchor="middle" font-size="12" fill="#333">i−2</text>
+
+  <!-- Candle i-1 (impulse) -->
+  <line x1="220" y1="35" x2="220" y2="150" stroke="#1e7e34" stroke-width="2"/>
+  <rect x="205" y="45" width="30" height="90" fill="#5cb85c" stroke="#1e7e34" stroke-width="2"/>
+  <text x="220" y="170" text-anchor="middle" font-size="12" fill="#333">i−1 (the big move</text>
+  <text x="220" y="186" text-anchor="middle" font-size="12" fill="#333">that leaves the gap)</text>
+
+  <!-- Candle i -->
+  <line x1="320" y1="30" x2="320" y2="65" stroke="#1e7e34" stroke-width="1.5"/>
+  <rect x="308" y="35" width="24" height="25" fill="#5cb85c" stroke="#1e7e34" stroke-width="1.5"/>
+  <text x="320" y="20" text-anchor="middle" font-size="12" fill="#333">i</text>
+
+  <text x="240" y="230" text-anchor="middle" font-size="12" fill="#333">Candle i's Low sits entirely ABOVE candle (i−2)'s High — no trading</text>
+  <text x="240" y="246" text-anchor="middle" font-size="12" fill="#333">occurred in that range at all. Price often returns to "fill" it later.</text>
+</svg>

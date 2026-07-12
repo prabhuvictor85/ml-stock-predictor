@@ -32,6 +32,16 @@ class SHAPExplainer:
         self._shap_values: Optional[np.ndarray] = None
         self._feature_names: List[str] = []
 
+    def _model_view(self, X: pd.DataFrame) -> pd.DataFrame:
+        """Apply the same NaN treatment the model was trained with.
+
+        NaN-native models (nan_native_=True) must be explained on NaN inputs;
+        legacy artefacts were trained on fillna(0) data and must be explained
+        on filled inputs — otherwise SHAP explains a different prediction than
+        the one the pipeline actually used.
+        """
+        return X if getattr(self.lgbm, "nan_native_", False) else X.fillna(0)
+
     def compute(self, X: pd.DataFrame) -> np.ndarray:
         """Compute SHAP values. Returns array (n_samples, n_features)."""
         try:
@@ -43,7 +53,7 @@ class SHAPExplainer:
         explainer = shap.TreeExplainer(self.lgbm.model_)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            shap_values = explainer.shap_values(X.fillna(0))
+            shap_values = explainer.shap_values(self._model_view(X))
         self._shap_values = shap_values
         self._feature_names = list(X.columns)
         return shap_values
@@ -93,12 +103,13 @@ class SHAPExplainer:
         shap_values = self.compute(X)
         fig, axes = plt.subplots(1, 2, figsize=(16, 8))
 
+        X_view = self._model_view(X)
         plt.sca(axes[0])
-        shap.summary_plot(shap_values, X.fillna(0), show=False, max_display=20)
+        shap.summary_plot(shap_values, X_view, show=False, max_display=20)
         axes[0].set_title("SHAP Beeswarm (Top 20)")
 
         plt.sca(axes[1])
-        shap.summary_plot(shap_values, X.fillna(0), plot_type="bar", show=False, max_display=20)
+        shap.summary_plot(shap_values, X_view, plot_type="bar", show=False, max_display=20)
         axes[1].set_title("SHAP Mean |Value| (Top 20)")
 
         plt.tight_layout()

@@ -53,7 +53,12 @@ def analyse_one_mode(mode: str, sample_size: int, top_n: int, skip_shap: bool):
     banner(f"MODE: {mode.upper()}")
     art_dir = PROJECT_ROOT / "artefacts" / "nse_tradingv" / mode
     ranker_path = art_dir / "lgbm_ranker.pkl"
-    panel_path  = art_dir / "panel.pkl"
+    # Per-mode panel.pkl is no longer written (it dominated artefact disk);
+    # prefer it if an old one is still around, else use the shared targets
+    # checkpoint (same panel content + target columns).
+    panel_path = art_dir / "panel.pkl"
+    if not panel_path.exists():
+        panel_path = art_dir.parent / "checkpoints" / "panel_targets.pkl"
 
     if not ranker_path.exists():
         print(f"  Skipping {mode}: {ranker_path} not found.")

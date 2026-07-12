@@ -1,0 +1,23 @@
+<svg viewBox="0 0 600 300" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <rect x="0" y="0" width="600" height="300" fill="#ffffff"/>
+  <text x="300" y="26" text-anchor="middle" font-size="15" font-weight="bold" fill="#222">Old Supply Zone (SZ) → clean breakout → Swap Demand Zone (SDZ)</text>
+
+  <!-- Zone band, carried across time -->
+  <rect x="40" y="100" width="520" height="40" fill="#ffcdd2" opacity="0.6" stroke="#a02c2c" stroke-width="1.5" stroke-dasharray="5 3"/>
+  <text x="45" y="94"  font-size="12" fill="#a02c2c">Distal (top)</text>
+  <text x="45" y="156" font-size="12" fill="#a02c2c">Proximal (bottom)</text>
+  <text x="55" y="120" font-size="12" fill="#333">SZ band — sellers were in control here</text>
+
+  <line x1="300" y1="60" x2="300" y2="260" stroke="#999" stroke-width="1.5" stroke-dasharray="3 4"/>
+  <text x="300" y="50" text-anchor="middle" font-size="12" fill="#777">⋯ weeks later ⋯</text>
+
+  <!-- Breakout rally candle -->
+  <line x1="460" y1="40" x2="460" y2="165" stroke="#1e7e34" stroke-width="2"/>
+  <rect x="445" y="55" width="30" height="45" fill="#5cb85c" stroke="#1e7e34" stroke-width="2"/>
+  <text x="460" y="185" text-anchor="middle" font-size="12" fill="#333">Rally candle</text>
+  <text x="460" y="201" text-anchor="middle" font-size="12" fill="#333">closes CLEANLY above Distal</text>
+
+  <text x="300" y="240" text-anchor="middle" font-size="12" fill="#333">Conversion needs: (1) first close above Distal, (2) breakout candle is a Rally,</text>
+  <text x="300" y="256" text-anchor="middle" font-size="12" fill="#333">(3) no Drop/Base overlapped the band on the way up → ZoneType flips to SDZ.</text>
+  <text x="300" y="278" text-anchor="middle" font-size="11" fill="#777">(Breach check: a later close back below the new SDZ's low reverts it to an Invalid SZ.)</text>
+</svg>

@@ -113,6 +113,34 @@ def cs_rank_to_label(cs_rank: pd.Series, n_bins: int = N_RANK_BINS) -> pd.Series
     return labels
 
 
+def rank_ic_eval(preds: np.ndarray, eval_data: lgb.Dataset) -> tuple[str, float, bool]:
+    """LightGBM custom evaluation metric for Mean Rank IC (per group)."""
+    import numpy as np
+    from scipy.stats import spearmanr
+    
+    labels = eval_data.get_label()
+    groups = eval_data.get_group()
+    
+    if groups is None:
+        if len(preds) > 1 and np.std(preds) > 1e-9:
+            ic, _ = spearmanr(preds, labels)
+            return 'rank_ic', float(ic) if not np.isnan(ic) else 0.0, True
+        return 'rank_ic', 0.0, True
+
+    ics = []
+    ptr = 0
+    for g in groups:
+        g = int(g)
+        p = preds[ptr:ptr+g]
+        l = labels[ptr:ptr+g]
+        ptr += g
+        if len(p) > 1 and np.std(p) > 1e-9:
+            ic, _ = spearmanr(p, l)
+            if not np.isnan(ic):
+                ics.append(float(ic))
+    
+    return 'rank_ic', float(np.mean(ics)) if ics else 0.0, True
+
 # ── Model ────────────────────────────────────────────────────────────────────
 
 class LGBMRanker:
@@ -157,8 +185,7 @@ class LGBMRanker:
         """Train the LambdaRank model."""
         lgb_params: Dict[str, Any] = {
             "objective":    "lambdarank",
-            "metric":       "ndcg",
-            "ndcg_eval_at": [10],
+            "metric":       "None",
             "label_gain":   build_label_gain(),
             "verbosity":    -1,
             "seed":         self.seed,
@@ -219,6 +246,7 @@ class LGBMRanker:
                 num_boost_round=self.params.get("n_estimators", 500),
                 valid_sets=valid_sets,
                 valid_names=valid_names,
+                feval=rank_ic_eval,
                 callbacks=callbacks,
             )
         self.feature_names_ = list(X_train.columns)

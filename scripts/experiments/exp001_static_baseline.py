@@ -17,9 +17,6 @@ import pandas as pd
 from scipy.stats import spearmanr
 from sklearn.linear_model import Ridge
 
-from pipeline.universe.us_loader import load_us_universe
-from pipeline.features.engineer import build_features
-from pipeline.targets.builder import TargetBuilder
 from pipeline.validation.cv import PurgedWalkForwardCV
 from pipeline.config.paths import PATHS
 import lightgbm as lgb
@@ -46,8 +43,9 @@ def load_local_ohlcv(ticker: str, data_dir: Path) -> pd.DataFrame:
 
 def get_base_panel():
     print("Loading universe...", flush=True)
-    tickers_info = load_us_universe(STOCK_LIST_CSV)
-    tickers = list(tickers_info.keys())
+    ticker_df = pd.read_csv(STOCK_LIST_CSV)
+    ticker_df = ticker_df[~ticker_df["Symbol"].str.startswith("^", na=True)]
+    tickers = ticker_df["Symbol"].str.strip().dropna().tolist()
     
     print(f"Loading CSVs for {len(tickers)} tickers...", flush=True)
     dfs = []
@@ -101,6 +99,7 @@ def main():
     
     # Drop rows with NaNs in features or targets
     panel = panel.dropna(subset=features + ["future_20d_ret", "cs_rank_20d"])
+    panel["in_universe"] = True
     
     print(f"Panel ready for ML: {panel.shape}", flush=True)
     
@@ -111,8 +110,8 @@ def main():
     
     for fold_id, (spec, train_idx, test_idx) in enumerate(cv.split(panel)):
         print(f"--- Fold {fold_id} ---", flush=True)
-        tr = panel.loc[train_idx]
-        te = panel.loc[test_idx]
+        tr = panel.iloc[train_idx]
+        te = panel.iloc[test_idx]
         
         X_tr = tr[features].values
         # Using continuous target for Ridge
@@ -132,7 +131,7 @@ def main():
             lgb.Dataset(X_tr, y_tr),
             num_boost_round=100
         )
-        lgb_preds = lgb.model.predict(X_te) if hasattr(lgb_model, 'predict') else lgb_model.predict(X_te)
+        lgb_preds = lgb_model.predict(X_te)
         
         # Eval
         te = te.copy()

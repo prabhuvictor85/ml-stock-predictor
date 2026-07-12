@@ -77,10 +77,12 @@ class PanelConstructor:
 
         # ── 1. Trading calendar — no weekends/holidays ────────────────────
         trading_days = get_trading_days(cfg.exchange_calendar, start, end)
+        trading_days = pd.DatetimeIndex([d.replace(tzinfo=None) for d in trading_days])
         log.info(f"Trading days in range: {len(trading_days)}")
 
         # ── 2. FX rate ─────────────────────────────────────────────────────
         fx = self.fetcher.fetch_fx(start, end)
+        fx.index = pd.DatetimeIndex([d.replace(tzinfo=None) for d in fx.index])
         fx = fx.reindex(trading_days, method="ffill")
 
         # ── 3. Fetch OHLCV for each ticker ─────────────────────────────────
@@ -123,6 +125,12 @@ class PanelConstructor:
             raise RuntimeError("No valid ticker data — panel is empty.")
 
         panel = pd.concat(frames)
+        
+        # Free intermediate lists and trigger GC
+        del frames
+        import gc
+        gc.collect()
+
         panel.index.name = "date"
         panel = panel.reset_index().set_index(["date", "ticker"])
         panel = panel.sort_index()
@@ -135,6 +143,24 @@ class PanelConstructor:
         dates_series = panel.index.get_level_values("date").to_series().reset_index(drop=True)
         group_dates = assign_group_dates(dates_series, cfg.exchange_calendar)
         panel["group_date"] = group_dates.values
+
+        # Optimize memory usage and type casting
+        from pipeline.utils.memory import reduce_mem_usage
+        panel = reduce_mem_usage(panel)
+
+        # Remove TZ timezone awareness from index to avoid matching issues downstream
+        try:
+            panel.index = panel.index.set_levels(
+                [pd.DatetimeIndex([d.replace(tzinfo=None) for d in panel.index.get_level_values("date")]), 
+                 panel.index.get_level_values("ticker")]
+            )
+        except Exception:
+            pass
+
+        # Convert high-cardinality indices and columns to category where possible
+        # Ticker is part of index, can't easily categorize without resetting, but sector in columns can be.
+        if "sector" in panel.columns:
+            panel["sector"] = panel["sector"].astype("category")
 
         log.info(
             f"Panel built: {len(panel)} rows, "
@@ -184,6 +210,17 @@ class PanelConstructor:
             raise FileNotFoundError(f"No panel parquet files found in {input_dir}")
 
         panel = pd.concat(parts)
+        
+        del parts
+        import gc
+        gc.collect()
+        
         panel = panel.sort_index()
+        
+        from pipeline.utils.memory import reduce_mem_usage
+        panel = reduce_mem_usage(panel)
+        if "sector" in panel.columns:
+            panel["sector"] = panel["sector"].astype("category")
+            
         return panel
 

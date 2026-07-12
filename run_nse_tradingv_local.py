@@ -668,7 +668,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
     with _train_perf.stage("[3/6] Walk-forward CV setup"):
         print(f"[3/6] Walk-forward CV ({n_folds} folds) ...")
-        cv = PurgedWalkForwardCV(n_folds=n_folds, min_train_window=378)
+        from pipeline.targets.builder import PURGE_HORIZON
+        cv = PurgedWalkForwardCV(n_folds=n_folds, min_train_window=378, purge_window=PURGE_HORIZON)
         fold_specs = cv.get_fold_specs(train_panel)
         print(f"      {len(fold_specs)} folds generated")
 
@@ -824,12 +825,12 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 # ~20d). fillna(0) would mislabel them as the WORST stock in the
                 # cross-section — label corruption in a ranking objective. Drop
                 # X+y together and recompute group sizes so they stay aligned.
-                _lbl_mask = tr_grp["cs_rank_composite"].notna()
+                _lbl_mask = tr_grp["cs_rank_20d"].notna()
                 tr_grp    = tr_grp.loc[_lbl_mask]
                 if len(tr_grp) == 0:
                     continue
                 tr_groups = tr_grp.groupby(level="date").size().values
-                _rank  = tr_grp["cs_rank_composite"]
+                _rank  = tr_grp["cs_rank_20d"]
                 y_tr_r = 1.0 - _rank if mode == "reversal" else _rank
 
                 t_fold = _time.time()
@@ -942,12 +943,14 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     avail    = [f for f in feat_cols if f in full_grp.columns]
     X_full   = full_grp[avail].astype(np.float32)
     # Ranker trains only on rows with a known forward-return rank. Unlabelled
-    # rows (delisted/halted/last ~20d) carry NaN cs_rank_composite; fillna(0)
+    # rows (delisted/halted/last ~20d) carry NaN cs_rank_20d; fillna(0)
     # would mislabel them as the WORST stock in the cross-section — label
     # corruption. Filter the ranker rows (the classifier head below keeps its
     # own notna mask) and recompute the group array after the drop.
-    _rank_lbl_mask = full_grp["cs_rank_composite"].notna()
-    _rank_raw      = full_grp.loc[_rank_lbl_mask, "cs_rank_composite"]
+    # cs_rank_20d (not composite): the final model must train on the SAME
+    # label the HPO loop tuned for, or best_params describe a different model.
+    _rank_lbl_mask = full_grp["cs_rank_20d"].notna()
+    _rank_raw      = full_grp.loc[_rank_lbl_mask, "cs_rank_20d"]
     # Reversal mode trains a bear ranker: invert rank so stocks expected to
     # decline most get the highest label, mirroring how the bull ranker works.
     y_full_r       = 1.0 - _rank_raw if mode == "reversal" else _rank_raw

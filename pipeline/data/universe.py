@@ -53,10 +53,12 @@ class UniverseBuilder:
         ticker, list_date, delist_date, successor_ticker, sector.
         """
         for rec in records:
+            ld = pd.Timestamp(rec["list_date"]).tz_localize(None) if rec.get("list_date") else None
+            dd = pd.Timestamp(rec["delist_date"]).tz_localize(None) if rec.get("delist_date") else None
             self._symbol_master[rec["ticker"]] = SymbolMaster(
                 ticker=rec["ticker"],
-                list_date=pd.Timestamp(rec["list_date"]) if rec.get("list_date") else None,
-                delist_date=pd.Timestamp(rec["delist_date"]) if rec.get("delist_date") else None,
+                list_date=ld,
+                delist_date=dd,
                 successor_ticker=rec.get("successor_ticker"),
                 sector=rec.get("sector", "Unknown"),
             )
@@ -83,11 +85,18 @@ class UniverseBuilder:
         """
         cfg = self.cfg
         panel = panel.copy()
+        
+        # Ensure naive timestamps for index
         panel_dates = panel.index.get_level_values("date")
+        if panel_dates.tz is not None:
+             panel_dates = panel_dates.tz_localize(None)
+        
         start_date = panel_dates.min()
         end_date = panel_dates.max()
 
         trading_days = get_trading_days(cfg.exchange_calendar, start_date, end_date)
+        if trading_days.tz is not None:
+            trading_days = trading_days.tz_localize(None)
 
         # All reconstitution dates (first trading day of each month)
         recon_dates: List[pd.Timestamp] = []
@@ -95,8 +104,11 @@ class UniverseBuilder:
             fd = get_first_trading_day_of_month(
                 cfg.exchange_calendar, period.year, period.month
             )
-            if fd is not None and start_date <= fd <= end_date:
-                recon_dates.append(fd)
+            if fd is not None:
+                if fd.tz is not None:
+                    fd = fd.tz_localize(None)
+                if start_date <= fd <= end_date:
+                    recon_dates.append(fd)
 
         log.info(f"Reconstitution dates: {len(recon_dates)} months from {start_date.date()} to {end_date.date()}")
 
@@ -123,7 +135,7 @@ class UniverseBuilder:
             else:
                 next_recon = end_date + pd.Timedelta(days=1)
 
-            if recon_dt not in panel.index.get_level_values("date"):
+            if recon_dt not in panel_dates:
                 # Use the nearest available date
                 avail = trading_days[trading_days >= recon_dt]
                 if len(avail) == 0:
@@ -174,9 +186,10 @@ class UniverseBuilder:
         # Apply delist overrides: any row after delist_date → False
         for ticker, sm in self._symbol_master.items():
             if sm.delist_date is not None:
+                delist_dt = sm.delist_date if sm.delist_date.tz is None else sm.delist_date.tz_localize(None)
                 t_mask = (
                     (panel.index.get_level_values("ticker") == ticker)
-                    & (panel.index.get_level_values("date") > sm.delist_date)
+                    & (panel_dates > delist_dt)
                 )
                 in_universe.loc[t_mask] = False
 

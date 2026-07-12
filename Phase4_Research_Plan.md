@@ -29,7 +29,7 @@ While it attempts to capture regime and trend, it lacks rigorous statistical pro
 - **Expected Impact:** High. Crucial for stability in varying market regimes.
 - **Estimation:** 2 days (requires regression across groups).
 
-### Exp-404: Trend Persistence & Market Breadth
+### Exp-404: Trend Persistence & Market Breadth [DONE]
 - **Description:** Implement Hurst Exponent, Fractal Dimension, and explicit Advance/Decline indicators (Breadth thrusts).
 - **Hypothesis:** Hurst exponent efficiently discriminates between mean-reverting (H < 0.5), random walk (H = 0.5), and trending (H > 0.5) assets, directly conditioning momentum effectiveness. 
 - **Expected Impact:** Medium. Excellent interaction feature for tree models.

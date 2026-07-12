@@ -174,25 +174,23 @@ class LGBMRanker:
 
     Parameters
     ----------
-    params : dict of LightGBM parameters (populated from Optuna trial or defaults)
-    seed   : random seed for reproducibility
-    use_gpu: enable CUDA device
-    use_monotone_constraints : bool, default True
-        Enforce zone/OB monotone constraints during training.
-        Set to False to compare against the unconstrained baseline.
+    params : dict
+        LightGBM parameters (lambdarank objective is forced).
+    seed : int, default 42
+    use_monotone_constraints : bool, default False
+        Enforce logical directional constraints on known features.
+    num_threads : int, default 0 (all cores)
     """
 
     def __init__(
         self,
-        params: Dict[str, Any],
+        params: dict = None,
         seed: int = 42,
-        use_gpu: bool = False,
-        use_monotone_constraints: bool = True,
-        num_threads: int = -1,
+        use_monotone_constraints: bool = False,
+        num_threads: int = 0,
     ) -> None:
-        self.params = params
+        self.params = params or {}
         self.seed = seed
-        self.use_gpu = use_gpu
         self.use_monotone_constraints = use_monotone_constraints
         self.num_threads = num_threads
         self.model_: Optional[lgb.Booster] = None

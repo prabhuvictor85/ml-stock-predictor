@@ -62,8 +62,8 @@ _ICT_PRIORITY_MAX = 4.0   # max ZonePriority value (BK = 4)
 # GK vol, skew/kurt, VWAP/CMF/OBV, residual momentum, choppiness, variance
 # ratio, cross-sectional z-scores, A/D thrust. Gated by env PHASE4_FEATURES
 # (read at call time, same pattern as PIVOT_FEATURES/TARGET_TWAP_WINDOW).
-# Default ON — the alpha-research-v2 model includes them; set PHASE4_FEATURES=0
-# to build the pre-Phase-4 panel for a with/without A/B.
+# Default OFF — the conservative baseline; set PHASE4_FEATURES=1
+# to build the Phase-4 panel for a with/without A/B.
 PHASE4_FEATURE_COLS = [
     "gk_vol_20d", "ret_skew_20d", "ret_kurt_20d",
     "vwap_dist_20d", "cmf_20d", "obv_osc_20d",
@@ -73,7 +73,7 @@ PHASE4_FEATURE_COLS = [
 
 
 def phase4_features_enabled() -> bool:
-    return os.environ.get("PHASE4_FEATURES", "1").strip().lower() not in {"0", "false", "off", "no"}
+    return os.environ.get("PHASE4_FEATURES", "0").strip().lower() in {"1", "true", "on", "yes"}
 
 # Columns carried from each HTF ICT run back to the daily index
 _ICT_CARRY_COLS = [

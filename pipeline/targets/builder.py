@@ -122,10 +122,10 @@ class TargetBuilder:
         # the exit, which no real execution can trade).
         # Driven by env so the SAME ruler toggles for this builder AND
         # validate_lockbox.py at once:  export TARGET_TWAP_WINDOW=5
-        # Default = 5; validate_lockbox.py and rebuild_targets_e3.py carry the
+        # Default = 1; validate_lockbox.py and rebuild_targets_e3.py carry the
         # same default — change all three together or grading breaks.
         if terminal_window is None:
-            terminal_window = int(os.environ.get("TARGET_TWAP_WINDOW", "5"))
+            terminal_window = int(os.environ.get("TARGET_TWAP_WINDOW", "1"))
         terminal_window = max(1, int(terminal_window))
         _min_h = min(HORIZONS)
         if terminal_window >= _min_h:

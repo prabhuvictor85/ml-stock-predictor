@@ -10,7 +10,7 @@ def reduce_mem_usage(df: pd.DataFrame, verbose=True) -> pd.DataFrame:
     Iterates through all columns of a dataframe and modifies the data type
     to reduce memory usage.
     """
-    start_mem = df.memory_usage().deep().sum() / 1024**2
+    start_mem = df.memory_usage(deep=True).sum() / 1024**2
     if verbose: 
         logger.info(f"Memory usage of dataframe is {start_mem:.2f} MB")
     
@@ -21,7 +21,12 @@ def reduce_mem_usage(df: pd.DataFrame, verbose=True) -> pd.DataFrame:
         if 'datetime' in str(col_type):
             continue
             
-        if col_type != object and not pd.api.types.is_categorical_dtype(df[col]):
+        # Only downcast feature cols (e.g. starting with features_)
+        # Do not downcast OHLCV data or targets to avoid bit-reproducibility issues
+        if not str(col).startswith("features_") and not str(col).startswith("feat_"):
+            continue
+
+        if col_type != object and not isinstance(df[col].dtype, pd.CategoricalDtype):
             c_min = df[col].min()
             c_max = df[col].max()
             if str(col_type)[:3] == 'int':
@@ -39,7 +44,7 @@ def reduce_mem_usage(df: pd.DataFrame, verbose=True) -> pd.DataFrame:
                 else:
                     df[col] = df[col].astype(np.float64)
                     
-    end_mem = df.memory_usage().deep().sum() / 1024**2
+    end_mem = df.memory_usage(deep=True).sum() / 1024**2
     if verbose: 
         logger.info(f"Memory usage after optimization is: {end_mem:.2f} MB")
         logger.info(f"Decreased by {100 * (start_mem - end_mem) / start_mem:.1f}%")

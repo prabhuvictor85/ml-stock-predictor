@@ -58,7 +58,8 @@ bkp_artifacts/
 audit_*.py
 debug_*.py
 inspect_*.py
-diag_*.py
+# Root-level scratch only (unanchored, this hid scripts/diag_phase4_features.py)
+/diag_*.py
 check_*.py
 bench_*.py
 quick_*.py

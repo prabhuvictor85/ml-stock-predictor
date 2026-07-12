@@ -114,12 +114,16 @@ class TargetBuilder:
         cfg = self.cfg
         panel = panel.copy()
 
-        # Terminal-price smoothing for the return labels. window=1 (default) is the
-        # exact endpoint return close[t+h]/close[t]-1. window>1 averages the last
-        # `window` closes ending at t+h (a TWAP terminal), de-sensitising the label
-        # to a single print landing on day t+h — without changing the horizon.
+        # Terminal-price smoothing for the return labels. window=1 is the exact
+        # endpoint return close[t+h]/close[t]-1. window>1 averages the last
+        # `window` closes ending at t+h (a TRAILING TWAP terminal), de-sensitising
+        # the label to a single print landing on day t+h — without changing the
+        # horizon or reaching past t+h (a centered window would need prices after
+        # the exit, which no real execution can trade).
         # Driven by env so the SAME ruler toggles for this builder AND
         # validate_lockbox.py at once:  export TARGET_TWAP_WINDOW=5
+        # Default = 5; validate_lockbox.py and rebuild_targets_e3.py carry the
+        # same default — change all three together or grading breaks.
         if terminal_window is None:
             terminal_window = int(os.environ.get("TARGET_TWAP_WINDOW", "5"))
         terminal_window = max(1, int(terminal_window))
@@ -169,10 +173,10 @@ class TargetBuilder:
             panel[f"future_{h}d_return"] = (
                 panel.groupby(level="ticker")["close"]
                 .transform(lambda x, h=h, w=terminal_window:
-                           (x.rolling(w, center=True).mean() if w > 1 else x).shift(-h) / x - 1)
+                           (x.rolling(w).mean() if w > 1 else x).shift(-h) / x - 1)
             )
             # Benchmark future return for same horizon (same TWAP terminal)
-            _bm_term = bm.rolling(terminal_window, center=True).mean() if terminal_window > 1 else bm
+            _bm_term = bm.rolling(terminal_window).mean() if terminal_window > 1 else bm
             bm_fut = _bm_term.shift(-h) / bm - 1
             panel[f"benchmark_{h}d_return"] = (
                 panel.index.get_level_values("date").map(bm_fut)

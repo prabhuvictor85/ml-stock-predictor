@@ -119,7 +119,12 @@ def test_target_uses_future_not_past_returns():
         index=pd.bdate_range("2020-01-01", periods=100),
     )
     tb  = TargetBuilder(cfg)
-    out = tb.build(panel, bm)
+    # terminal_window=1 pins the plain endpoint label this guard was calibrated
+    # for: with a TWAP window the label is less noisy, so the synthetic panel's
+    # own autocorrelation shows through and the pooled corr drifts above 0.3
+    # without any leakage. The TWAP definition itself is pinned bit-exactly by
+    # test_twap_terminal_is_trailing_and_shifted below.
+    out = tb.build(panel, bm, terminal_window=1)
 
     # Spearman between same-day return proxy and target rank — must be near 0
     same_day_ret = (
@@ -128,10 +133,42 @@ def test_target_uses_future_not_past_returns():
     target_rank  = out["cs_rank_20d"]
     common       = same_day_ret.dropna().index.intersection(target_rank.dropna().index)
     corr         = same_day_ret.loc[common].corr(target_rank.loc[common])
-    assert abs(corr) < 0.4, (
+    assert abs(corr) < 0.3, (
         f"Suspicious correlation {corr:.3f} between same-day return and cs_rank_20d — "
         "possible target leakage (target not forward-shifted)"
     )
+
+
+def test_twap_terminal_is_trailing_and_shifted():
+    """Pin the label definition bit-exactly.
+
+    future_20d_return at t with terminal_window=w must equal
+    mean(close[t+20-w+1 .. t+20]) / close[t] - 1  — a TRAILING average ending
+    at t+20. A centered window (which would need prices AFTER the exit) or a
+    mis-shifted window changes these values and must fail here.
+    """
+    from pipeline.targets.builder import TargetBuilder
+    from pipeline.config import get_config
+
+    cfg   = get_config("nse")
+    panel = _make_panel(n_tickers=2, n_days=60)
+    bm    = pd.Series(
+        np.ones(60) * 100.0,
+        index=pd.bdate_range("2020-01-01", periods=60),
+    )
+    tkr    = panel.index.get_level_values("ticker")[0]
+    closes = panel.xs(tkr, level="ticker")["close"]
+
+    for w in (1, 5):
+        out  = TargetBuilder(cfg).build(panel, bm, terminal_window=w)
+        got  = out.xs(tkr, level="ticker")["future_20d_return"]
+        t    = 10  # any date with a full 20d future window
+        term = closes.iloc[t + 20 - w + 1 : t + 21].mean() if w > 1 else closes.iloc[t + 20]
+        want = term / closes.iloc[t] - 1.0
+        assert np.isclose(got.iloc[t], want, rtol=1e-12), (
+            f"w={w}: future_20d_return[t]={got.iloc[t]:.10f} != trailing-TWAP "
+            f"definition {want:.10f} — terminal window is centered or mis-shifted"
+        )
 
 
 # ── 2. Feature bounds ─────────────────────────────────────────────────────────

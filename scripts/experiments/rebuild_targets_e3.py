@@ -53,7 +53,7 @@ def main():
     from pipeline.config import get_config
     from run_sp500_local import load_benchmark, STOCK_DATA_DIR
 
-    twap = int(os.environ.get("TARGET_TWAP_WINDOW", "1"))
+    twap = int(os.environ.get("TARGET_TWAP_WINDOW", "5"))  # same fallback as TargetBuilder
     print("=" * 60)
     print("  MODEL_E3 target rebuild")
     print(f"  HORIZONS            = {HORIZONS}")

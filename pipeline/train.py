@@ -119,8 +119,8 @@ def make_optuna_objective(
         selected_feats = _forced_pre + _ordinary_pre[:top_k]
 
         cv = PurgedWalkForwardCV(n_folds=n_folds)
-        ndcg_list: List[float] = []
-        top_dec_list: List[float] = []
+        rank_ic_list: List[float] = []
+        icir_list: List[float] = []
 
         for fold_spec, train_idx, test_idx in cv.split(panel):
             train_panel = panel.iloc[train_idx]
@@ -183,34 +183,40 @@ def make_optuna_objective(
             score_series  = pd.Series(ranker_scores, index=test_univ.index)
 
             # FIX 12: positional call, no top_n kwarg (matches compute_fold_metrics signature)
+            # 20d-aligned benchmark, same ruler as the run_*_local.py scripts —
+            # a daily pct_change series here would subtract 1-day benchmark
+            # returns from 20-day stock returns inside compute_fold_metrics.
             metrics = compute_fold_metrics(
                 test_univ,
                 score_series,
                 avail_feats,
-                benchmark_close.pct_change().fillna(0),
+                test_univ["benchmark_20d_return"].groupby(level="date").first().fillna(0),
                 cfg.commission_bps,
                 cfg.get_slippage_bps(cfg.min_adv_usd),
             )
-            ndcg_list.append(metrics["mean_rank_ic"])
-            top_dec_list.append(metrics["icir"])
+            rank_ic_list.append(metrics["mean_rank_ic"])
+            icir_list.append(metrics["icir"])
 
             trial.report(metrics["mean_rank_ic"], step=fold_spec.fold_id)
             if trial.should_prune():
                 raise optuna.exceptions.TrialPruned()
 
         # FIX 5: guard against empty lists — np.mean([]) returns NaN, nan<=0 is False (silent bug)
-        if len(ndcg_list) < 3:
+        if len(rank_ic_list) < 3:
             raise optuna.exceptions.TrialPruned()
 
-        mean_rank_ic = float(np.mean(ndcg_list))
-        # penalize IC curve volatility (ICIR logic)
-        std_ic  = max(float(np.std(ndcg_list)), 1e-6)
-        
-        # Penalize if average ICIR < 0
-        if np.mean(top_dec_list) <= 0:
-            raise optuna.exceptions.TrialPruned()
+        if np.mean(rank_ic_list) <= 0:
+            # Completed trial with no rank-IC edge: return a strong-negative
+            # score, NOT TrialPruned. A pruned trial is dropped from the TPE
+            # sampler's model, so the optimizer never learns to avoid this
+            # region — a low completed value does. -1.0 sits clearly below
+            # every valid rank-IC-based objective (~[-0.1, 0.1]). Same pattern
+            # as run_sp500_local.py / run_nse_local.py / run_nse_tradingv_local.py.
+            return -1.0
 
-        return mean_rank_ic - 0.5 * std_ic
+        mean_rank_ic = float(np.mean(rank_ic_list))
+        std_rank_ic  = float(np.std(rank_ic_list))
+        return mean_rank_ic - 0.5 * std_rank_ic
 
     return objective
 
@@ -442,7 +448,9 @@ def main() -> None:
         test_univ  = test_panel[test_panel["in_universe"] == True]
         if len(test_univ) > 0:
             X_te    = test_univ.reindex(columns=final_features).fillna(0)
-            bm_rets = benchmark_close.pct_change().fillna(0)
+            # 20d-aligned benchmark (same ruler as the run scripts; daily returns
+            # here would understate the benchmark leg by ~19 days).
+            bm_rets = test_univ["benchmark_20d_return"].groupby(level="date").first().fillna(0)
             slippage = cfg.get_slippage_bps(cfg.min_adv_usd)
 
             lgbm_scores      = pd.Series(final_ranker.predict(X_te), index=test_univ.index)

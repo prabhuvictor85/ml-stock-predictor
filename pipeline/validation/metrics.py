@@ -1,6 +1,7 @@
 """
 CV metrics computation for the validation layer.
-Computes NDCG@10, precision@10, hit_ratio, net_sharpe, top_decile_excess_return.
+Computes mean_rank_ic, icir, NDCG@10, precision@10, hit_ratio, net_sharpe,
+top_decile_excess_return.
 """
 from __future__ import annotations
 
@@ -8,6 +9,7 @@ from typing import List, Optional
 
 import numpy as np
 import pandas as pd
+from scipy.stats import spearmanr
 
 from pipeline.utils.logging import get_logger
 
@@ -66,7 +68,11 @@ def compute_fold_metrics(
     panel_test        : test fold panel (MultiIndex date, ticker)
     scores            : ensemble score Series (same index)
     feature_cols      : used to extract cs_rank and quintile labels
-    benchmark_returns : daily benchmark return Series
+    benchmark_returns : date-indexed benchmark return Series on the SAME horizon
+                        as the portfolio returns it is subtracted from (~20d).
+                        Pass e.g. benchmark_20d_return grouped per date — a
+                        daily pct_change series here understates the benchmark
+                        leg ~20x and inflates excess/net-sharpe.
     commission_bps    : from MarketConfig
     slippage_bps      : average slippage in bps
     top_n             : number of top stocks per week
@@ -117,13 +123,20 @@ def compute_fold_metrics(
             # NDCG and Precision
             ndcg_values.append(ndcg_at_k(rel, sc_k, k=10))
             prec_values.append(precision_at_k(top_q, sc_k, k=10))
-            
-            # Spearman Rank IC
-            from scipy.stats import spearmanr
-            if sc_k.std() > 1e-9:
-                ic, _ = spearmanr(sc_k, _gk["future_20d_return"].fillna(0))
-                if invert_relevance: ic = -ic
-                if not np.isnan(ic): rank_ic_values.append(ic)
+
+            # Spearman Rank IC — graded vs the EXCESS return that the cs_rank
+            # labels themselves rank (builder ranks future_{h}d_excess_return),
+            # on known-outcome rows only. Same no-zero-fill rule as NDCG above:
+            # a NaN outcome is unknown, not a 0% return.
+            _ic_rows = _gk[_gk["future_20d_excess_return"].notna()]
+            if len(_ic_rows) >= 5:
+                _ic_sc = _ic_rows["_score"].values
+                if _ic_sc.std() > 1e-9:
+                    ic, _ = spearmanr(_ic_sc, _ic_rows["future_20d_excess_return"].values)
+                    if invert_relevance:
+                        ic = -ic
+                    if not np.isnan(ic):
+                        rank_ic_values.append(ic)
 
         # Select top-N for this week
         top_idx = np.argsort(sc)[::-1][:top_n]
@@ -152,7 +165,9 @@ def compute_fold_metrics(
     mean_prec = float(np.mean(prec_values)) if prec_values else 0.0
     mean_hit = float(np.mean(hit_values)) if hit_values else 0.0
     mean_rank_ic = float(np.mean(rank_ic_values)) if rank_ic_values else 0.0
-    std_rank_ic = float(np.std(rank_ic_values)) if rank_ic_values else 0.0
+    # ddof=1: sample std — with few group-dates per fold, population std (ddof=0)
+    # understates the denominator and inflates the ICIR.
+    std_rank_ic = float(np.std(rank_ic_values, ddof=1)) if len(rank_ic_values) > 1 else 0.0
     icir = mean_rank_ic / std_rank_ic if std_rank_ic > 0 else 0.0
 
     # Net Sharpe — align lengths before array subtraction to avoid shape mismatch

@@ -803,7 +803,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 flush=True,
             )
             t_trial_start = _time.time()
-            ndcg_vals, top_dec_vals = [], []
+            rank_ic_vals, icir_vals = [], []
 
             for fold_id, cached in fold_cache.items():
                 if cached is None:
@@ -869,40 +869,40 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                                          _bm_20d,
                                          cfg.commission_bps, cfg.get_slippage_bps(cfg.min_adv_usd),
                                          invert_relevance=(mode == "reversal"))
-                fold_ndcg = m["mean_ndcg_at_10"]
-                fold_exc  = m["top_decile_excess_return"]
-                ndcg_vals.append(fold_ndcg)
-                top_dec_vals.append(fold_exc)
+                fold_rank_ic = m["mean_rank_ic"]
+                fold_icir    = m["icir"]
+                rank_ic_vals.append(fold_rank_ic)
+                icir_vals.append(fold_icir)
 
                 print(
                     f"     Fold {fold_id}: train={len(tr_grp):,}rows/{len(tr_groups)}groups "
                     f"| test={len(te_univ):,} | trees={n_trees} "
-                    f"| NDCG@10={fold_ndcg:.4f} | TopDec_exc={fold_exc:+.4f} "
+                    f"| RankIC={fold_rank_ic:.4f} | ICIR={fold_icir:+.4f} "
                     f"| fold_time={_time.time()-t_fold:.0f}s",
                     flush=True,
                 )
 
-                trial.report(fold_ndcg, step=fold_id)
+                trial.report(fold_rank_ic, step=fold_id)
                 if trial.should_prune():
                     print(f"     Trial {trial.number}: PRUNED after fold {fold_id}", flush=True)
                     raise optuna.exceptions.TrialPruned()
 
-            if len(ndcg_vals) < MIN_VALID_FOLDS:
-                print(f"     Trial {trial.number}: only {len(ndcg_vals)} valid folds (<{MIN_VALID_FOLDS}) — pruned", flush=True)
+            if len(rank_ic_vals) < MIN_VALID_FOLDS:
+                print(f"     Trial {trial.number}: only {len(rank_ic_vals)} valid folds (<{MIN_VALID_FOLDS}) — pruned", flush=True)
                 raise optuna.exceptions.TrialPruned()
-            if np.mean(top_dec_vals) <= 0:
-                # Completed trial with no top-decile edge: return a strong-negative
+            if np.mean(rank_ic_vals) <= 0:
+                # Completed trial with no rank-IC edge: return a strong-negative
                 # score, NOT TrialPruned. A pruned trial is dropped from the TPE
                 # sampler's model, so the optimizer never learns to avoid this
                 # region — a low completed value does. -1.0 sits clearly below
-                # every valid NDCG-based objective (~[0, 0.6]).
-                print(f"     Trial {trial.number}: mean top-decile excess={np.mean(top_dec_vals):.4f} <= 0 — penalised score -1.0 (not pruned)", flush=True)
+                # every valid rank-IC-based objective (~[-0.1, 0.1]).
+                print(f"     Trial {trial.number}: mean RankIC={np.mean(rank_ic_vals):.4f} <= 0 — penalised score -1.0 (not pruned)", flush=True)
                 return -1.0
 
-            score = float(np.mean(ndcg_vals)) - 0.5 * float(np.std(ndcg_vals))
+            score = float(np.mean(rank_ic_vals)) - 0.5 * float(np.std(rank_ic_vals))
             print(
                 f"  --- Trial {trial.number} COMPLETE | "
-                f"mean_NDCG={np.mean(ndcg_vals):.4f} +/- {np.std(ndcg_vals):.4f} | "
+                f"mean_RankIC={np.mean(rank_ic_vals):.4f} +/- {np.std(rank_ic_vals):.4f} | "
                 f"objective={score:.4f} | total_time={_time.time()-t_trial_start:.0f}s",
                 flush=True,
             )
@@ -924,7 +924,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         best_params = study.best_params.copy()
         best_k = best_params.pop("feature_top_K", 30)
         best_params["learning_rate"] = best_params.pop("lr", best_params.get("learning_rate", 0.05))
-        print(f"      Best NDCG objective: {study.best_value:.4f}")
+        print(f"      Best RankIC objective: {study.best_value:.4f}")
     else:
         print("[4/6] HPO skipped — using default params")
     _hpo_stage.__exit__(None, None, None)
@@ -985,7 +985,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                    .groupby(level="date").first().fillna(0))
     slip        = cfg.get_slippage_bps(cfg.min_adv_usd)
     dates_level = train_panel.index.get_level_values("date")
-    ens_ndcg_vals, ens_top_dec_vals = [], []
+    ens_rank_ic_vals, ens_icir_vals = [], []
     _hv_feat = f"{FEATURE_PREFIX}hist_vol_20d"
 
     for _spec in fold_specs:
@@ -1000,13 +1000,13 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         _ens_s = pd.Series(ensemble.score(_X_te, _vol_s), index=_te_u.index)
         _m     = compute_fold_metrics(_te_u, _ens_s, _sf, bm_rets, cfg.commission_bps, slip,
                                       invert_relevance=(mode == "reversal"))
-        ens_ndcg_vals.append(_m["mean_ndcg_at_10"])
-        ens_top_dec_vals.append(_m["top_decile_excess_return"])
+        ens_rank_ic_vals.append(_m["mean_rank_ic"])
+        ens_icir_vals.append(_m["icir"])
 
-    if ens_ndcg_vals:
-        print(f"      Ensemble CV  ({len(ens_ndcg_vals)} folds): "
-              f"NDCG@10={np.mean(ens_ndcg_vals):.4f} ± {np.std(ens_ndcg_vals):.4f}  |  "
-              f"top-decile excess={np.mean(ens_top_dec_vals)*100:.2f}%")
+    if ens_rank_ic_vals:
+        print(f"      Ensemble CV  ({len(ens_rank_ic_vals)} folds): "
+              f"RankIC={np.mean(ens_rank_ic_vals):.4f} +/- {np.std(ens_rank_ic_vals):.4f}    "
+              f"ICIR={np.mean(ens_icir_vals):.4f}")
 
     # Drift monitor baseline
     drift_monitor = FeatureDriftMonitor(cfg, final_features)

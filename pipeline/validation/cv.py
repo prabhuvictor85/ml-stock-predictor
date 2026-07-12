@@ -87,14 +87,21 @@ class PurgedWalkForwardCV:
         all_dates   = sorted(panel.index.get_level_values("date").unique())
         group_dates = sorted(panel["group_date"].dropna().unique())
 
-        if len(all_dates) < self.min_train_window + self.test_window:
+        # Tests start after min_train + purge + embargo (first_test_start_idx
+        # below) — the capacity checks must use the same offset, or the final
+        # fold's test window can run past the panel and silently drop in the
+        # fold loop's break instead of triggering the reduction warning here.
+        _lead = self.min_train_window + self.purge_window + self.embargo_window
+        if len(all_dates) < _lead + self.test_window:
             raise ValueError(
                 f"Panel too short: {len(all_dates)} days < "
-                f"{self.min_train_window + self.test_window} required."
+                f"{_lead + self.test_window} required "
+                f"(min_train {self.min_train_window} + purge {self.purge_window} "
+                f"+ embargo {self.embargo_window} + test {self.test_window})."
             )
 
-        total_required = self.min_train_window + self.n_folds * self.test_window
-        possible_folds = (len(all_dates) - self.min_train_window) // self.test_window
+        total_required = _lead + self.n_folds * self.test_window
+        possible_folds = (len(all_dates) - _lead) // self.test_window
 
         if len(all_dates) < total_required:
             # Panel too short — reduce folds

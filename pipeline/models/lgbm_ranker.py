@@ -114,32 +114,57 @@ def cs_rank_to_label(cs_rank: pd.Series, n_bins: int = N_RANK_BINS) -> pd.Series
 
 
 def rank_ic_eval(preds: np.ndarray, eval_data: lgb.Dataset) -> tuple[str, float, bool]:
-    """LightGBM custom evaluation metric for Mean Rank IC (per group)."""
-    import numpy as np
-    from scipy.stats import spearmanr
-    
+    """LightGBM feval: mean per-group Spearman IC of predictions vs the BINNED
+    lambdarank labels (cs_rank_to_label output, 0..N_RANK_BINS-1).
+
+    Named 'rank_ic_binned' deliberately: compute_fold_metrics' 'mean_rank_ic'
+    grades scores against the CONTINUOUS forward excess return. Early stopping
+    runs on THIS (coarser, tie-heavy) metric while HPO optimizes that one —
+    same direction, different granularity; never compare their magnitudes.
+
+    Vectorized: Spearman with average-rank ties == Pearson on average ranks,
+    so one pandas groupby-rank pass + closed-form groupwise correlation
+    replaces a per-group scipy loop that ran every boosting round on every
+    valid set (thousands of interpreted spearmanr calls per round).
+    """
     labels = eval_data.get_label()
     groups = eval_data.get_group()
-    
     if groups is None:
-        if len(preds) > 1 and np.std(preds) > 1e-9:
-            ic, _ = spearmanr(preds, labels)
-            return 'rank_ic', float(ic) if not np.isnan(ic) else 0.0, True
-        return 'rank_ic', 0.0, True
+        raise ValueError(
+            "rank_ic_eval needs a grouped (ranking) Dataset — an ungrouped "
+            "eval set would pool rows across dates and grade a different "
+            "quantity. Construct the Dataset with group=..."
+        )
 
-    ics = []
-    ptr = 0
-    for g in groups:
-        g = int(g)
-        p = preds[ptr:ptr+g]
-        l = labels[ptr:ptr+g]
-        ptr += g
-        if len(p) > 1 and np.std(p) > 1e-9:
-            ic, _ = spearmanr(p, l)
-            if not np.isnan(ic):
-                ics.append(float(ic))
-    
-    return 'rank_ic', float(np.mean(ics)) if ics else 0.0, True
+    sizes = np.asarray(groups, dtype=np.int64)
+    gid   = np.repeat(np.arange(len(sizes)), sizes)
+    df = pd.DataFrame({
+        "g": gid,
+        "p": np.asarray(preds,  dtype=np.float64),
+        "l": np.asarray(labels, dtype=np.float64),
+    })
+    gb = df.groupby("g", sort=False)
+    rp = gb["p"].rank(method="average").to_numpy()
+    rl = gb["l"].rank(method="average").to_numpy()
+
+    sums = pd.DataFrame({
+        "g": gid,
+        "rp": rp, "rl": rl,
+        "rp2": rp * rp, "rl2": rl * rl, "rpl": rp * rl,
+    }).groupby("g", sort=False).sum()
+
+    n     = sizes.astype(np.float64)          # sort=False keeps 0..k order
+    cov   = n * sums["rpl"].to_numpy() - sums["rp"].to_numpy() * sums["rl"].to_numpy()
+    var_p = n * sums["rp2"].to_numpy() - sums["rp"].to_numpy() ** 2
+    var_l = n * sums["rl2"].to_numpy() - sums["rl"].to_numpy() ** 2
+    denom = np.sqrt(var_p * var_l)
+    # Degenerate groups (constant preds or constant labels, or n<2) carry no
+    # rank information — excluded, exactly like the scipy-NaN/std-guard before.
+    valid = (n > 1) & (denom > 1e-12)
+    ics   = cov[valid] / denom[valid]
+    # All-degenerate eval set: neutral 0.0 keeps early stopping alive rather
+    # than crashing; it cannot beat any genuinely positive iteration.
+    return "rank_ic_binned", float(ics.mean()) if len(ics) else 0.0, True
 
 # ── Model ────────────────────────────────────────────────────────────────────
 
@@ -183,6 +208,13 @@ class LGBMRanker:
         group_val: Optional[np.ndarray] = None,
     ) -> None:
         """Train the LambdaRank model."""
+        import gc
+        from pipeline.utils.memory import reduce_mem_usage
+
+        X_train = reduce_mem_usage(X_train, verbose=False)
+        if X_val is not None:
+            X_val = reduce_mem_usage(X_val, verbose=False)
+
         lgb_params: Dict[str, Any] = {
             "objective":    "lambdarank",
             "metric":       "None",
@@ -190,6 +222,7 @@ class LGBMRanker:
             "verbosity":    -1,
             "seed":         self.seed,
             "num_threads":  self.num_threads,  # -1 = all cores; set lower when n_jobs>1
+            "max_bin":      63,                # strict regularizer and memory saver
             **self.params,
         }
 
@@ -209,11 +242,14 @@ class LGBMRanker:
         # it conflates "unknown" with "exactly neutral"). Models trained this way
         # set nan_native_=True; predict() uses it to keep old artefacts (trained
         # on filled data) scoring exactly as they were trained.
+        self.nan_native_ = bool(X_train.isna().to_numpy().any())
+        self.feature_names_ = list(X_train.columns)
+
         dtrain = lgb.Dataset(
             X_train,
             label=label_train,
             group=group_train,
-            free_raw_data=False,
+            free_raw_data=True,
         )
 
         has_val = X_val is not None and y_val is not None and group_val is not None
@@ -225,7 +261,7 @@ class LGBMRanker:
                 label=label_val,
                 group=group_val,
                 reference=dtrain,
-                free_raw_data=False,
+                free_raw_data=True,
             )
             valid_sets  = [dtrain, dval]
             valid_names = ["train", "val"]
@@ -238,6 +274,12 @@ class LGBMRanker:
             # No val set → run all rounds; log every 100 to track progress.
             callbacks = [lgb.log_evaluation(period=100)]
 
+        # Aggressive GC before training starts
+        del X_train, y_train, group_train
+        if has_val:
+            del X_val, y_val, group_val
+        gc.collect()
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             self.model_ = lgb.train(
@@ -249,13 +291,6 @@ class LGBMRanker:
                 feval=rank_ic_eval,
                 callbacks=callbacks,
             )
-        self.feature_names_ = list(X_train.columns)
-        # Record the ACTUAL NaN policy of the training inputs so predict() serves
-        # data the same way the model was trained: native-NaN if the caller passed
-        # NaNs through, fill-0 if the caller pre-filled (no NaNs present). Setting
-        # this True unconditionally caused a train/serve shift when a caller filled
-        # X before fit() — the model learned 0-routing but predict() then fed raw NaN.
-        self.nan_native_ = bool(X_train.isna().to_numpy().any())
         log.info(f"LGBMRanker trained. Best iteration: {self.model_.best_iteration}")
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
@@ -309,3 +344,4 @@ class LGBMRanker:
         df = pd.DataFrame(rows).sort_values("gain", ascending=False)
         log.info(f"\n{df.to_string(index=False)}")
         return df
+

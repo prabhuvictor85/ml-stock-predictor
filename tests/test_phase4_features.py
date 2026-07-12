@@ -64,20 +64,22 @@ def _build() -> pd.DataFrame:
     return fe.build(_make_panel())
 
 
-def test_gate_off_removes_all_phase4_columns(monkeypatch):
-    monkeypatch.setenv("PHASE4_FEATURES", "0")
+def test_gate_off_by_default_adds_no_phase4_columns(monkeypatch):
+    # Default is OFF: the baseline panel must be Phase-4-free with no env set
+    # (same convention as PIVOT_FEATURES).
+    monkeypatch.delenv("PHASE4_FEATURES", raising=False)
     out = _build()
     present = [c for c in PHASE4_PREFIXED + CSZ_PREFIXED if c in out.columns]
-    assert not present, f"PHASE4_FEATURES=0 build still carries: {present}"
+    assert not present, f"default (gate-off) build still carries: {present}"
     stray = [c for c in out.columns if c.endswith("_csz") or c.endswith("_sec_csz")]
     assert not stray, f"unexpected z-score columns with gate off: {stray}"
 
 
-def test_gate_on_by_default_adds_all_phase4_columns(monkeypatch):
-    monkeypatch.delenv("PHASE4_FEATURES", raising=False)
+def test_gate_on_adds_all_phase4_columns(monkeypatch):
+    monkeypatch.setenv("PHASE4_FEATURES", "1")
     out = _build()
     missing = [c for c in PHASE4_PREFIXED + CSZ_PREFIXED if c not in out.columns]
-    assert not missing, f"default-on build is missing: {missing}"
+    assert not missing, f"PHASE4_FEATURES=1 build is missing: {missing}"
 
 
 def test_csz_nan_when_std_undefined():

@@ -289,12 +289,12 @@ def main():
     ap.add_argument("--end", default=None)
     ap.add_argument("--primary_horizon", type=int, default=20)
     ap.add_argument("--twap_window", type=int,
-                    default=int(os.environ.get("TARGET_TWAP_WINDOW", "5")),
+                    default=int(os.environ.get("TARGET_TWAP_WINDOW", "1")),
                     help="Trailing-average terminal-price window (bars) for forward "
                          "returns. MUST equal TargetBuilder's terminal_window so the "
                          "referee grades on the same ruler as the label. Default "
-                         "honours $TARGET_TWAP_WINDOW, falling back to 5 — the same "
-                         "fallback as TargetBuilder (1 = plain endpoint return).")
+                         "honours $TARGET_TWAP_WINDOW, falling back to 1 (plain "
+                         "endpoint return) — the same fallback as TargetBuilder.")
     ap.add_argument("--date_col", default=None,
                     help="Explicit datetime column in the price CSVs (e.g. 'time'). "
                          "Default: autodetect date/datetime/timestamp.")

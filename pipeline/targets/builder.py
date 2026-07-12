@@ -26,7 +26,7 @@ log = get_logger(__name__)
 HORIZONS            = [int(h) for h in
                       os.environ.get("TARGET_HORIZONS", "20,40,60").split(",")]
 MAX_FORWARD_HORIZON = max(HORIZONS)          # covers the longest horizon
-PURGE_HORIZON       = MAX_FORWARD_HORIZON + 20   # conservative purge for CV
+PURGE_HORIZON       = int(os.environ.get("PURGE_HORIZON", "25"))  # right-sized for 20d label + TWAP tail + margin
 
 
 def _hit_target(

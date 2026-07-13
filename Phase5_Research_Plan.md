@@ -23,8 +23,10 @@ Identify the maximal-information, minimal-size subset of orthogonal features tha
 - **Description:** Train an ablation LightGBM model utilizing out-of-sample validation folds. Extract normalized split-gain and SHAP importance stability.
 - **Hypothesis:** Features that consistently receive zero (or near zero) splits across multiple training folds, or whose SHAP values cluster strictly around 0, impart no continuous gradient for the trees to exploit and only act as noise.
 - **Action:** 
-  1. Execute `scripts/tools/model_feature_importance.py` over an un-pruned baseline.
-  2. Drop the bottom 25% of features by cumulative Information Gain.
+  1. Train models across multiple walk-forward, purged, out-of-sample folds.
+  2. Extract SHAP values on the out-of-sample test slice for each fold.
+  3. Compute OOS SHAP magnitude and stability (mean / std) across folds to accurately identify trailing noise instead of relying on in-sample split gain.
+  4. Prune unstable or near-zero SHAP impact features.
 
 ### Exp-503: Orthogonalization of Structural Features
 - **Description:** Investigate the distribution of binary dummy features (e.g., `ict_bullfvg_active`) vs continuous features (Zone distance/strength).

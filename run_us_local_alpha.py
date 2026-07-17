@@ -715,14 +715,16 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     # CV/HPO loop — two ~5M-row multi-indexed panels resident is ~12-18 GB and
     # OOMs the box at the large late folds. So in the fenced case we drop the
     # full panel here (freeing it for GC) and reload it from the on-disk
-    # checkpoint only at the return, purely for scoring.
-    scoring_panel = panel
+    # check point only at the return, purely for scoring.
+    scoring_panel = None if train_end is not None else panel
     if train_end is not None:
         from pipeline.targets.builder import MAX_FORWARD_HORIZON
         _te   = pd.Timestamp(train_end)
         _d    = panel.index.get_level_values("date")
         _before = len(panel)
         panel = panel[_d <= _te].copy()
+        import gc
+        gc.collect()
         _maxd = panel.index.get_level_values("date").max()
         print(f"      [train_end={train_end}] *** LOCKBOX FENCE ACTIVE: training capped "
               f"at {_te.date()} — {len(panel):,}/{_before:,} rows kept "

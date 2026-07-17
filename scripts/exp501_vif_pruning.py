@@ -7,20 +7,32 @@ from statsmodels.stats.outliers_influence import variance_inflation_factor
 warnings.filterwarnings("ignore")
 
 def main():
-    if os.path.exists("panel_features.pkl"):
-        print("Loading panel_features.pkl...")
-        df = pd.read_pickle("panel_features.pkl")
-    elif os.path.exists("artefacts/panel_features.pkl"):
-        print("Loading artefacts/panel_features.pkl...")
-        df = pd.read_pickle("artefacts/panel_features.pkl")
-    else:
-        print("Running python scripts/diag_phase4_features.py might have saved something, but I cannot find the pkl.")
+    panel_paths = [
+        "artefacts/us_local_alpha/checkpoints/panel_targets.pkl" if len(sys.argv) > 1 and sys.argv[1] == "alpha" else "artefacts/us_local/checkpoints/panel_targets.pkl",
+        "artefacts/checkpoints/panel_targets.pkl",
+        "artefacts/nse_local/checkpoints/panel_targets.pkl",
+        "artefacts/nse_tradingv/checkpoints/panel_targets.pkl",
+        "panel_features.pkl"
+    ]
+
+    panel_path = None
+    for p in panel_paths:
+        if os.path.exists(p):
+            panel_path = p
+            break
+
+    if not panel_path:
+        print("Cannot find any panel_targets.pkl or panel_features.pkl.")
         return
+
+    print(f"Loading '{panel_path}'...")
+    df = pd.read_pickle(panel_path)
 
     # Panel feature columns are prefixed "features_"
     features = [c for c in df.columns if c.startswith("features_")]
     print(f"Found {len(features)} features.")
 
+    # We will use future_20d_excess_return for cross-sectional Rank IC
     target_col = "future_20d_excess_return"
     if target_col not in df.columns:
         print(f"Target column '{target_col}' not found. Cannot compute IC tiebreakers.")
@@ -50,15 +62,22 @@ def main():
 
     # 2. Compute Feature Correlation Matrix
     # We sample for correlation computation to avoid massive pairwise memory spikes / time
-    print("Computing pairwise Feature Correlation Matrix (sampled for speed)...")
+    print("Computing Daily Cross-Sectional Feature Correlation Matrix...")
     valid_dates = df.index.get_level_values("date").unique()
-    # sample cross-sections to preserve relationships
     sample_dates = pd.Series(valid_dates).sample(min(400, len(valid_dates)), random_state=42)
     df_sample = df.loc[df.index.get_level_values("date").isin(sample_dates)]
     
-    # corr handles pairwise NaNs automatically
-    corr = df_sample[features].corr(method="spearman").abs()
-    
+    # Compute per-date correlation and then take median to avoid pooled time-series correlation inflation
+    def _daily_corr(grp):
+        return grp[features].corr(method="spearman").values.flatten()
+
+    print("Computing per-date correlations...")
+    # This can be slow, if too slow we just use pooled as fallback, but let's try per-date.
+    corr_daily = df_sample.groupby(level="date").apply(_daily_corr)
+    # Average across dates
+    corr_mean_flat = np.nanmedian(np.vstack(corr_daily.values), axis=0)
+    corr = pd.DataFrame(corr_mean_flat.reshape(len(features), len(features)), index=features, columns=features).abs()
+
     high_corr_pairs = []
     for i in range(len(corr.columns)):
         for j in range(i+1, len(corr.columns)):
@@ -119,8 +138,9 @@ def main():
         f.write(f"Total features: {len(features)}\n")
         f.write(f"Highly correlated pairs (>0.8): {len(high_corr_pairs)}\n\n")
         f.write("Pairwise Correlations (Winner decided by |IC|):\n")
+        f.write("NOTE: This script no longer deletes these pairwise matches; it flags them for 'Review'.\n")
         for p in high_corr_pairs:
-            f.write(f"Corr {p['corr']:.3f} | Keep: {p['winner']} (IC: {p['winner_ic']:.4f}) | Drop: {p['loser']} (IC: {p['loser_ic']:.4f})\n")
+            f.write(f"Corr {p['corr']:.3f} | Keep: {p['winner']} (IC: {p['winner_ic']:.4f}) | Review: {p['loser']} (IC: {p['loser_ic']:.4f})\n")
         f.write("\n\nVIF:\n")
         f.write(vif_data.to_string())
 

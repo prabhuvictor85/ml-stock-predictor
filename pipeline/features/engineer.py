@@ -226,8 +226,9 @@ class FeatureEngineer:
         import time
         cfg = self.cfg
         log.info("Engineering features...")
-        panel = panel.copy()
-        panel = panel.sort_index()
+        # Sort index without copying entirely if possible
+        if not panel.index.is_monotonic_increasing:
+            panel = panel.sort_index()
 
         # ── Per-ticker computations ───────────────────────────────────────
         ticker_frames: list[pd.DataFrame] = []
@@ -679,6 +680,8 @@ class FeatureEngineer:
             grp.index = pd.MultiIndex.from_arrays(
                 [grp.index, [ticker] * len(grp)], names=["date", "ticker"]
             )
+            # Downcast early to save memory before concat
+            grp = _downcast_and_defragment(grp)
             ticker_frames.append(grp)
 
             # Progress every 50 tickers
@@ -692,6 +695,9 @@ class FeatureEngineer:
                 )
 
         panel = pd.concat(ticker_frames).sort_index()
+        del ticker_frames
+        import gc
+        gc.collect()
 
         # ── Sector relative strength (cross-sectional, not per-ticker) ────
         panel = self._add_sector_rs(panel)

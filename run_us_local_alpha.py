@@ -546,7 +546,7 @@ def build_panel_from_local(
             zone_cols = merge_htf_zones_to_daily(df.index, htf_zones)
             df = df.join(zone_cols, how="left")
             for zcol in zone_cols.columns:
-                df[zcol] = df[zcol].fillna("")
+                df[zcol] = df[zcol].fillna("").astype("category")
         df["ticker"] = ticker
         dollar_vol = df["volume"] * df["close"]
         df["adv_20d_usd"] = dollar_vol.rolling(20, min_periods=10).mean()
@@ -584,6 +584,10 @@ def build_panel_from_local(
     print(f"  Loaded {len(frames)} tickers, skipped {skipped_history} (no file / < {min_history_days} days)")
 
     panel = pd.concat(frames)
+    del frames
+    import gc
+    gc.collect()
+    
     panel.index.name = "date"
     panel = panel.reset_index().set_index(["date", "ticker"]).sort_index()
 

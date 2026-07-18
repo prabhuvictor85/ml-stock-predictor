@@ -112,7 +112,7 @@ class TargetBuilder:
         terminal_window: int | None = None,
     ) -> pd.DataFrame:
         cfg = self.cfg
-        panel = panel.copy()
+        # Removed panel.copy() to save ~5GB memory; targets are added in-place
 
         # Terminal-price smoothing for the return labels. window=1 is the exact
         # endpoint return close[t+h]/close[t]-1. window>1 averages the last
@@ -191,39 +191,43 @@ class TargetBuilder:
         panel["benchmark_20d_return"]       = panel["benchmark_20d_return"]
         panel["future_20d_excess_return"]   = panel["future_20d_excess_return"]
 
-        # ── hit_target_20d (keep on 20d only — entry/exit logic) ──────────
-        def _hit(grp: pd.DataFrame) -> pd.Series:
-            hits = _hit_target(
-                grp["high"].values, grp["low"].values, grp["open"].values,
-                cfg.profit_target_pct, cfg.stop_loss_pct, window=20,
+        # ── hit_target_20d / max_drawdown_20d (diagnostics, env-gated) ─────
+        # No pipeline consumer reads these (verified: model, metrics, watchlist
+        # and validators never touch them) — two float64 columns plus per-ticker
+        # (n x 20) scan matrices for nothing. Gated OFF by default; set
+        # TARGET_DIAGNOSTICS=1 for ad-hoc analysis runs that want them.
+        if os.environ.get("TARGET_DIAGNOSTICS", "0").strip().lower() in {"1", "true", "on", "yes"}:
+            def _hit(grp: pd.DataFrame) -> pd.Series:
+                hits = _hit_target(
+                    grp["high"].values, grp["low"].values, grp["open"].values,
+                    cfg.profit_target_pct, cfg.stop_loss_pct, window=20,
+                )
+                return pd.Series(hits, index=grp.index)
+
+            panel["hit_target_20d"] = (
+                panel.groupby(level="ticker", group_keys=False)
+                .apply(_hit)
+                .reindex(panel.index)
             )
-            return pd.Series(hits, index=grp.index)
 
-        panel["hit_target_20d"] = (
-            panel.groupby(level="ticker", group_keys=False)
-            .apply(_hit)
-            .reindex(panel.index)
-        )
-
-        # ── max_drawdown_20d ───────────────────────────────────────────────
-        def _max_dd_t(grp: pd.DataFrame) -> pd.Series:
-            cv = grp["close"].values.astype(float)
-            lv = grp["low"].values.astype(float)
-            n  = len(cv); W = 20
-            result = np.full(n, np.nan)
-            if n <= W:
+            def _max_dd_t(grp: pd.DataFrame) -> pd.Series:
+                cv = grp["close"].values.astype(float)
+                lv = grp["low"].values.astype(float)
+                n  = len(cv); W = 20
+                result = np.full(n, np.nan)
+                if n <= W:
+                    return pd.Series(result, index=grp.index)
+                valid  = n - W
+                lv_pad = np.concatenate([lv, np.full(W, np.nan)])
+                idx    = np.arange(1, W + 1)[None, :] + np.arange(valid)[:, None]
+                result[:valid] = np.nanmin(lv_pad[idx], axis=1) / cv[:valid] - 1
                 return pd.Series(result, index=grp.index)
-            valid  = n - W
-            lv_pad = np.concatenate([lv, np.full(W, np.nan)])
-            idx    = np.arange(1, W + 1)[None, :] + np.arange(valid)[:, None]
-            result[:valid] = np.nanmin(lv_pad[idx], axis=1) / cv[:valid] - 1
-            return pd.Series(result, index=grp.index)
 
-        panel["max_drawdown_20d"] = (
-            panel.groupby(level="ticker", group_keys=False)
-            .apply(_max_dd_t)
-            .reindex(panel.index)
-        )
+            panel["max_drawdown_20d"] = (
+                panel.groupby(level="ticker", group_keys=False)
+                .apply(_max_dd_t)
+                .reindex(panel.index)
+            )
 
         # ── future_vol_20d ─────────────────────────────────────────────────
         def _future_vol_t(grp: pd.DataFrame) -> pd.Series:
@@ -270,7 +274,12 @@ class TargetBuilder:
         # A stock that pops quickly but reverses by 60d gets pulled back toward neutral.
         # Rows near the end of history have NaN for longer horizons — we re-normalise
         # the weights so only available horizons contribute (no neutral fill bias).
-        _w = {"cs_rank_20d": 0.5, "cs_rank_40d": 0.3, "cs_rank_60d": 0.2}
+        # Restrict to the horizons actually built — hardcoding 40d/60d here
+        # KeyErrored under TARGET_HORIZONS=20 (the slim-panel configuration);
+        # weights renormalise below, so a 20d-only run yields composite ==
+        # cs_rank_20d exactly.
+        _w_full = {"cs_rank_20d": 0.5, "cs_rank_40d": 0.3, "cs_rank_60d": 0.2}
+        _w = {c: w for c, w in _w_full.items() if c in panel.columns}
         _avail_w = sum(
             w * panel[col].notna().astype(float) for col, w in _w.items()
         )
@@ -292,11 +301,20 @@ class TargetBuilder:
         panel["top_quintile"]  = panel["top_quintile_20d"]
         panel["bot_quintile"]  = panel["bot_quintile_20d"]
 
+        # Iterate HORIZONS — hardcoding 40d/60d here would KeyError under a
+        # TARGET_HORIZONS=20 run (the supported slim-panel configuration).
         log.info(
-            f"Targets built. "
-            f"top_quintile_20d: {panel['top_quintile_20d'].sum()} | "
-            f"top_quintile_40d: {panel['top_quintile_40d'].sum()} | "
-            f"top_quintile_60d: {panel['top_quintile_60d'].sum()}"
+            "Targets built. "
+            + " | ".join(f"top_quintile_{h}d: {panel[f'top_quintile_{h}d'].sum()}"
+                         for h in HORIZONS)
         )
+
+        # Targets are created AFTER the engineer's float32 downcast and would
+        # otherwise stay float64 forever (checkpoints, fold caches and metrics
+        # all inherit it). float32 keeps ~7 significant digits — ample for
+        # returns and [0,1] ranks; the label-definition regression test runs at
+        # 1e-6 tolerance accordingly. Column-wise: never copies the panel.
+        for _c in panel.select_dtypes(include=["float64"]).columns:
+            panel[_c] = panel[_c].astype(np.float32)
         return panel
 

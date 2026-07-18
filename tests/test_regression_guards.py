@@ -165,7 +165,10 @@ def test_twap_terminal_is_trailing_and_shifted():
         t    = 10  # any date with a full 20d future window
         term = closes.iloc[t + 20 - w + 1 : t + 21].mean() if w > 1 else closes.iloc[t + 20]
         want = term / closes.iloc[t] - 1.0
-        assert np.isclose(got.iloc[t], want, rtol=1e-12), (
+        # rtol 1e-6 (not 1e-12): targets are float32 since the memory pass —
+        # ~1e-7 relative precision. The pin still catches centered-vs-trailing
+        # or mis-shifted windows, which differ at the ~1e-2 level.
+        assert np.isclose(got.iloc[t], want, rtol=1e-6), (
             f"w={w}: future_20d_return[t]={got.iloc[t]:.10f} != trailing-TWAP "
             f"definition {want:.10f} — terminal window is centered or mis-shifted"
         )

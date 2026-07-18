@@ -75,6 +75,27 @@ PHASE4_FEATURE_COLS = [
 def phase4_features_enabled() -> bool:
     return os.environ.get("PHASE4_FEATURES", "0").strip().lower() in {"1", "true", "on", "yes"}
 
+
+# Construction scaffolding: unprefixed intermediates consumed while building
+# their features_ twins — the same values would otherwise sit on the panel
+# twice, riding through every copy, checkpoint and fold slice (~0.5 GB at
+# production scale). atr_14 is deliberately NOT here (raw, unwinsorized —
+# pinned by the ticker-isolation regression test); zone_type_* labels are
+# kept for watchlist display. Dropped with `del` (in-place, per-column) —
+# a DataFrame.drop on the assembled panel would copy the consolidated block.
+_SCAFFOLD_COLS = [
+    "atr_pct", "return_20d", "return_60d",
+    "zone_active_1d", "zone_dist_atr_1d", "zone_strength_1d",
+    "weekly_trend", "weekly_vol", "monthly_trend", "monthly_vol",
+    "quarterly_trend", "quarterly_vol", "yearly_trend", "yearly_vol",
+]
+
+
+def _drop_scaffold(df: pd.DataFrame) -> None:
+    for _c in _SCAFFOLD_COLS:
+        if _c in df.columns:
+            del df[_c]
+
 # Columns carried from each HTF ICT run back to the daily index
 _ICT_CARRY_COLS = [
     "ict_bob_active",   "ict_bullrb_active",   "ict_bullfvg_active",
@@ -551,14 +572,21 @@ class FeatureEngineer:
                             ).set_index("date")
 
                             w = _ICT_HTF_W[tf_label]
+                            _htf_new = {}
                             for col in carry:
                                 vals = merged[col].reindex(daily_idx).fillna(0).values.astype(np.float32)
-                                grp[f"{FEATURE_PREFIX}{col}_{tf_label}"] = vals
+                                _htf_new[f"{FEATURE_PREFIX}{col}_{tf_label}"] = vals
 
                                 if col == "ict_bull_zone_priority":
                                     ict_bull_htf += w * vals / _ICT_PRIORITY_MAX
                                 elif col == "ict_bear_zone_priority":
                                     ict_bear_htf += w * vals / _ICT_PRIORITY_MAX
+                            # Single concat per timeframe instead of ~9 one-column
+                            # inserts — the insert pattern fragments grp and fired
+                            # PerformanceWarnings across the whole build.
+                            grp = pd.concat(
+                                [grp, pd.DataFrame(_htf_new, index=grp.index)], axis=1
+                            )
 
                         except Exception as _e:
                             log.debug(f"{ticker} ICT HTF {tf_label}: {_e}")
@@ -680,6 +708,9 @@ class FeatureEngineer:
             grp.index = pd.MultiIndex.from_arrays(
                 [grp.index, [ticker] * len(grp)], names=["date", "ticker"]
             )
+            # Scaffolding is consumed by the ICT/zone blocks above — drop it
+            # per-ticker so the concat never assembles it panel-wide.
+            _drop_scaffold(grp)
             # Downcast early to save memory before concat
             grp = _downcast_and_defragment(grp)
             ticker_frames.append(grp)
@@ -714,6 +745,10 @@ class FeatureEngineer:
 
         # ── Multi-timeframe trends ────────────────────────────────────────
         panel = self._mtf.merge(panel)
+        # The merge leaves raw (unprefixed) trend/vol columns beside their
+        # features_ twins — delete them while they are freshly-added separate
+        # blocks (in-place, no panel copy).
+        _drop_scaffold(panel)
 
         # ── Zone × Trend confirmation ────────────────────────────────────
         # SDZ (swap demand) = bullish → confirmed when weekly+monthly trend UP
@@ -771,7 +806,15 @@ class FeatureEngineer:
 
         log.info(f"Features computed: {len(feat_cols)} feature columns")
         panel = _cast_categorical(panel)
-        panel = _downcast_and_defragment(panel)
+        # Per-ticker frames were downcast + consolidated BEFORE the concat and
+        # the concat output is itself consolidated, so a full-panel defrag here
+        # was a redundant ~2x-panel transient (two ~6 GB copies coexisting at
+        # production scale). Only the few panel-level columns added after the
+        # concat (breadth, regime, sector-RS, z-scores) can still be float64 —
+        # downcast those column-wise: each astype copies one column, never the
+        # whole panel.
+        for _c in panel.select_dtypes(include=["float64"]).columns:
+            panel[_c] = panel[_c].astype(np.float32)
         return panel
 
     def _add_sector_rs(self, panel: pd.DataFrame) -> pd.DataFrame:

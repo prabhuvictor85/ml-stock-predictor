@@ -434,3 +434,30 @@ def test_recompute_fold_cutoff_respected():
     # — that's expected and correct. We just verify neither raises and both are non-empty.
     assert len(late) > 0
     assert len(early) > 0
+
+
+def test_mtf_trend_features_alive_and_scaffold_dropped(built_panel):
+    """Pin the scaffold-drop ORDERING.
+
+    Dropping the raw MTF columns (weekly_trend, ...) before their consumers
+    run silently zeroes every features_*_trend column and freezes the zone/ICT
+    confluence multipliers at 0.5 — no crash, no NaN, just dead features
+    (exactly what happened when _drop_scaffold ran right after the merge).
+    Trend features must VARY, and the raw twins must be gone afterwards.
+    """
+    for tf in ("weekly", "monthly"):          # enough bars in the 300d fixture
+        col = f"{FEATURE_PREFIX}{tf}_trend"
+        assert col in built_panel.columns, f"{col} missing"
+        vals = built_panel[col].dropna()
+        assert vals.nunique() > 1, (
+            f"{col} is constant ({vals.unique()[:3]}) — MTF consumers were "
+            "starved; scaffold likely dropped before they ran"
+        )
+    for tf in ("quarterly", "yearly"):        # too few bars to demand variance
+        assert f"{FEATURE_PREFIX}{tf}_trend" in built_panel.columns
+
+    for raw in ("weekly_trend", "monthly_vol", "yearly_trend",
+                "atr_pct", "zone_dist_atr_1d", "return_20d"):
+        assert raw not in built_panel.columns, (
+            f"raw scaffold column '{raw}' still on the panel — drop missing"
+        )

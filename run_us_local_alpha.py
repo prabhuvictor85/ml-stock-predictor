@@ -671,6 +671,12 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     if not _mf_ok and (targets_ckpt.exists() or panel_ckpt.exists()):
         print(f"\n      [ckpt-guard] checkpoint IGNORED — {_mf_reason}")
         print("      [ckpt-guard] rebuilding features+targets from scratch")
+        if targets_ckpt.exists():
+            targets_ckpt.unlink()
+        if panel_ckpt.exists():
+            panel_ckpt.unlink()
+        if ckpt_manifest.exists():
+            ckpt_manifest.unlink()
 
     if _mf_ok and targets_ckpt.exists() and feat_cols_ckpt.exists():
         with _train_perf.stage("[1/6] Feature engineering"):

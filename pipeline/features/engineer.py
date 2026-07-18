@@ -819,12 +819,8 @@ class FeatureEngineer:
 
         # ── Multi-timeframe trends ────────────────────────────────────────
         panel = self._mtf.merge(panel)
-        # The merge leaves raw (unprefixed) trend/vol columns beside their
-        # features_ twins — delete them while they are freshly-added separate
-        # blocks (in-place, no panel copy).
-        _drop_scaffold(panel)
 
-        # ── Zone × Trend confirmation ────────────────────────────────────
+        # ── Zone + Trend confirmation ────────────────────────────────────
         # SDZ (swap demand) = bullish → confirmed when weekly+monthly trend UP
         # SSZ (swap supply) = bearish → confirmed when weekly+monthly trend DOWN
         sdz = panel.get(f"{FEATURE_PREFIX}sdz_raw_score", pd.Series(0.0, index=panel.index))
@@ -873,6 +869,13 @@ class FeatureEngineer:
         # trend features (yearly_trend, quarterly_trend, monthly_trend, weekly_trend)
         # are already individual model features. LGBM learns the interaction weights
         # and TF hierarchy from data — we should not hand-code them.
+
+        # NOW the raw MTF columns are safe to drop: every consumer above
+        # (features_*_trend assignment, up_mult/dn_mult confluence multipliers)
+        # has read them. Dropping BEFORE those consumers zeroed the trend
+        # features and froze the multipliers at 0.5 — pinned by
+        # test_mtf_trend_features_alive_and_scaffold_dropped.
+        _drop_scaffold(panel)
 
         # ── Winsorize all features at [1, 99] per date ────────────────────
         feat_cols = [c for c in panel.columns if c.startswith(FEATURE_PREFIX)]
@@ -1289,6 +1292,9 @@ class FeatureEngineer:
                 - result[f"{FEATURE_PREFIX}ict_bear_htf_score"]
             ).astype(np.float32)
 
+        # Same ordering rule as build(): drop raw MTF/scaffold columns only
+        # AFTER the confluence consumers above have read them.
+        _drop_scaffold(result)
         result = _cast_categorical(result)
         result = _downcast_and_defragment(result)
         return result

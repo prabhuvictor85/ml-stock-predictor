@@ -96,6 +96,25 @@ def _drop_scaffold(df: pd.DataFrame) -> None:
         if _c in df.columns:
             del df[_c]
 
+
+def feature_build_workers() -> int:
+    """Env FEATURE_BUILD_WORKERS: process count for the per-ticker feature
+    section. Default 1 = the serial path, bit-identical to before. Set to the
+    machine's core count (e.g. 4 on the Hetzner box) to parallelise the
+    ~2h/1,500-ticker build; cross-sectional steps always stay single-process."""
+    try:
+        return max(1, int(os.environ.get("FEATURE_BUILD_WORKERS", "1")))
+    except ValueError:
+        return 1
+
+
+def _parallel_batch_worker(cfg, benchmark_close, skip_ict, sub_panel):
+    """Runs in a worker process: per-ticker features for one batch of tickers.
+    Module-level so it pickles under both fork (Linux) and spawn (Windows).
+    A fresh engine per process; numba JIT warms once per worker (~5s)."""
+    fe = FeatureEngineer(cfg, benchmark_close, skip_ict=skip_ict)
+    return fe.build(sub_panel, _per_ticker_only=True)
+
 # Columns carried from each HTF ICT run back to the daily index
 _ICT_CARRY_COLS = [
     "ict_bob_active",   "ict_bullrb_active",   "ict_bullfvg_active",
@@ -240,9 +259,44 @@ class FeatureEngineer:
         self._mtf = MultiTFMerger()
         self._pivot = PivotFeatureEngine()
 
-    def build(self, panel: pd.DataFrame) -> pd.DataFrame:
+    def _per_ticker_parallel(self, panel: pd.DataFrame, all_tickers: list,
+                             n_workers: int) -> "list[pd.DataFrame]":
+        """Fan the per-ticker section out over worker processes.
+
+        Batches are small (~25 tickers) and pulled dynamically, so a slow
+        3,500-bar veteran never leaves other cores idle at the end. The input
+        slices are OHLCV-only (tiny); the heavy feature frames stream back
+        incrementally. A failed batch raises in the parent — fail loud, no
+        silently missing tickers.
+        """
+        from concurrent.futures import ProcessPoolExecutor, as_completed
+        _BATCH = 25
+        batches = [all_tickers[i:i + _BATCH]
+                   for i in range(0, len(all_tickers), _BATCH)]
+        log.info(f"Parallel feature build: {len(all_tickers)} tickers | "
+                 f"{n_workers} workers | {len(batches)} batches of <= {_BATCH}")
+        tick_level = panel.index.get_level_values("ticker")
+        frames: "list[pd.DataFrame]" = []
+        with ProcessPoolExecutor(max_workers=n_workers) as ex:
+            futs = [ex.submit(_parallel_batch_worker, self.cfg,
+                              self.benchmark_close, self.skip_ict,
+                              panel[tick_level.isin(set(b))])
+                    for b in batches]
+            for _done, fut in enumerate(as_completed(futs), start=1):
+                frames.append(fut.result())
+                if _done % 4 == 0 or _done == len(futs):
+                    log.info(f"Parallel feature build: {_done}/{len(futs)} batches done")
+        return frames
+
+    def build(self, panel: pd.DataFrame, _per_ticker_only: bool = False) -> pd.DataFrame:
         """
         Compute all features.  Returns panel with features_* columns added.
+
+        _per_ticker_only: internal, used by the parallel build. A worker
+        process computes ONLY the per-ticker section and returns right after
+        the concat; every cross-sectional step (sector RS, breadth, regime,
+        z-scores, MTF merge, winsorize) runs once in the parent, so those
+        always see the full cross-section — identical to a serial build.
         """
         import time
         cfg = self.cfg
@@ -258,7 +312,19 @@ class FeatureEngineer:
         n_total = len(all_tickers)
         t_build_start = time.time()
 
-        for _ti, (ticker, grp) in enumerate(panel.groupby(level="ticker")):
+        # Parallel dispatch (env FEATURE_BUILD_WORKERS, default 1 = serial
+        # path below, bit-identical to before). Each ticker is an atomic unit
+        # of work: one worker owns it end-to-end across all timeframes, two
+        # workers never touch the same ticker, and the sort_index() after the
+        # concat makes assembly order irrelevant to the result.
+        _pre_built: "list[pd.DataFrame] | None" = None
+        if not _per_ticker_only and n_total > 1:
+            _w = feature_build_workers()
+            if _w > 1:
+                _pre_built = self._per_ticker_parallel(panel, all_tickers, _w)
+
+        _ticker_iter = [] if _pre_built is not None else panel.groupby(level="ticker")
+        for _ti, (ticker, grp) in enumerate(_ticker_iter):
             grp = grp.droplevel("ticker").sort_index()
             h = grp["high"].values
             l = grp["low"].values
@@ -725,10 +791,18 @@ class FeatureEngineer:
                     f"| elapsed={elapsed:.0f}s | ETA={eta:.0f}s"
                 )
 
+        if _pre_built is not None:
+            ticker_frames = _pre_built
+
         panel = pd.concat(ticker_frames).sort_index()
         del ticker_frames
         import gc
         gc.collect()
+
+        if _per_ticker_only:
+            # Worker mode: hand the per-ticker frame back to the parent, which
+            # runs the cross-sectional steps once over the full universe.
+            return panel
 
         # ── Sector relative strength (cross-sectional, not per-ticker) ────
         panel = self._add_sector_rs(panel)

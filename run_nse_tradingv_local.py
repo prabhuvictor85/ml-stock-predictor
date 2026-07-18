@@ -941,7 +941,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         print(f"[5/6] Training final LightGBM ranker [{mode}] ...")
     full_grp, full_groups = cv.build_group_array(train_panel, min_group_size=5)
     avail    = [f for f in feat_cols if f in full_grp.columns]
-    X_full   = full_grp[avail].astype(np.float32)
+    X_full   = full_grp[avail].astype(np.float32, copy=False)  # already float32 -> no copy
     # Ranker trains only on rows with a known forward-return rank. Unlabelled
     # rows (delisted/halted/last ~20d) carry NaN cs_rank_20d; fillna(0)
     # would mislabel them as the WORST stock in the cross-section — label

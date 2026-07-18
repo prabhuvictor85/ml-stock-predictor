@@ -83,7 +83,13 @@ def compute_fold_metrics(
     """
     from pipeline.models.lgbm_ranker import cs_rank_to_label
 
-    panel_test = panel_test.copy()
+    # Slice only the columns this function reads before copying — the incoming
+    # test fold carries ~300 feature columns that are never touched here, and
+    # this runs once per fold per Optuna trial (~30x smaller copy).
+    _METRIC_COLS = ["group_date", "in_universe", "cs_rank_20d",
+                    "top_quintile", "bot_quintile",
+                    "future_20d_return", "future_20d_excess_return"]
+    panel_test = panel_test[[c for c in _METRIC_COLS if c in panel_test.columns]].copy()
     panel_test["_score"] = scores.reindex(panel_test.index).fillna(-999)
 
     ndcg_values: List[float] = []
@@ -106,6 +112,7 @@ def compute_fold_metrics(
     _ic_rows = panel_test[
         panel_test["future_20d_excess_return"].notna()
         & (panel_test["in_universe"] == True)
+        & (panel_test["_score"] != -999)
     ]
     for _d, _gk_d in _ic_rows.groupby(level="date", sort=True):
         if len(_gk_d) >= 5:

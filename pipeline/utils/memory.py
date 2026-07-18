@@ -20,6 +20,11 @@ def reduce_mem_usage(df: pd.DataFrame, verbose=True) -> pd.DataFrame:
         # Skip datetime columns
         if 'datetime' in str(col_type):
             continue
+
+        # Already downcast — re-casting float32->float32 copies the column
+        # (and rescans min/max) for nothing.
+        if str(col_type) == 'float32':
+            continue
             
         # Only downcast feature cols (e.g. starting with features_)
         # Do not downcast OHLCV data or targets to avoid bit-reproducibility issues

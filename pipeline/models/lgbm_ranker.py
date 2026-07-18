@@ -188,11 +188,13 @@ class LGBMRanker:
         seed: int = 42,
         use_monotone_constraints: bool = False,
         num_threads: int = 0,
+        use_gpu: bool = False,
     ) -> None:
         self.params = params or {}
         self.seed = seed
         self.use_monotone_constraints = use_monotone_constraints
         self.num_threads = num_threads
+        self.use_gpu = use_gpu
         self.model_: Optional[lgb.Booster] = None
         self.feature_names_: List[str] = []
 
@@ -207,11 +209,9 @@ class LGBMRanker:
     ) -> None:
         """Train the LambdaRank model."""
         import gc
-        from pipeline.utils.memory import reduce_mem_usage
-
-        X_train = reduce_mem_usage(X_train, verbose=False)
-        if X_val is not None:
-            X_val = reduce_mem_usage(X_val, verbose=False)
+        # NOTE: no dtype munging here. The engineer guarantees float32 features;
+        # re-running reduce_mem_usage per fit copied every column on each of
+        # ~500 HPO fits for zero benefit. Dtypes are owned in ONE place.
 
         lgb_params: Dict[str, Any] = {
             "objective":    "lambdarank",

@@ -794,9 +794,19 @@ class FeatureEngineer:
         if _pre_built is not None:
             ticker_frames = _pre_built
 
-        panel = pd.concat(ticker_frames).sort_index()
+        # NOT chained as pd.concat(...).sort_index() — that keeps ticker_frames
+        # (~1x panel), the concat result (~1x, held alive as the bound `self`
+        # for the whole sort_index() call) AND the freshly-sorted result
+        # (~1x) alive simultaneously: a ~3x-panel transient. At production
+        # scale (1,527 US tickers) this was measured OOM-killing a 15 GiB box
+        # (anon-rss 14.75 GB right after "batches done", ~1 panel-copy short
+        # of the 3x prediction). Freeing ticker_frames BEFORE sorting, and
+        # sorting in place, caps the peak at ~2x.
+        panel = pd.concat(ticker_frames)
         del ticker_frames
         import gc
+        gc.collect()
+        panel.sort_index(inplace=True)
         gc.collect()
 
         if _per_ticker_only:
@@ -1247,7 +1257,16 @@ class FeatureEngineer:
             log.warning("recompute_fold_features: no frames produced — returning panel unchanged.")
             return panel
 
-        result = pd.concat(frames).sort_index()
+        # Same ordering fix as build(): don't chain concat().sort_index() —
+        # see the comment there for why that stacks a ~3x-panel transient.
+        # `frames` was also never freed here before (a whole extra panel-copy
+        # held alive for the rest of this call, on every fold/trial recompute).
+        result = pd.concat(frames)
+        del frames
+        import gc
+        gc.collect()
+        result.sort_index(inplace=True)
+        gc.collect()
 
         # ── 4. Panel-level: rebuild sdz_htf_score × trend multiplier ─────
         # Trend columns are causal (rolling SMAs) — no recompute needed.

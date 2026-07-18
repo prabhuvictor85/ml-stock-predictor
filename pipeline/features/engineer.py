@@ -111,16 +111,44 @@ def _rss_mb() -> "float | None":
     return None
 
 
-def _log_stage(label: str, t0: float) -> None:
-    """Cheap stage checkpoint: elapsed time + resident memory. The cross-
-    sectional steps in build() (sector RS, breadth, regime, MTF merge,
-    winsorize) previously logged NOTHING, so an OOM kill anywhere in that
-    stretch was indistinguishable from any other without external dmesg/log
-    archaeology after the fact — this makes every run self-diagnosing."""
+def _malloc_trim() -> None:
+    """Ask glibc to return freed-but-retained arena memory to the OS.
+
+    gc.collect() only frees Python-level objects; the C allocator underneath
+    can keep those pages in its own free lists indefinitely (classic glibc
+    malloc behavior with large, varied-size allocations — exactly this
+    per-ticker-then-concat pattern). MALLOC_ARENA_MAX=2 (set for this pipeline
+    to curb multi-arena fragmentation) can make this WORSE, not better, by
+    funneling more retained memory through fewer arenas. malloc_trim(0) is the
+    standard, safe way to force the release. Linux-only; no-ops elsewhere.
+    """
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except (OSError, AttributeError):
+        pass
+
+
+def _log_stage(label: str, t0: float, panel: "pd.DataFrame | None" = None) -> None:
+    """Cheap stage checkpoint: elapsed time + resident memory + (optionally)
+    the panel's OWN reported payload size. The cross-sectional steps in
+    build() (sector RS, breadth, regime, MTF merge, winsorize) previously
+    logged NOTHING, so an OOM kill anywhere in that stretch was
+    indistinguishable from any other without external dmesg/log archaeology
+    after the fact. Logging panel.memory_usage() alongside process RSS
+    answers the key question directly: if RSS is much larger than the panel's
+    own payload, the gap is allocator fragmentation (glibc not returning freed
+    memory), not more data than expected — malloc_trim() below targets exactly
+    that gap."""
     import time
     rss = _rss_mb()
     rss_txt = f"{rss:,.0f} MB" if rss is not None else "n/a"
-    log.info(f"  [{label}] +{time.time() - t0:.1f}s  rss={rss_txt}")
+    if panel is not None:
+        pmb = panel.memory_usage(deep=True).sum() / 1e6
+        log.info(f"  [{label}] +{time.time() - t0:.1f}s  rss={rss_txt}  "
+                 f"panel={panel.shape}={pmb:,.0f}MB")
+    else:
+        log.info(f"  [{label}] +{time.time() - t0:.1f}s  rss={rss_txt}")
 
 
 def feature_build_workers() -> int:
@@ -849,41 +877,50 @@ class FeatureEngineer:
         del ticker_frames
         import gc
         gc.collect()
+        _malloc_trim()
         panel.sort_index(inplace=True)
         gc.collect()
+        _malloc_trim()
 
         if _per_ticker_only:
             # Worker mode: hand the per-ticker frame back to the parent, which
             # runs the cross-sectional steps once over the full universe.
             return panel
 
-        # Stage checkpoints (elapsed + resident memory) around every
-        # cross-sectional step below. Before this, an OOM anywhere in this
-        # stretch was invisible until the NEXT log line ("Features computed",
-        # after winsorize) — undiagnosable from the log alone.
+        # Stage checkpoints (elapsed + resident memory + panel's own reported
+        # payload) around every cross-sectional step below. Before this, an
+        # OOM anywhere in this stretch was invisible until the NEXT log line
+        # ("Features computed", after winsorize) — undiagnosable from the log
+        # alone. rss >> panel-memory_usage means allocator fragmentation, not
+        # more data than expected — malloc_trim() targets exactly that gap.
         _stage_t0 = time.time()
-        _log_stage("post-concat/sort", _stage_t0)
+        _log_stage("post-concat/sort", _stage_t0, panel)
 
         # ── Sector relative strength (cross-sectional, not per-ticker) ────
         panel = self._add_sector_rs(panel)
-        _log_stage("sector_rs", _stage_t0)
+        _log_stage("sector_rs", _stage_t0, panel)
 
         # ── Market breadth (benchmark constituent SMA50 pct above) ────────
         panel = self._add_market_breadth(panel)
-        _log_stage("market_breadth", _stage_t0)
+        _log_stage("market_breadth", _stage_t0, panel)
 
         # ── Regime label ──────────────────────────────────────────────────
         panel = self._add_regime(panel)
-        _log_stage("regime", _stage_t0)
+        _log_stage("regime", _stage_t0, panel)
 
         # ── Cross-Sectional Z-Scores (Exp-403) ────────────────────────────
         if phase4_features_enabled():
             panel = self._add_cross_sectional_zscores(panel)
-            _log_stage("cross_sectional_zscores", _stage_t0)
+            _log_stage("cross_sectional_zscores", _stage_t0, panel)
+
+        gc.collect()
+        _malloc_trim()
 
         # ── Multi-timeframe trends ────────────────────────────────────────
         panel = self._mtf.merge(panel)
-        _log_stage("mtf_merge", _stage_t0)
+        _log_stage("mtf_merge", _stage_t0, panel)
+        gc.collect()
+        _malloc_trim()
 
         # ── Zone + Trend confirmation ────────────────────────────────────
         # SDZ (swap demand) = bullish → confirmed when weekly+monthly trend UP
@@ -941,12 +978,16 @@ class FeatureEngineer:
         # features and froze the multipliers at 0.5 — pinned by
         # test_mtf_trend_features_alive_and_scaffold_dropped.
         _drop_scaffold(panel)
-        _log_stage("drop_scaffold", _stage_t0)
+        gc.collect()
+        _malloc_trim()
+        _log_stage("drop_scaffold", _stage_t0, panel)
 
         # ── Winsorize all features at [1, 99] per date ────────────────────
         feat_cols = [c for c in panel.columns if c.startswith(FEATURE_PREFIX)]
         panel = _winsorize_per_date(panel, feat_cols)
-        _log_stage("winsorize", _stage_t0)
+        _log_stage("winsorize", _stage_t0, panel)
+        gc.collect()
+        _malloc_trim()
 
         log.info(f"Features computed: {len(feat_cols)} feature columns")
         panel = _cast_categorical(panel)
@@ -1322,8 +1363,10 @@ class FeatureEngineer:
         del frames
         import gc
         gc.collect()
+        _malloc_trim()
         result.sort_index(inplace=True)
         gc.collect()
+        _malloc_trim()
 
         # ── 4. Panel-level: rebuild sdz_htf_score × trend multiplier ─────
         # Trend columns are causal (rolling SMAs) — no recompute needed.

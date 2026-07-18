@@ -657,7 +657,22 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
     feat_cols_ckpt = CKPT / "feat_cols.txt"
     targets_ckpt   = CKPT / "panel_targets.pkl"
 
-    if targets_ckpt.exists() and feat_cols_ckpt.exists():
+    # ── Manifest guard ────────────────────────────────────────────────────
+    # A checkpoint is only trusted when it was built from the SAME feature/
+    # target code, recipe env gates and price-data snapshot as this run.
+    # Mismatch => rebuild with a loud reason (stale reuse silently trains on
+    # last week's recipe; that failure mode is worse than a rebuild).
+    from pipeline.utils.checkpoint_manifest import (
+        compute_manifest, manifest_ok, write_manifest,
+    )
+    ckpt_manifest = CKPT / "ckpt_manifest.json"
+    _mf_now = compute_manifest(STOCK_DATA_DIR)
+    _mf_ok, _mf_reason = manifest_ok(ckpt_manifest, _mf_now)
+    if not _mf_ok and (targets_ckpt.exists() or panel_ckpt.exists()):
+        print(f"\n      [ckpt-guard] checkpoint IGNORED — {_mf_reason}")
+        print("      [ckpt-guard] rebuilding features+targets from scratch")
+
+    if _mf_ok and targets_ckpt.exists() and feat_cols_ckpt.exists():
         with _train_perf.stage("[1/6] Feature engineering"):
             print("\n[1/6] Feature engineering ... SKIPPED (targets checkpoint supersedes)")
             feat_cols = feat_cols_ckpt.read_text().strip().split("\n")
@@ -668,7 +683,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             print(f"      cs_rank_20d non-null: {panel['cs_rank_20d'].notna().sum()}")
     else:
         with _train_perf.stage("[1/6] Feature engineering"):
-            if panel_ckpt.exists() and feat_cols_ckpt.exists():
+            if _mf_ok and panel_ckpt.exists() and feat_cols_ckpt.exists():
                 print("\n[1/6] Feature engineering ... RESUMING from checkpoint")
                 with open(panel_ckpt, "rb") as f:
                     panel = pickle.load(f)
@@ -682,7 +697,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                 with open(panel_ckpt, "wb") as f:
                     pickle.dump(panel, f)
                 feat_cols_ckpt.write_text("\n".join(feat_cols))
-                print(f"      Checkpoint saved: {panel_ckpt}")
+                write_manifest(ckpt_manifest, _mf_now)
+                print(f"      Checkpoint saved: {panel_ckpt} (+ manifest)")
 
         with _train_perf.stage("[2/6] Target building"):
             print("[2/6] Building targets ...")
@@ -691,7 +707,8 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             print(f"      cs_rank_20d non-null: {panel['cs_rank_20d'].notna().sum()} — saving checkpoint ...")
             with open(targets_ckpt, "wb") as f:
                 pickle.dump(panel, f)
-            print(f"      Checkpoint saved: {targets_ckpt}")
+            write_manifest(ckpt_manifest, _mf_now)
+            print(f"      Checkpoint saved: {targets_ckpt} (+ manifest)")
             try:
                 if panel_ckpt.exists():
                     panel_ckpt.unlink()

@@ -221,6 +221,10 @@ class LGBMRanker:
             "seed":         self.seed,
             "num_threads":  self.num_threads,  # -1 = all cores; set lower when n_jobs>1
             "max_bin":      63,                # strict regularizer and memory saver
+            # Wide panel (~230 float32 cols): col-wise is the right layout;
+            # pinning it skips LightGBM's per-fit auto-probe, which BUILDS BOTH
+            # layouts to time them — extra memory + startup on every HPO fit.
+            "force_col_wise": True,
             **self.params,
         }
 
@@ -261,8 +265,13 @@ class LGBMRanker:
                 reference=dtrain,
                 free_raw_data=True,
             )
-            valid_sets  = [dtrain, dval]
-            valid_names = ["train", "val"]
+            # val ONLY — including dtrain here ran the feval on the full train
+            # set every boosting round purely for silent logs (period=-1), and
+            # put the train metric among the early-stopping candidates: train
+            # scores improve near-monotonically, which can keep the stopper
+            # from ever firing and run every fit to full n_estimators.
+            valid_sets  = [dval]
+            valid_names = ["val"]
             # Only use early stopping when we have a held-out val set —
             # early-stopping against the train set causes best_iteration=0.
             callbacks = [lgb.early_stopping(50, verbose=False), lgb.log_evaluation(period=-1)]

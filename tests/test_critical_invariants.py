@@ -181,6 +181,41 @@ class TestWinsoriseCrossSectional:
             "winsorize is using global percentiles instead of per-date"
         )
 
+    def test_winsorize_chunking_is_bit_identical(self):
+        """chunk_size must not change a single output value.
+
+        The chunked rewrite exists purely to bound peak memory (holding
+        lower_b/upper_b for a SLICE of columns instead of all ~230 at once,
+        which was the dominant contributor to a production OOM kill). The
+        per-date quantile math is unchanged — chunk_size=3 (many chunks) must
+        match chunk_size=1000 (one chunk, the old behavior) exactly, including
+        NaN edge cases (all-NaN column, all-NaN date-group, discrete columns
+        excluded).
+        """
+        from pipeline.features.engineer import _winsorize_per_date
+
+        n_tickers, n_dates, n_cols = 15, 4, 11
+        dates   = pd.bdate_range("2022-01-01", periods=n_dates)
+        tickers = [f"T{i}" for i in range(n_tickers)]
+        idx = pd.MultiIndex.from_product([dates, tickers], names=["date", "ticker"])
+        rng = np.random.default_rng(7)
+
+        cols = [f"feat_c{i}" for i in range(n_cols)]
+        data = {c: rng.normal(0.0, 1.0, len(idx)) for c in cols}
+        # Inject edge cases: an outlier, an all-NaN column, and an all-NaN
+        # date-group on one otherwise-normal column.
+        data["feat_c0"][0] = 999.0
+        data["feat_c1"] = np.full(len(idx), np.nan)
+        nan_date_mask = idx.get_level_values("date") == dates[2]
+        data["feat_c2"] = np.where(nan_date_mask, np.nan, data["feat_c2"])
+
+        df = pd.DataFrame(data, index=idx)
+
+        out_chunked   = _winsorize_per_date(df.copy(), cols, chunk_size=3)
+        out_unchunked = _winsorize_per_date(df.copy(), cols, chunk_size=1000)
+
+        pd.testing.assert_frame_equal(out_chunked, out_unchunked)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # #6  Wilder ATR formula

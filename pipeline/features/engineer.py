@@ -97,6 +97,32 @@ def _drop_scaffold(df: pd.DataFrame) -> None:
             del df[_c]
 
 
+def _rss_mb() -> "float | None":
+    """Current process resident memory in MB. Linux-only (/proc); returns
+    None elsewhere (Windows dev machines) rather than raising — this is a
+    diagnostic nicety, not something a build should ever fail on."""
+    try:
+        with open("/proc/self/status") as f:
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    return int(line.split()[1]) / 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def _log_stage(label: str, t0: float) -> None:
+    """Cheap stage checkpoint: elapsed time + resident memory. The cross-
+    sectional steps in build() (sector RS, breadth, regime, MTF merge,
+    winsorize) previously logged NOTHING, so an OOM kill anywhere in that
+    stretch was indistinguishable from any other without external dmesg/log
+    archaeology after the fact — this makes every run self-diagnosing."""
+    import time
+    rss = _rss_mb()
+    rss_txt = f"{rss:,.0f} MB" if rss is not None else "n/a"
+    log.info(f"  [{label}] +{time.time() - t0:.1f}s  rss={rss_txt}")
+
+
 def feature_build_workers() -> int:
     """Env FEATURE_BUILD_WORKERS: process count for the per-ticker feature
     section. Default 1 = the serial path, bit-identical to before. Set to the
@@ -168,7 +194,8 @@ def _is_discrete_feature(values: np.ndarray) -> bool:
     return len(uniq) <= 6 and np.isin(uniq, _DISCRETE_VALUES).all()
 
 
-def _winsorize_per_date(panel: pd.DataFrame, feature_cols: List[str], lo: float = 1.0, hi: float = 99.0) -> pd.DataFrame:
+def _winsorize_per_date(panel: pd.DataFrame, feature_cols: List[str], lo: float = 1.0,
+                        hi: float = 99.0, chunk_size: int = 40) -> pd.DataFrame:
     """Winsorize continuous features at [lo, hi] percentile per date.
 
     Discrete columns (binary flags, signs, dummies, zone-priority codes) are
@@ -178,14 +205,26 @@ def _winsorize_per_date(panel: pd.DataFrame, feature_cols: List[str], lo: float 
     precisely on the dates it is rarest and most informative. A yes/no answer
     has no outliers to tame.
 
-    Vectorized: one groupby(date) covering ALL continuous columns at once,
-    using pandas' Cython quantile transform (string dispatch, no Python
-    lambda), instead of the previous per-COLUMN groupby(date) + lambda +
-    np.nanpercentile loop. That loop re-grouped the full panel by date once
-    per feature (~250 times) — measured 586.6s on a 20-ticker/254-col panel;
-    this version measured 2.9s on the identical panel, verified bit-identical
-    output (incl. all-NaN-date-group and partial-NaN edge cases) before
-    landing. groupby.transform("quantile", q) skips NaN by default, matching
+    Vectorized: groupby(date) covering CHUNKS of continuous columns, using
+    pandas' Cython quantile transform (string dispatch, no Python lambda),
+    instead of the previous per-COLUMN groupby(date) + lambda + np.nanpercentile
+    loop. That loop re-grouped the full panel by date once per feature
+    (~250 times) — measured 586.6s on a 20-ticker/254-col panel.
+
+    chunk_size (not "all columns in one transform"): cont_cols is nearly the
+    whole feature block (~230 cols at production scale). Computing lower_b AND
+    upper_b for ALL of them in one shot means two full-feature-block-sized
+    transform results held simultaneously, PLUS a third full-sized temporary
+    from panel[cont_cols].clip(...) before assignment — a ~3x-feature-block
+    transient on top of the already-resident panel. Measured as the dominant
+    contributor to an OOM kill on the full 1,527-ticker US panel (observed
+    ~22 GB combined RAM+swap). Chunking bounds that transient to
+    chunk_size/len(cont_cols) of the full block — e.g. 40/230 ≈ a sixth —
+    while keeping the SAME per-date Cython quantile transform per chunk (far
+    from the old per-column Python-loop regression this replaced). Verified
+    bit-identical to the unchunked computation (incl. all-NaN-date-group and
+    partial-NaN edge cases) by test_winsorize_chunking_is_bit_identical.
+    groupby.transform("quantile", q) skips NaN by default, matching
     np.nanpercentile; an all-NaN date-group naturally yields NaN bounds, and
     clip() against NaN bounds leaves values unchanged — same behavior as the
     original's explicit `if x.notna().any() else np.nan` guard.
@@ -198,10 +237,14 @@ def _winsorize_per_date(panel: pd.DataFrame, feature_cols: List[str], lo: float 
     ]
     if not cont_cols:
         return panel
-    grouped = panel.groupby(level="date")[cont_cols]
-    lower_b = grouped.transform("quantile", lo / 100.0)
-    upper_b = grouped.transform("quantile", hi / 100.0)
-    panel[cont_cols] = panel[cont_cols].clip(lower=lower_b, upper=upper_b)
+    grouped = panel.groupby(level="date")
+    for i in range(0, len(cont_cols), max(1, chunk_size)):
+        chunk = cont_cols[i:i + chunk_size]
+        g = grouped[chunk]
+        lower_b = g.transform("quantile", lo / 100.0)
+        upper_b = g.transform("quantile", hi / 100.0)
+        panel[chunk] = panel[chunk].clip(lower=lower_b, upper=upper_b)
+        del lower_b, upper_b
     return panel
 
 
@@ -814,21 +857,33 @@ class FeatureEngineer:
             # runs the cross-sectional steps once over the full universe.
             return panel
 
+        # Stage checkpoints (elapsed + resident memory) around every
+        # cross-sectional step below. Before this, an OOM anywhere in this
+        # stretch was invisible until the NEXT log line ("Features computed",
+        # after winsorize) — undiagnosable from the log alone.
+        _stage_t0 = time.time()
+        _log_stage("post-concat/sort", _stage_t0)
+
         # ── Sector relative strength (cross-sectional, not per-ticker) ────
         panel = self._add_sector_rs(panel)
+        _log_stage("sector_rs", _stage_t0)
 
         # ── Market breadth (benchmark constituent SMA50 pct above) ────────
         panel = self._add_market_breadth(panel)
+        _log_stage("market_breadth", _stage_t0)
 
         # ── Regime label ──────────────────────────────────────────────────
         panel = self._add_regime(panel)
+        _log_stage("regime", _stage_t0)
 
         # ── Cross-Sectional Z-Scores (Exp-403) ────────────────────────────
         if phase4_features_enabled():
             panel = self._add_cross_sectional_zscores(panel)
+            _log_stage("cross_sectional_zscores", _stage_t0)
 
         # ── Multi-timeframe trends ────────────────────────────────────────
         panel = self._mtf.merge(panel)
+        _log_stage("mtf_merge", _stage_t0)
 
         # ── Zone + Trend confirmation ────────────────────────────────────
         # SDZ (swap demand) = bullish → confirmed when weekly+monthly trend UP
@@ -886,10 +941,12 @@ class FeatureEngineer:
         # features and froze the multipliers at 0.5 — pinned by
         # test_mtf_trend_features_alive_and_scaffold_dropped.
         _drop_scaffold(panel)
+        _log_stage("drop_scaffold", _stage_t0)
 
         # ── Winsorize all features at [1, 99] per date ────────────────────
         feat_cols = [c for c in panel.columns if c.startswith(FEATURE_PREFIX)]
         panel = _winsorize_per_date(panel, feat_cols)
+        _log_stage("winsorize", _stage_t0)
 
         log.info(f"Features computed: {len(feat_cols)} feature columns")
         panel = _cast_categorical(panel)

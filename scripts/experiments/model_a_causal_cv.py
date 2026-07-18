@@ -68,7 +68,7 @@ B7_RETURNS = ["features_return_1d", "features_return_5d",
 # Raw columns recompute_fold_features needs: OHLCV to re-run the analyzer,
 # raw trend flags to rebuild sdz/ssz_htf_score at panel level.
 OHLCV_COLS     = ["open", "high", "low", "close", "volume"]
-RAW_TREND_COLS = ["weekly_trend", "monthly_trend", "quarterly_trend", "yearly_trend"]
+RAW_TREND_COLS = ["features_weekly_trend", "features_monthly_trend", "features_quarterly_trend", "features_yearly_trend"]
 LABEL_COLS     = ["cs_rank_composite", "future_20d_excess_return"]
 
 LGBM_PARAMS = dict(

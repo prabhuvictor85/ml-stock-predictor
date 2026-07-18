@@ -1545,10 +1545,10 @@ def _ict_signals(cross_row: pd.Series, side: str) -> List[str]:
 def _trend_arrows(cross_row: pd.Series) -> str:
     """Return a compact trend string across all timeframes."""
     mapping = [("D", "features_regime_bull"),
-               ("W", "weekly_trend"),
-               ("M", "monthly_trend"),
-               ("Q", "quarterly_trend"),
-               ("Y", "yearly_trend")]
+               ("W", f"{FEATURE_PREFIX}weekly_trend"),
+               ("M", f"{FEATURE_PREFIX}monthly_trend"),
+               ("Q", f"{FEATURE_PREFIX}quarterly_trend"),
+               ("Y", f"{FEATURE_PREFIX}yearly_trend")]
     parts = []
     for label, col in mapping:
         val = cross_row.get(col, np.nan)

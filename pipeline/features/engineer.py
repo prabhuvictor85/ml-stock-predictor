@@ -1373,10 +1373,10 @@ class FeatureEngineer:
         # Rebuild the zone×trend composite so it reflects fresh zone scores.
         sdz_r = result.get(f"{FEATURE_PREFIX}sdz_raw_score", pd.Series(0.0, index=result.index))
         ssz_r = result.get(f"{FEATURE_PREFIX}ssz_raw_score", pd.Series(0.0, index=result.index))
-        wt  = result.get("weekly_trend",    pd.Series(0.0, index=result.index)).fillna(0)
-        mt  = result.get("monthly_trend",   pd.Series(0.0, index=result.index)).fillna(0)
-        qt  = result.get("quarterly_trend", pd.Series(0.0, index=result.index)).fillna(0)
-        yt  = result.get("yearly_trend",    pd.Series(0.0, index=result.index)).fillna(0)
+        wt  = result.get(f"{FEATURE_PREFIX}weekly_trend",    pd.Series(0.0, index=result.index)).fillna(0)
+        mt  = result.get(f"{FEATURE_PREFIX}monthly_trend",   pd.Series(0.0, index=result.index)).fillna(0)
+        qt  = result.get(f"{FEATURE_PREFIX}quarterly_trend", pd.Series(0.0, index=result.index)).fillna(0)
+        yt  = result.get(f"{FEATURE_PREFIX}yearly_trend",    pd.Series(0.0, index=result.index)).fillna(0)
         up_mult = 0.5 + 0.375*wt + 0.375*mt + 0.375*qt + 0.375*yt
         dn_mult = 0.5 + 0.375*(1-wt) + 0.375*(1-mt) + 0.375*(1-qt) + 0.375*(1-yt)
         result[f"{FEATURE_PREFIX}sdz_htf_score"]      = (sdz_r * up_mult).astype(np.float32)

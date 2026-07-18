@@ -788,8 +788,10 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         ))]
         if _zone_feat_cols:
             _need = [c for c in ("open", "high", "low", "close", "volume",
-                                 "weekly_trend", "monthly_trend",
-                                 "quarterly_trend", "yearly_trend")
+                                 f"{FEATURE_PREFIX}weekly_trend",
+                                 f"{FEATURE_PREFIX}monthly_trend",
+                                 f"{FEATURE_PREFIX}quarterly_trend",
+                                 f"{FEATURE_PREFIX}yearly_trend")
                      if c not in panel.columns]
             if _need:
                 raise RuntimeError(
@@ -799,8 +801,10 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
             print(f"      [train_end] redrawing {len(_zone_feat_cols)} zone feature "
                   f"columns as-of {_te.date()} (~10-15 min for a full universe) ...")
             _slice_cols = (["open", "high", "low", "close", "volume",
-                            "weekly_trend", "monthly_trend",
-                            "quarterly_trend", "yearly_trend"]
+                            f"{FEATURE_PREFIX}weekly_trend",
+                            f"{FEATURE_PREFIX}monthly_trend",
+                            f"{FEATURE_PREFIX}quarterly_trend",
+                            f"{FEATURE_PREFIX}yearly_trend"]
                            + [c for c in _ZONE_COLS if c in panel.columns]
                            + _zone_feat_cols)
             _zslice = panel[list(dict.fromkeys(_slice_cols))].copy()
@@ -1943,10 +1947,10 @@ def _ict_signals(cross_row: pd.Series, side: str) -> List[str]:
 def _trend_arrows(cross_row: pd.Series) -> str:
     """Return a compact trend string across all timeframes."""
     mapping = [("D", "features_regime_bull"),
-               ("W", "weekly_trend"),
-               ("M", "monthly_trend"),
-               ("Q", "quarterly_trend"),
-               ("Y", "yearly_trend")]
+               ("W", f"{FEATURE_PREFIX}weekly_trend"),
+               ("M", f"{FEATURE_PREFIX}monthly_trend"),
+               ("Q", f"{FEATURE_PREFIX}quarterly_trend"),
+               ("Y", f"{FEATURE_PREFIX}yearly_trend")]
     parts = []
     for label, col in mapping:
         val = cross_row.get(col, np.nan)

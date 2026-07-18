@@ -288,7 +288,7 @@ def parse_args() -> argparse.Namespace:
                         "parallelism) and lockbox runs would otherwise pollute the "
                         "production drift history. Scores/watchlists are unaffected.")
     p.add_argument("--feature_set",
-                   choices=["all", "zone", "ict", "pivot", "no_ict"],
+                   choices=["all", "zone", "ict", "no_ict"],
                    default="all",
                    help=(
                        "Feature family the model trains on. Feature engineering "
@@ -298,7 +298,6 @@ def parse_args() -> argparse.Namespace:
                        "'all'   = every features_* column (default — production). "
                        "'zone'  = only features_sdz_*/ssz_*/dz_*/sz_*/zone_*. "
                        "'ict'   = only features_ict_*. "
-                       "'pivot' = only features_pivot_* (add when pivot FE lands). "
                        "'no_ict' = exclude all features_ict_* columns. "
                        "Use one lockbox per family to isolate each signal cleanly."
                    ))
@@ -646,7 +645,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
     # FeatureEngineer is always instantiated — needed for per-fold zone recompute
     fe = FeatureEngineer(cfg, benchmark_close,
-                         skip_ict=(feature_set in ("zone", "pivot", "no_ict")))
+                         skip_ict=(feature_set in ("zone", "no_ict")))
     _train_perf = PerfTimer()
 
     # ── Checkpoints 1+2: features + targets ──────────────────────────────
@@ -830,7 +829,6 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
                   "features_weekly_trend", "features_monthly_trend",
                   "features_quarterly_trend", "features_yearly_trend"),
         "ict":   ("features_ict_",),
-        "pivot": ("features_pivot_",),
     }
     if feature_set == "no_ict":
         _before_fs = len(feat_cols)
@@ -2761,7 +2759,7 @@ def main() -> None:
                 from pipeline.features.engineer import FeatureEngineer, FEATURE_PREFIX
                 _fs = getattr(args, "feature_set", "all")
                 fe = FeatureEngineer(cfg, benchmark_close,
-                                     skip_ict=(_fs in ("zone", "pivot", "no_ict")))
+                                     skip_ict=(_fs in ("zone", "no_ict")))
                 panel = fe.build(panel)
                 print(f"  Features ready. Panel date range: "
                       f"{panel.index.get_level_values('date').min().date()} → "

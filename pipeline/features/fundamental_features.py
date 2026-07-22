@@ -455,7 +455,7 @@ DAILY_FUND_FEATURES = PURE_FEATURES + DAILY_VALUATION
 # ─────────────────────────────────────────────────────────────────────────
 def attach_fundamental_features(
     panel: pd.DataFrame,
-    features_path: Path | str = FEATURES_PARQUET,
+    features_path: Path | str | None = None,
     sector_col: str = "sector",
     close_col: str = "close",
     min_names_per_sector: int = 15,
@@ -484,7 +484,20 @@ def attach_fundamental_features(
     if not fundamental_features_enabled():
         return panel
 
-    feats = pd.read_parquet(features_path)  # index (ticker, filed), prefixed cols
+    # Resolve the parquet location: explicit arg > env override > default. The
+    # default is a Windows path, so on other hosts (e.g. the Hetzner box) set
+    # FUNDAMENTAL_FEATURES_PATH to wherever the file was copied. Fail loud if
+    # the toggle is ON but the file is absent — a silent skip would produce a
+    # feature-less panel that looks identical to a baseline run.
+    path = Path(features_path or os.environ.get("FUNDAMENTAL_FEATURES_PATH", FEATURES_PARQUET))
+    if not path.exists():
+        raise FileNotFoundError(
+            f"FUNDAMENTAL_FEATURES is ON but {path} not found. Build it with "
+            f"`python -m pipeline.features.fundamental_features`, or point "
+            f"FUNDAMENTAL_FEATURES_PATH at the copied parquet."
+        )
+
+    feats = pd.read_parquet(path)  # index (ticker, filed), prefixed cols
     p = prefix + "fund_"
     pure = [p + c for c in PURE_FEATURES]
     num = {c: p + c for c in ("book_value", "earnings_ttm", "sales_ttm", "fcf_ttm", "adj_shares")}

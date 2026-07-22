@@ -21,7 +21,7 @@ from pathlib import Path
 # Env vars that change the panel recipe: a checkpoint built under different
 # values is a DIFFERENT panel even if the code and data are unchanged.
 _RECIPE_ENV = [
-    "PHASE4_FEATURES", "PIVOT_FEATURES",
+    "PHASE4_FEATURES", "PIVOT_FEATURES", "FUNDAMENTAL_FEATURES",
     "TARGET_HORIZONS", "TARGET_TWAP_WINDOW", "TARGET_DIAGNOSTICS",
 ]
 

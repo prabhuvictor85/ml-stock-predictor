@@ -27,6 +27,7 @@ from pipeline.features.structure_features import structure_feature_frame
 from pipeline.features.pivots import (
     PivotFeatureEngine, pivot_features_enabled, PIVOT_WINSORIZE_EXCLUDE,
 )
+from pipeline.features.fundamental_features import attach_fundamental_features
 from pipeline.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -986,6 +987,18 @@ class FeatureEngineer:
         feat_cols = [c for c in panel.columns if c.startswith(FEATURE_PREFIX)]
         panel = _winsorize_per_date(panel, feat_cols)
         _log_stage("winsorize", _stage_t0, panel)
+        gc.collect()
+        _malloc_trim()
+
+        # ── Fundamental features (gated by FUNDAMENTAL_FEATURES; default OFF) ─
+        # Attached AFTER winsorize on purpose: they arrive already within-sector
+        # percentile-ranked, so they must NOT pass through the per-date winsorize
+        # meant for raw technical features. Causal by construction (merge_asof on
+        # `filed`), hence truncation-invariant like the pivot family — no per-fold
+        # recompute needed; recompute_fold_features passes them through untouched.
+        # Off by default => bit-identical baseline.
+        panel = attach_fundamental_features(panel)
+        _log_stage("fundamental_features", _stage_t0, panel)
         gc.collect()
         _malloc_trim()
 

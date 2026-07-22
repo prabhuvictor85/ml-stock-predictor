@@ -51,9 +51,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from pipeline.config.paths import PATHS
+
 FEATURE_PREFIX = "features_"
 
-EDGAR_DIR = Path(r"C:/Victor/Learning_charts/edgar_pit")
+EDGAR_DIR = PATHS.edgar_pit
 FUNDAMENTALS_PATH = EDGAR_DIR / "fundamentals_pit.parquet"
 SHARES_PATH = EDGAR_DIR / "shares_outstanding_pit.parquet"
 # Pre-built filing-level feature frame (built offline by this module's
@@ -484,17 +486,17 @@ def attach_fundamental_features(
     if not fundamental_features_enabled():
         return panel
 
-    # Resolve the parquet location: explicit arg > env override > default. The
-    # default is a Windows path, so on other hosts (e.g. the Hetzner box) set
-    # FUNDAMENTAL_FEATURES_PATH to wherever the file was copied. Fail loud if
-    # the toggle is ON but the file is absent — a silent skip would produce a
-    # feature-less panel that looks identical to a baseline run.
+    # Resolve the parquet location: explicit arg > FUNDAMENTAL_FEATURES_PATH env
+    # > paths.yaml edgar_pit (default). The default follows data_root, so on
+    # Hetzner just set data_root / ML_EDGAR_PIT and this resolves automatically.
+    # Fail loud if the toggle is ON but the file is absent — a silent skip would
+    # produce a feature-less panel that looks identical to a baseline run.
     path = Path(features_path or os.environ.get("FUNDAMENTAL_FEATURES_PATH", FEATURES_PARQUET))
     if not path.exists():
         raise FileNotFoundError(
             f"FUNDAMENTAL_FEATURES is ON but {path} not found. Build it with "
-            f"`python -m pipeline.features.fundamental_features`, or point "
-            f"FUNDAMENTAL_FEATURES_PATH at the copied parquet."
+            f"`python -m pipeline.features.fundamental_features`, or point it via "
+            f"paths.yaml edgar_pit / ML_EDGAR_PIT / FUNDAMENTAL_FEATURES_PATH."
         )
 
     feats = pd.read_parquet(path)  # index (ticker, filed), prefixed cols

@@ -15,6 +15,7 @@
 #    ML_STOCK_DATA_NSE_LOCAL    → stock_data.nse_local
 #    ML_STOCK_DATA_NSE_TV       → stock_data.nse_tv
 #    ML_STOCK_DATA_US           → stock_data.us
+#    ML_EDGAR_PIT               → edgar_pit
 #
 #  Path templates support {data_root} and {project_root} substitution.
 # ══════════════════════════════════════════════════════════════════════════════
@@ -38,3 +39,9 @@ stock_data:
   nse_tv:    "{data_root}/stock_data/tradingview"
   us:        "{data_root}/stock_data/us_stocks"
   us_alt:    "{data_root}/us_data"   # legacy yfinance download target
+
+# ── SEC EDGAR point-in-time data ──────────────────────────────────────────────
+# Holds the bulk companyfacts archive + the derived PIT parquets
+# (shares_outstanding_pit, fundamentals_pit, fundamental_features). On Hetzner,
+# either override data_root or set ML_EDGAR_PIT to the copied directory.
+edgar_pit: "{data_root}/edgar_pit"

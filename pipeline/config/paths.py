@@ -49,6 +49,7 @@ _ENV_OVERRIDES = {
     "ML_STOCK_DATA_NSE_TV":         ("stock_data", "nse_tv"),
     "ML_STOCK_DATA_US":             ("stock_data", "us"),
     "ML_STOCK_DATA_US_ALT":         ("stock_data", "us_alt"),
+    "ML_EDGAR_PIT":                 ("edgar_pit",),
 }
 
 
@@ -74,6 +75,7 @@ class _Paths:
     data_root:      Path
     project_root:   Path
     artefacts_root: Path
+    edgar_pit:      Path
     stock_lists:    _StockLists
     stock_data:     _StockData
 
@@ -131,6 +133,7 @@ def _load() -> _Paths:
         data_root      = Path(data_root).resolve(),
         project_root   = Path(project_root).resolve(),
         artefacts_root = _resolve(ar),
+        edgar_pit      = _resolve(cfg.get("edgar_pit", "{data_root}/edgar_pit")),
         stock_lists    = _StockLists(
             nse_local     = _resolve(sl.get("nse_local",     "{data_root}/stock_lists/constituentsi.csv")),
             nse_tv        = _resolve(sl.get("nse_tv",        "{data_root}/stock_lists/constituents_nse_tradingv.csv")),

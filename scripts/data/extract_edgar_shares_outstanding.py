@@ -53,7 +53,7 @@ import pandas as pd
 
 from pipeline.config.paths import PATHS
 
-EDGAR_DIR       = Path(r"C:/Victor/Learning_charts/edgar_pit")
+EDGAR_DIR       = PATHS.edgar_pit
 COMPANYFACTS    = EDGAR_DIR / "companyfacts.zip"
 TICKER_MAP_JSON = EDGAR_DIR / "company_tickers.json"
 OUT_PATH        = EDGAR_DIR / "shares_outstanding_pit.parquet"

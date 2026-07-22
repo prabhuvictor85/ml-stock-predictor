@@ -27,6 +27,9 @@ def test_paths_have_expected_attrs():
     for attr in ["nse_local", "nse_tv", "us", "us_alt"]:
         assert hasattr(PATHS.stock_data, attr), f"Missing PATHS.stock_data.{attr}"
         assert isinstance(getattr(PATHS.stock_data, attr), Path)
+    # EDGAR PIT dir — follows data_root, no literal placeholder left
+    assert isinstance(PATHS.edgar_pit, Path)
+    assert "{data_root}" not in str(PATHS.edgar_pit)
 
 
 def test_paths_yaml_substitution():

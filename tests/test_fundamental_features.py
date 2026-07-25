@@ -263,3 +263,23 @@ def test_rising_margin_and_leverage_have_correct_signs():
     assert last["debt_to_equity_delta_yoy"] > 0, "D/E rose 0.5->1.0 YoY -> delta must be +"
     assert last["operating_margin"] == pytest.approx(0.20, abs=1e-6)   # 80/400 TTM
     assert last["debt_to_equity"] == pytest.approx(1.0, abs=1e-6)      # 200/200
+
+
+def test_attach_survives_mismatched_datetime_units(tmp_path, monkeypatch):
+    # Reproduces the Hetzner failure: the saved feature parquet's `filed` index
+    # round-trips as datetime64[us] on some pandas/pyarrow versions while the
+    # panel's `date` index is datetime64[ns]. merge_asof raises MergeError on
+    # a unit mismatch even though both sides are genuinely datetime — attach()
+    # must normalize both sides rather than assume they already agree.
+    monkeypatch.setenv("FUNDAMENTAL_FEATURES", "1")
+    panel = _toy_panel()
+    path = _toy_features(tmp_path)
+
+    feats = pd.read_parquet(path).reset_index()
+    feats["filed"] = feats["filed"].astype("datetime64[us]")  # force the mismatch
+    feats = feats.set_index(["ticker", "filed"])
+    assert feats.index.get_level_values("filed").dtype == np.dtype("datetime64[us]")
+    feats.to_parquet(path)
+
+    out = ff.attach_fundamental_features(panel, features_path=path, min_names_per_sector=1)
+    assert out["features_fund_operating_margin"].notna().any()

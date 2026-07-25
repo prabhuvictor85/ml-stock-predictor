@@ -500,12 +500,21 @@ def attach_fundamental_features(
         )
 
     feats = pd.read_parquet(path)  # index (ticker, filed), prefixed cols
+    # merge_asof requires identical datetime64 UNITS on both join keys, not just
+    # both being datetime. pandas/pyarrow versions differ on what unit a stored
+    # timestamp round-trips as (observed: datetime64[us] here vs [ns] on the
+    # panel side, on a newer pandas) — normalize explicitly via a full index
+    # rebuild (safer than set_levels, which trusts the existing integer codes
+    # to still line up with a reordered/deduped level array).
+    feats = feats.reset_index()
+    feats["filed"] = feats["filed"].astype("datetime64[ns]")
+    feats = feats.set_index(["ticker", "filed"])
     p = prefix + "fund_"
     pure = [p + c for c in PURE_FEATURES]
     num = {c: p + c for c in ("book_value", "earnings_ttm", "sales_ttm", "fcf_ttm", "adj_shares")}
     carry = pure + list(num.values())
 
-    date_idx = panel.index.get_level_values("date")
+    date_idx = panel.index.get_level_values("date").astype("datetime64[ns]")
     tkr_idx = panel.index.get_level_values("ticker")
 
     # ── 1. causal backward merge, per ticker ────────────────────────────────

@@ -431,6 +431,12 @@ def _run_once(cmd: List[str], step_log: Path) -> int:
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            # Pin UTF-8: text=True otherwise decodes with the OS locale codec
+            # (cp1252 on Windows), which chokes on the child's UTF-8 output
+            # (box-drawing / arrow chars) with a UnicodeDecodeError. errors=
+            # "replace" keeps a stray byte from ever killing the whole run.
+            encoding="utf-8",
+            errors="replace",
             bufsize=1,
         )
         assert proc.stdout is not None

@@ -75,8 +75,48 @@ for _k, _v in {
     "LOKY_MAX_CPU_COUNT": "2",
     "OMP_NUM_THREADS": "4",
     "OPENBLAS_NUM_THREADS": "4",
+    # glibc keeps freed pages in per-arena free lists rather than returning them
+    # to the OS; capping arenas keeps RSS from drifting up across the many
+    # sequential child processes a walk-forward spawns.
+    "MALLOC_ARENA_MAX": "2",
 }.items():
     os.environ.setdefault(_k, _v)
+
+
+def _total_ram_gb() -> Optional[float]:
+    """Total system RAM in GB (Linux /proc), or None where unavailable."""
+    try:
+        with open("/proc/meminfo") as fh:
+            for line in fh:
+                if line.startswith("MemTotal:"):
+                    return int(line.split()[1]) / 1024 / 1024
+    except (OSError, ValueError, IndexError):
+        pass
+    return None
+
+
+def default_feature_workers() -> int:
+    """Worker processes for the per-ticker feature build, sized to the machine.
+
+    THIS IS THE SINGLE BIGGEST LEVER ON WALK-FORWARD WALL-CLOCK. Measured on a
+    ~1,527-ticker US panel: every INFERENCE step spends ~96% of its time in
+    feature engineering (~24 min serial), and a 3-year biweekly walk is ~66 of
+    them — roughly 26 of 36 hours. Retrain steps are unaffected (they load the
+    panel checkpoint and report 0m00s for feature engineering).
+
+    Sizing is RAM-bound, not core-bound: each worker carries its own interpreter
+    plus a batch of feature frames, on top of the parent holding the accumulating
+    panel. ~4 GB per worker is the safe envelope at this panel width, so an 8 GB
+    box gets 2 and a 32 GB box gets 8 (capped by physical cores). Over-committing
+    here is how the earlier runs got OOM-killed, so the default stays
+    conservative — raise it explicitly with --feature_workers if you know the
+    box has headroom.
+    """
+    cpus = os.cpu_count() or 1
+    ram = _total_ram_gb()
+    if ram is None:                      # unknown box: stay serial, never guess up
+        return 1
+    return max(1, min(cpus, int(ram // 4)))
 
 # ── Project layout ──────────────────────────────────────────────────────────
 PROJECT_DIR   = Path(__file__).resolve().parent
@@ -89,6 +129,10 @@ MONITORING_DIR = PROJECT_DIR / "monitoring"
 # identical across the seed, every walk-forward retrain, and every scoring step —
 # otherwise the walk would silently revert to a survivorship-biased universe.
 _RUNNER_PASSTHROUGH: list = []
+
+# Resolved in main() from --feature_workers / default_feature_workers(), then
+# exported as $FEATURE_BUILD_WORKERS for every child step.
+_feature_workers: int = 1
 
 # ── Local-data fast-path: resolve benchmark CSV path once at import ──────────
 # The downloader writes the benchmark (^GSPC-1d.csv) LAST, after all tickers.
@@ -209,8 +253,15 @@ def parse_args() -> argparse.Namespace:
                    help="ntfy.sh topic for phone alerts (or set $NTFY_TOPIC).")
     p.add_argument("--dry_run", action="store_true",
                    help="Print the schedule and the exact commands, then exit.")
+    p.add_argument("--feature_workers", type=int, default=None,
+                   help="Worker processes for the per-ticker feature build in every "
+                        "child step (sets $FEATURE_BUILD_WORKERS). Default: auto — "
+                        "min(cores, RAM_GB//4), i.e. 2 on an 8GB box, 8 on 32GB. "
+                        "Inference steps are ~96%% feature engineering, so this is the "
+                        "dominant wall-clock lever; 1 = serial (old behaviour). "
+                        "Over-committing risks the OOM kills that motivated the cap.")
     p.add_argument("--feature_set",
-                   choices=["all", "zone", "ict", "pivot"],
+                   choices=["all", "zone", "ict", "pivot", "no_ict", "ob_fvg"],
                    default="all",
                    help="Feature family forwarded to every run_sp500_local.py retrain "
                         "AND inference step. Must match the --feature_set used when "
@@ -600,6 +651,18 @@ def save_state(path: Path, state: dict) -> None:
 # ── Main ────────────────────────────────────────────────────────────────────
 def main() -> None:
     args = parse_args()
+
+    # Feature-build parallelism for every child step. Set on os.environ BEFORE
+    # any child is spawned, so retrain and inference steps inherit the same
+    # value — an inference step that silently ran serial would cost ~24 min
+    # instead of ~4 and quietly dominate the walk.
+    global _feature_workers
+    _feature_workers = (
+        args.feature_workers if args.feature_workers is not None
+        else default_feature_workers()
+    )
+    os.environ["FEATURE_BUILD_WORKERS"] = str(_feature_workers)
+
     # Forward universe selection to every child run_sp500_local.py (retrain + inference)
     # so the walk-forward stays consistent with the fenced seed.
     if args.feature_set != "all":
@@ -666,6 +729,12 @@ def main() -> None:
     print(f"  total steps   : {len(schedule)} ({n_retrains} retrain{'s' if n_retrains != 1 else ''}, "
           f"{len(schedule) - n_retrains} inference)")
     print(f"  mode          : {args.mode}")
+    _fw_src = "explicit" if args.feature_workers is not None else "auto"
+    _ram = _total_ram_gb()
+    print(f"  feature build : {_feature_workers} worker(s) [{_fw_src}] — "
+          f"{os.cpu_count() or '?'} cores, "
+          f"{f'{_ram:.0f} GB RAM' if _ram else 'RAM unknown'}"
+          f"{'  (serial — inference steps stay ~24 min each)' if _feature_workers == 1 else ''}")
     print(f"  drift retrain : {'DISABLED' if args.no_drift_retrain else f'frac > {args.retrain_fraction:.0%}'}")
     print(f"  heartbeat     : every {args.heartbeat_mins} min")
     print(f"  OOM handling  : {'DISABLED' if args.oom_retries == 0 else f'ensure {args.swap_gb} GB swap @ {args.swapfile}, rerun x{args.oom_retries}'}")

@@ -51,6 +51,7 @@ warnings.filterwarnings("ignore")
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 from pipeline.config.paths import PATHS
+from pipeline.features.engineer import FEATURE_PREFIX
 STOCK_LIST_CSV    = PATHS.stock_lists.nse_tv
 NSE_CAP_TIERS_CSV = PATHS.stock_lists.nse_cap_tiers
 STOCK_DATA_DIR    = PATHS.stock_data.nse_tv

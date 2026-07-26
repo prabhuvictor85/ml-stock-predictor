@@ -54,6 +54,7 @@ warnings.filterwarnings("ignore")
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 from pipeline.config.paths import PATHS
+from pipeline.features.engineer import FEATURE_PREFIX, ICT_OB_FVG_PREFIXES
 STOCK_LIST_CSV  = PATHS.stock_lists.us_combined
 STOCK_DATA_DIR  = PATHS.stock_data.us
 ARTEFACTS_DIR   = PATHS.artefacts_root / "us_local"
@@ -288,17 +289,26 @@ def parse_args() -> argparse.Namespace:
                         "parallelism) and lockbox runs would otherwise pollute the "
                         "production drift history. Scores/watchlists are unaffected.")
     p.add_argument("--feature_set",
-                   choices=["all", "zone", "ict", "pivot"],
+                   choices=["all", "zone", "ict", "pivot", "no_ict", "ob_fvg"],
                    default="all",
                    help=(
                        "Feature family the model trains on. Feature engineering "
                        "always runs in full (all families computed and stored in the "
                        "panel); this flag restricts what HPO, FeatureSelector, and "
                        "the final fit actually see. "
-                       "'all'   = every features_* column (default — production). "
-                       "'zone'  = only features_sdz_*/ssz_*/dz_*/sz_*/zone_*. "
-                       "'ict'   = only features_ict_*. "
-                       "'pivot' = only features_pivot_* (add when pivot FE lands). "
+                       "'all'    = every features_* column (default — production). "
+                       "'zone'   = only features_sdz_*/ssz_*/dz_*/sz_*/zone_*. "
+                       "'ict'    = only features_ict_* (every ICT construct). "
+                       "'pivot'  = only features_pivot_* (add when pivot FE lands). "
+                       "'no_ict' = every feature EXCEPT features_ict_* (skip_ict=True, "
+                       "ICT not computed at all — this also blanks ict_bear_htf_score, "
+                       "so pipeline.gating's bearish-ICT veto goes inert). "
+                       "'ob_fvg' = ICT still computed in full (gating still sees "
+                       "ict_bear_htf_score), but model TRAINING only sees Order Block "
+                       "+ Fair Value Gap columns (features_ict_bob_*/sob_*/bullfvg_*/"
+                       "bearfvg_*/ob_fvg_confluence) — excludes rejection/breaker "
+                       "blocks, BSL/SSL liquidity, structure, HTF composites, "
+                       "premium/discount, and reference levels. "
                        "Use one lockbox per family to isolate each signal cleanly."
                    ))
     p.add_argument("--stop_after_targets", action="store_true",
@@ -641,7 +651,7 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
 
     # FeatureEngineer is always instantiated — needed for per-fold zone recompute
     fe = FeatureEngineer(cfg, benchmark_close,
-                         skip_ict=(feature_set in ("zone", "pivot")))
+                         skip_ict=(feature_set in ("zone", "pivot", "no_ict")))
     _train_perf = PerfTimer()
 
     # ── Checkpoints 1+2: features + targets ──────────────────────────────
@@ -806,7 +816,20 @@ def train(panel: pd.DataFrame, benchmark_close: pd.Series,
         "ict":   ("features_ict_",),
         "pivot": ("features_pivot_",),
     }
-    if feature_set != "all":
+    if feature_set == "no_ict":
+        _before_fs = len(feat_cols)
+        feat_cols = [f for f in feat_cols if not f.startswith("features_ict_")]
+        print(f"      [feature_set=no_ict] kept {len(feat_cols)}/{_before_fs} features "
+              f"→ explicitly dropped ICT")
+    elif feature_set == "ob_fvg":
+        _before_fs = len(feat_cols)
+        feat_cols = [f for f in feat_cols
+                     if not f.startswith("features_ict_")
+                     or f.startswith(ICT_OB_FVG_PREFIXES)]
+        print(f"      [feature_set=ob_fvg] kept {len(feat_cols)}/{_before_fs} features "
+              f"→ ICT restricted to Order Blocks + Fair Value Gaps only "
+              f"(ict_bear_htf_score stays computed for gating, excluded from training)")
+    elif feature_set != "all":
         _prefixes = _FEATURE_SET_PREFIXES[feature_set]
         _before_fs = len(feat_cols)
         feat_cols = [f for f in feat_cols if f.startswith(_prefixes)]
@@ -2730,7 +2753,7 @@ def main() -> None:
                 from pipeline.features.engineer import FeatureEngineer, FEATURE_PREFIX
                 _fs = getattr(args, "feature_set", "all")
                 fe = FeatureEngineer(cfg, benchmark_close,
-                                     skip_ict=(_fs in ("zone", "pivot")))
+                                     skip_ict=(_fs in ("zone", "pivot", "no_ict")))
                 panel = fe.build(panel)
                 print(f"  Features ready. Panel date range: "
                       f"{panel.index.get_level_values('date').min().date()} → "

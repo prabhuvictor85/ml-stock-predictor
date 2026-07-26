@@ -34,15 +34,51 @@ log = get_logger(__name__)
 
 FEATURE_PREFIX = "features_"
 
+# ── ICT "OB + FVG only" scope ──────────────────────────────────────────────
+# Canonical definition of "Order Blocks + Fair Value Gaps" for run_*_local.py's
+# --feature_set ob_fvg. Deliberately excludes other ICT constructs that are
+# NOT order blocks or FVGs: rejection blocks ("rb", legacy-named "BB" in
+# ict_features.py — not to be confused with true Breaker Blocks, "bk"),
+# true Breaker Blocks ("bk"), BSL/SSL liquidity sweeps, BOS/CHoCH structure,
+# zone-priority / HTF composite scores, premium/discount, and PDH/PDL/PWH/PWL
+# reference levels. Single source of truth — do not re-derive this list in
+# each run script.
+#   NOTE: prefix (not exact) matching is required — ict_bull_ob_fvg_confluence
+#   and ict_bear_ob_fvg_confluence get multi-timeframe carry-forward copies
+#   (features_ict_bull_ob_fvg_confluence_1wk / _1mo, see _ICT_CARRY_COLS below);
+#   an exact-match list would silently miss those suffixed columns.
+ICT_OB_FVG_PREFIXES = (
+    f"{FEATURE_PREFIX}ict_bob_",       # Bull Order Block
+    f"{FEATURE_PREFIX}ict_sob_",       # Bear/Short Order Block
+    f"{FEATURE_PREFIX}ict_bullfvg_",   # Bull Fair Value Gap
+    f"{FEATURE_PREFIX}ict_bearfvg_",   # Bear Fair Value Gap
+    f"{FEATURE_PREFIX}ict_bull_ob_fvg_confluence",  # OB+FVG overlap (bull)
+    f"{FEATURE_PREFIX}ict_bear_ob_fvg_confluence",  # OB+FVG overlap (bear)
+)
+# ict_bull_htf_score / ict_bear_htf_score are intentionally NOT included here:
+# they are HTF composites built across OB+BB+FVG, not OB/FVG themselves.
+# pipeline/gating.py's bull-quality veto depends on ict_bear_htf_score, so
+# skip_ict must still be False under ob_fvg scope (the engine keeps computing
+# the HTF scores for gating) — they are just excluded from model training.
+
 # ── Multi-timeframe ICT constants ─────────────────────────────────────────────
 # Period-end aliases come from zone_features.py, which picks the spelling the
 # installed pandas accepts (M/Q/Y on <2.2, ME/QE/YE on >=2.2). Hardcoded "ME"
 # silently zeroed the 1mo/3mo/1y ICT contributions on pandas <2.2 — the
 # per-TF try/except logged it at DEBUG and moved on.
-_ICT_HTF_RESAMPLE = {"1wk": "W-FRI", "1mo": _MONTH_END, "3mo": _QUARTER_END, "1y": _YEAR_END}
+# HTF set trimmed to 1wk + 1mo (2026-07-19). 3mo and 1y were dropped: against a
+# 20-day prediction horizon a quarterly zone changes ~4x/year and a yearly zone
+# ~1x, so across a daily cross-section they are near-constant — almost no
+# ranking variance, which is the only thing a cross-sectional model can use.
+# 1y was worse than useless: ~3,500 daily bars resample to ~14 yearly bars, and
+# ICT's own warmup consumes most of those. 1wk (~4 bars/horizon) and 1mo
+# (~1 bar/horizon) are the timeframes that actually match the label.
+# Cost removed: 2 of 4 HTF replications = ~48 columns, ~0.9GB at panel scale.
+_ICT_HTF_RESAMPLE = {"1wk": "W-FRI", "1mo": _MONTH_END}
 
 # Zone expiry in bars per timeframe — stale zones deactivate after this many bars.
-# daily=63 (~3mo), weekly=26 (~6mo), monthly=12 (1yr), quarterly=8 (2yr), yearly=3 (3yr)
+# daily=63 (~3mo), weekly=26 (~6mo), monthly=12 (1yr). 3mo/1y entries retained
+# so the dicts stay valid if those timeframes are ever restored.
 _ICT_ZONE_EXPIRY = {"1d": 63, "1wk": 26, "1mo": 12, "3mo": 8, "1y": 3}
 # Displacement-gate ATR multiple per timeframe: an OB/FVG only registers when
 # the move that created it spans >= this many ATRs (institutional displacement,
@@ -54,9 +90,22 @@ _ICT_ZONE_EXPIRY = {"1d": 63, "1wk": 26, "1mo": 12, "3mo": 8, "1y": 3}
 # 1.0 thins creation rate without breaking structural fidelity; Breaker Blocks
 # are unaffected (already gated by swing + sweep + engulfing structure).
 _ICT_DISP_MULT   = {"1d": 1.0, "1wk": 1.0, "1mo": 1.0, "3mo": 1.0, "1y": 1.0}
-_ICT_IMPL_MODE   = "legacy"  # switch to "institutional" for stricter OB/FVG defaults
+# "strict" (2026-07-19, was "legacy"): enables the BOS + premium/discount +
+# FVG-sweep gates, matching ICT_Strict_Engine_v2_fixed.pine, whose own defaults
+# are strictMode/strictRequireBOSForOBFVG/strictRequirePDForOBFVG/
+# strictRequireSweepForFVG all true. "legacy" left those three OFF, so an
+# "order block" was a two-candle engulfing pattern with no structural context.
+# MUST be paired with bos_lookback=40 (see ict_features.py): at the old default
+# of 3 the strict gates annihilate every OB — measured 0 in 240 AAPL bars.
+_ICT_IMPL_MODE   = "strict"
 _ICT_HTF_W        = {"1d": 1, "1wk": 2, "1mo": 3, "3mo": 4, "1y": 5}
-_ICT_SIGNAL_MAX   = float(sum(_ICT_HTF_W.values()))   # 15.0
+# Normalizer must cover exactly the timeframes actually computed (daily + the
+# active HTF set), not every key in the weight table. Summing all five while
+# only 1d/1wk/1mo contribute would cap htf_score at 6/15 = 0.4 and quietly
+# break the documented [0,1] range.
+_ICT_SIGNAL_MAX   = float(
+    _ICT_HTF_W["1d"] + sum(_ICT_HTF_W[_tf] for _tf in _ICT_HTF_RESAMPLE)
+)   # 1d + 1wk + 1mo = 6.0
 _ICT_PRIORITY_MAX = 4.0   # max ZonePriority value (BK = 4)
 
 # ── Phase-4 feature families (Exp-401..404) ────────────────────────────────
